@@ -1,6 +1,6 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 2.4)
 
-PROJECT(ZFPParallel)
+PROJECT(ZFPCUDATest)
 FIND_PACKAGE(CUDA)
 if (CUDA_SDK_ROOT_DIR MATCHES "CUDA_SDK_ROOT_DIR-NOTFOUND")
         IF(WIN32)
@@ -47,14 +47,13 @@ else(WIN32)
         "${CUDA_SDK_ROOT_DIR}/C/lib/"
     )
 endif(WIN32)
-add_definitions( -DCUDA_4_0_HIGHER=1)
-
-
-set(CUDA_NVCC_FLAGS "-arch;sm_20;--ptxas-options=-v;-use_fast_math")
+#set(CUDA_NVCC_FLAGS "-arch;sm_20;--ptxas-options=-v;-use_fast_math")
+set(CUDA_NVCC_FLAGS "-arch;sm_21;--ptxas-options=-v;-Xptxas;-O3")
 #for 650 ti boost
 #set(CUDA_NVCC_FLAGS "-arch;sm_30")
 #for k20
 #set(CUDA_NVCC_FLAGS " -gencode arch=compute_35,code=sm_35;--ptxas-options=-v;-use_fast_math")
+
 
 INCLUDE_DIRECTORIES(
 	"/usr/local/include"
@@ -64,38 +63,23 @@ INCLUDE_DIRECTORIES(
 LINK_DIRECTORIES(
 	"/usr/lib"
 	"/usr/local/lib"
-    "${PROJECT_SOURCE_DIR}/lib"
+        ${CUTIL_LIB_DIRECTORY}
+
 )
 #set(CMAKE_C_FLAGS ${CMAKE_C_FLAGS} "-pg -march=native -msse2")
 
 #set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} "-pg -march=native -msse2")
 
-FIND_PACKAGE( OpenMP REQUIRED)
-if(OPENMP_FOUND)
-message("OPENMP FOUND")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
-endif()
-set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_CXX_FLAGS}")
-
-
 #ADD_DEFINITIONS("-std=c++0x -march=native -msse2")
-ADD_DEFINITIONS("-std=c99")
+#ADD_DEFINITIONS("-std=c99")
 #SET(CMAKE_BUILD_TYPE Release)
 SET(CMAKE_BUILD_TYPE Debug)
 
-include_directories(${CMAKE_CURRENT_BINARY_DIR}
-        "${PROJECT_SOURCE_DIR}/inc"
-)
 
-CUDA_ADD_EXECUTABLE(zfp_encode
-    src/encode.c
-    src/bitstream.c
-    src/main.c
-    inc/bitstream.h
-    inc/codec.h
-    inc/types.h
+CUDA_ADD_EXECUTABLE(zfp_cuda_test
+main.cu
 )
-target_link_libraries(zfp_encode
+TARGET_LINK_LIBRARIES(
+
+cudart
 )
