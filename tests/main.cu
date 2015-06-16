@@ -36,6 +36,18 @@ struct RandGen
     }
 };
 
+template<class T>
+__host__ __device__
+void setFREXP
+    (
+        uint idx,
+        const T *in,
+        T *out,
+        int *nptr
+        )
+{
+    out[idx] = FREXP(in[idx], &nptr[ idx] );
+}
 
 //*****************************************************************
 //testFREXP
@@ -56,8 +68,20 @@ void cudaTestFREXP
 {
     uint idx = blockDim.x * blockIdx.x + threadIdx.x;
     if (idx < max_threads)
-        out[idx] = FREXP(in[idx], &nptr[ idx] );
+        setFREXP(idx, in, out, nptr);
 
+}
+
+template<class T>
+__device__ __host__
+void setLDEXP
+(
+    uint idx,
+        const T *in,
+        T *out
+        )
+{
+    out[idx] = LDEXP(in[idx], 10);
 }
 
 //*****************************************************************
@@ -78,7 +102,7 @@ void cudaTestLDEXP(
     uint idx = blockDim.x * blockIdx.x + threadIdx.x;
 
     if (idx < max_threads)
-        out[idx] = LDEXP(in[idx], 10);
+        setLDEXP(idx, in, out);
 }
 
 template<class T>
@@ -116,7 +140,7 @@ void testFREXP(
     cudaEventSynchronize(stop);
     cudaEventElapsedTime( &millisecs, start, stop );
 
-    cout << "FREXP sum: " << sum << " in time: " << time << endl;
+    cout << "FREXP GPU sum: " << sum << " in time: " << time << endl;
 
     cudaEventDestroy( start );
     cudaEventDestroy( stop );
@@ -154,14 +178,14 @@ void testLDEXP(
     cudaEventRecord( stop, 0 );
     cudaEventSynchronize(stop);
     cudaEventElapsedTime( &millisecs, start, stop );
-    cout << "LDEXP sum: " << sum << " in time: " << millisecs << endl;
+    cout << "LDEXP GPU sum: " << sum << " in time: " << millisecs << endl;
 
 }
 
 int main()
 {
     device_vector<double> d_vec_in(nx*ny*nz), d_vec_out(nx*ny*nz);
-    host_vector<double> h_vec(nx*ny*nz);
+    host_vector<double> h_vec_in(nx*ny*nz);
 
     thrust::counting_iterator<uint> index_sequence_begin(0);
     thrust::transform(
@@ -173,4 +197,24 @@ int main()
     testFREXP<double>(d_vec_in, d_vec_out);
     testLDEXP<double>(d_vec_in, d_vec_out);
 
+    host_vector<double> h_vec_out(nx*ny*nz);
+    host_vector<int> h_vec_nptr(nx*ny*nz);
+
+    h_vec_in = d_vec_in;
+    for (int i=0; i<nx*ny*nz; i++){
+        setFREXP(i, raw_pointer_cast( h_vec_in.data() ),
+                raw_pointer_cast(h_vec_out.data()),
+                raw_pointer_cast(h_vec_nptr.data()));
+    }
+    cout << "FREXP CPU sum: " << reduce(h_vec_out.begin(),h_vec_out.end()) << endl;
+
+    for (int i=0; i<nx*ny*nz; i++){
+        setLDEXP
+                (
+                    i,
+                    raw_pointer_cast(h_vec_in.data()),
+                    raw_pointer_cast(h_vec_out.data())
+                 );
+    }
+    cout << "LDEXP CPU sum: " << reduce(h_vec_out.begin(), h_vec_out.end()) << endl;
 }
