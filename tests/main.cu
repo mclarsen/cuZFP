@@ -8,19 +8,18 @@
 #include <thrust/execution_policy.h>
 #include <cuda_runtime.h>
 
+#define KEPLER 0
+#include "ErrorCheck.h"
+
 using namespace thrust;
 using namespace std;
 
 #define FREXP(x, e) frexp(x, e)
 #define LDEXP(x, e) ldexp(x, e)
 
-const int nx = 32;
-const int ny = 32;
-const int nz = 32;
-uint mx = 0;
-uint my = 0;
-uint mz = 0;
-size_t blksize = 0;
+const int nx = 256;
+const int ny = 256;
+const int nz = 256;
 
 
 //Used to generate rand array in CUDA with Thrust
@@ -77,37 +76,45 @@ void cudaTestLDEXP(
         )
 {
     uint idx = blockDim.x * blockIdx.x + threadIdx.x;
+
     if (idx < max_threads)
         out[idx] = LDEXP(in[idx], 10);
 }
 
 template<class T>
-void testFEXP(
+void testFREXP(
         device_vector<T> &in,
         device_vector<T> &out)
 {
+    ErrorCheck ec;
     device_vector<int> d_vec_nptr(nx*ny*nz);
     cudaEvent_t start, stop;
-    float time;
+    float millisecs;
 
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
 
     cudaEventRecord( start, 0 );
-    cudaTestFREXP<T><<<nx*ny, nz>>>(
+    //stupid laptop with max dim of grid size of 2^15
+    const int block_size = 512;
+    const int grid_size = nx*ny*nz / block_size;
+
+    cudaTestFREXP<T><<<grid_size, block_size>>>(
         nx*ny*nz,
         raw_pointer_cast(in.data()),
         raw_pointer_cast(out.data()),
         raw_pointer_cast(d_vec_nptr.data())
-    );
+    ); ec.chk("testFREXP");
+
     T sum = reduce(
             out.begin(),
             out.end()
         );
+    cudaStreamSynchronize(0);
 
     cudaEventRecord( stop, 0 );
     cudaEventSynchronize(stop);
-    cudaEventElapsedTime( &time, start, stop );
+    cudaEventElapsedTime( &millisecs, start, stop );
 
     cout << "FREXP sum: " << sum << " in time: " << time << endl;
 
@@ -121,26 +128,33 @@ void testLDEXP(
         device_vector<T> &in,
         device_vector<T> &out)
 {
+    ErrorCheck ec;
     cudaEvent_t start, stop;
-    float time;
+    float millisecs;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
 
     cudaEventRecord( start, 0 );
 
-    cudaTestLDEXP<T><<<nx*ny, nz>>>(
+    //stupid laptop with max dim of grid size of 2^15
+    const int block_size = 512;
+    const int grid_size = nx*ny*nz / block_size;
+    ec.chk("pre-testLDEXP");
+    cudaTestLDEXP<T><<<grid_size, block_size>>>(
         nx*ny*nz,
         raw_pointer_cast(in.data()),
         raw_pointer_cast(out.data())
-    );
+    ); ec.chk("testLDEXP");
     T sum = reduce(
                 out.begin(),
                 out.end()
     );
+    cudaStreamSynchronize(0);
+
     cudaEventRecord( stop, 0 );
     cudaEventSynchronize(stop);
-    cudaEventElapsedTime( &time, start, stop );
-    cout << "LDEXP sum: " << sum << " in time: " << time << endl;
+    cudaEventElapsedTime( &millisecs, start, stop );
+    cout << "LDEXP sum: " << sum << " in time: " << millisecs << endl;
 
 }
 
@@ -156,7 +170,7 @@ int main()
                     d_vec_in.begin(),
                     RandGen());
 
-    testFEXP<double>(d_vec_in, d_vec_out);
+    testFREXP<double>(d_vec_in, d_vec_out);
     testLDEXP<double>(d_vec_in, d_vec_out);
 
 }

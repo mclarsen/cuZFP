@@ -77,6 +77,7 @@ SET(CMAKE_BUILD_TYPE Debug)
 
 
 CUDA_ADD_EXECUTABLE(zfp_cuda_test
+ErrorCheck.cpp
 main.cu
 )
 TARGET_LINK_LIBRARIES(
