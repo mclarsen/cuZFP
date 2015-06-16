@@ -47,7 +47,7 @@ struct RandGen
 //*****************************************************************
 template<class T>
 __global__
-void testFREXP
+void cudaTestFREXP
 (
         int max_threads,
         const T *in,
@@ -70,7 +70,7 @@ void testFREXP
 //*****************************************************************
 template<class T>
 __global__
-void testLDEXP(
+void cudaTestLDEXP(
         int max_threads,
         const T *in,
         T *out
@@ -81,6 +81,68 @@ void testLDEXP(
         out[idx] = LDEXP(in[idx], 10);
 }
 
+template<class T>
+void testFEXP(
+        device_vector<T> &in,
+        device_vector<T> &out)
+{
+    device_vector<int> d_vec_nptr(nx*ny*nz);
+    cudaEvent_t start, stop;
+    float time;
+
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    cudaEventRecord( start, 0 );
+    cudaTestFREXP<T><<<nx*ny, nz>>>(
+        nx*ny*nz,
+        raw_pointer_cast(in.data()),
+        raw_pointer_cast(out.data()),
+        raw_pointer_cast(d_vec_nptr.data())
+    );
+    T sum = reduce(
+            out.begin(),
+            out.end()
+        );
+
+    cudaEventRecord( stop, 0 );
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime( &time, start, stop );
+
+    cout << "FREXP sum: " << sum << " in time: " << time << endl;
+
+    cudaEventDestroy( start );
+    cudaEventDestroy( stop );
+
+}
+
+template<class T>
+void testLDEXP(
+        device_vector<T> &in,
+        device_vector<T> &out)
+{
+    cudaEvent_t start, stop;
+    float time;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    cudaEventRecord( start, 0 );
+
+    cudaTestLDEXP<T><<<nx*ny, nz>>>(
+        nx*ny*nz,
+        raw_pointer_cast(in.data()),
+        raw_pointer_cast(out.data())
+    );
+    T sum = reduce(
+                out.begin(),
+                out.end()
+    );
+    cudaEventRecord( stop, 0 );
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime( &time, start, stop );
+    cout << "LDEXP sum: " << sum << " in time: " << time << endl;
+
+}
 
 int main()
 {
@@ -94,33 +156,7 @@ int main()
                     d_vec_in.begin(),
                     RandGen());
 
-    double *raw_in = raw_pointer_cast(d_vec_in.data());
-    double *raw_out = raw_pointer_cast(d_vec_out.data());
-
-    testLDEXP<double><<<nx*ny, nz>>>(
-        nx*ny*nz,
-        raw_in,
-        raw_out
-    );
-    double sum = reduce(
-        d_vec_out.begin(),
-        d_vec_out.end()
-    );
-    cout << "LDEXP sum: " << sum << endl;
-
-    device_vector<int> d_vec_nptr(nx*ny*nz);
-    testFREXP<double><<<nx*ny, nz>>>(
-        nx*ny*nz,
-        raw_in,
-        raw_out,
-        raw_pointer_cast(d_vec_nptr.data())
-    );
-    sum = reduce(
-            d_vec_out.begin(),
-            d_vec_out.end()
-        );
-    cout << "FREXP sum: " << sum << endl;
-    h_vec = d_vec_out;
-
+    testFEXP<double>(d_vec_in, d_vec_out);
+    testLDEXP<double>(d_vec_in, d_vec_out);
 
 }
