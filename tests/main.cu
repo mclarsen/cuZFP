@@ -22,6 +22,8 @@ uint my = 0;
 uint mz = 0;
 size_t blksize = 0;
 
+
+//Used to generate rand array in CUDA with Thrust
 struct RandGen
 {
     RandGen() {}
@@ -35,21 +37,37 @@ struct RandGen
     }
 };
 
+
+//*****************************************************************
+//testFREXP
+//Input:
+//max_threads, number of items in in and out arrays
+//array of in, of type T
+//Output: out array
+//*****************************************************************
 template<class T>
 __global__
 void testFREXP
 (
         int max_threads,
         const T *in,
-        T *out
+        T *out,
+        int *nptr
         )
 {
     uint idx = blockDim.x * blockIdx.x + threadIdx.x;
     if (idx < max_threads)
-        out[idx] = LDEXP(in[idx], 10);
+        out[idx] = FREXP(in[idx], &nptr[ idx] );
 
 }
 
+//*****************************************************************
+//testLDEXP
+//Input:
+//max_threads, number of items in in and out arrays
+//array of in, of type T
+//Output: out array
+//*****************************************************************
 template<class T>
 __global__
 void testLDEXP(
@@ -85,10 +103,24 @@ int main()
         raw_out
     );
     double sum = reduce(
-        d_vec_in.begin(),
-        d_vec_in.end()
+        d_vec_out.begin(),
+        d_vec_out.end()
     );
-
     cout << "LDEXP sum: " << sum << endl;
+
+    device_vector<int> d_vec_nptr(nx*ny*nz);
+    testFREXP<double><<<nx*ny, nz>>>(
+        nx*ny*nz,
+        raw_in,
+        raw_out,
+        raw_pointer_cast(d_vec_nptr.data())
+    );
+    sum = reduce(
+            d_vec_out.begin(),
+            d_vec_out.end()
+        );
+    cout << "FREXP sum: " << sum << endl;
     h_vec = d_vec_out;
+
+
 }
