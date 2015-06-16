@@ -1,0 +1,10 @@
+build*/
+eclipse*/
+qtcreator-build/
+src_path.h
+dataset_path.h
+lib/
+qt_*/
+CMakeLists.txt.user
+.svn
+*~
