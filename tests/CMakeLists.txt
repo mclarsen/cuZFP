@@ -76,11 +76,21 @@ LINK_DIRECTORIES(
 SET(CMAKE_BUILD_TYPE Debug)
 
 
-CUDA_ADD_EXECUTABLE(zfp_cuda_test
+CUDA_ADD_EXECUTABLE(zfp_test_exp
 ErrorCheck.cpp
-main.cu
+test_exp.cu
 )
-TARGET_LINK_LIBRARIES(
+TARGET_LINK_LIBRARIES(zfp_test_exp
+
+cudart
+)
+
+CUDA_ADD_EXECUTABLE(zfp_test_fixed
+ErrorCheck.cpp
+fixed_point.cuh
+test_fixed_point.cu
+)
+TARGET_LINK_LIBRARIES(zfp_test_fixed
 
 cudart
 )

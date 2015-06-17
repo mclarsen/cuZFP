@@ -10,12 +10,11 @@
 
 #define KEPLER 0
 #include "ErrorCheck.h"
+#include "fixed_point.cuh"
 
 using namespace thrust;
 using namespace std;
 
-#define FREXP(x, e) frexp(x, e)
-#define LDEXP(x, e) ldexp(x, e)
 
 const int nx = 256;
 const int ny = 256;
@@ -36,18 +35,7 @@ struct RandGen
     }
 };
 
-template<class T>
-__host__ __device__
-void setFREXP
-    (
-        uint idx,
-        const T *in,
-        T *out,
-        int *nptr
-        )
-{
-    out[idx] = FREXP(in[idx], &nptr[ idx] );
-}
+
 
 //*****************************************************************
 //testFREXP
@@ -73,23 +61,7 @@ void cudaTestFREXP
 
 }
 
-template<class T, bool mult_only>
-__device__ __host__
-void setLDEXP
-(
-    uint idx,
-        const T *in,
-        T *out,
-        const T w,
-        const int exp
-        )
-{
-    if (mult_only){
-        out[idx] = in[idx] * w;
-    }
-    else
-        out[idx] = LDEXP(in[idx], exp);
-}
+
 
 //*****************************************************************
 //testLDEXP
@@ -173,7 +145,6 @@ void GPUTestLDEXP(
     const int block_size = 512;
     const int grid_size = nx*ny*nz / block_size;
 
-    const int intprec = 64;
     int emax = 0;
     int exp = intprec -2 -emax;
     double w = LDEXP(1, exp);
