@@ -30,7 +30,7 @@ struct RandGen
     __device__ float operator () (const uint idx)
     {
         thrust::default_random_engine randEng;
-        thrust::uniform_real_distribution<float> uniDist(-1.0, 1.0);
+        thrust::uniform_real_distribution<float> uniDist;
         randEng.discard(idx);
         return uniDist(randEng);
     }
@@ -67,21 +67,27 @@ void cudaTestFREXP
         )
 {
     uint idx = blockDim.x * blockIdx.x + threadIdx.x;
-    if (idx < max_threads)
+    if (idx < max_threads){
         setFREXP(idx, in, out, nptr);
+    }
 
 }
 
-template<class T>
+template<class T, bool mult_only>
 __device__ __host__
 void setLDEXP
 (
     uint idx,
         const T *in,
-        T *out
+        T *out,
+        const T w
         )
 {
-    out[idx] = LDEXP(in[idx], 10);
+    if (mult_only){
+        out[idx] = in[idx] * w;
+    }
+    else
+        out[idx] = LDEXP(in[idx], 62);
 }
 
 //*****************************************************************
@@ -91,22 +97,23 @@ void setLDEXP
 //array of in, of type T
 //Output: out array
 //*****************************************************************
-template<class T>
+template<class T, bool mult_only>
 __global__
 void cudaTestLDEXP(
         int max_threads,
         const T *in,
-        T *out
+        T *out,
+        const T w
         )
 {
     uint idx = blockDim.x * blockIdx.x + threadIdx.x;
 
     if (idx < max_threads)
-        setLDEXP(idx, in, out);
+        setLDEXP<T, mult_only>(idx, in, out, w);
 }
 
 template<class T>
-void testFREXP(
+void GPUTestFREXP(
         device_vector<T> &in,
         device_vector<T> &out)
 {
@@ -147,8 +154,8 @@ void testFREXP(
 
 }
 
-template<class T>
-void testLDEXP(
+template<class T, bool mult_only>
+void GPUTestLDEXP(
         device_vector<T> &in,
         device_vector<T> &out)
 {
@@ -163,11 +170,17 @@ void testLDEXP(
     //stupid laptop with max dim of grid size of 2^15
     const int block_size = 512;
     const int grid_size = nx*ny*nz / block_size;
+
+    const int intprec = 64;
+    int emax = 0;
+    double w = LDEXP(1, intprec -2 -emax);
+
     ec.chk("pre-testLDEXP");
-    cudaTestLDEXP<T><<<grid_size, block_size>>>(
+    cudaTestLDEXP<T, mult_only><<<grid_size, block_size>>>(
         nx*ny*nz,
         raw_pointer_cast(in.data()),
-        raw_pointer_cast(out.data())
+        raw_pointer_cast(out.data()),
+        w
     ); ec.chk("testLDEXP");
     T sum = reduce(
                 out.begin(),
@@ -178,7 +191,58 @@ void testLDEXP(
     cudaEventRecord( stop, 0 );
     cudaEventSynchronize(stop);
     cudaEventElapsedTime( &millisecs, start, stop );
-    cout << "LDEXP GPU sum: " << sum << " in time: " << millisecs << endl;
+    cout << "LDEXP GPU ";
+    if (mult_only)
+        cout << " multiplication shortcut ";
+    else
+        cout << "no shortcut ";
+    cout << "sum: " << sum << " in time: " << millisecs << endl;
+
+}
+
+template<class T>
+void CPUTestFREXP
+(
+        host_vector<T> &h_vec_in,
+        host_vector<T> &h_vec_out,
+        host_vector<int> &h_vec_nptr
+        )
+{
+    std::fill(h_vec_out.begin(), h_vec_out.end(), 0);
+    for (int i=0; i<nx*ny*nz; i++){
+        setFREXP<T>
+                (
+                    i,
+                    raw_pointer_cast( h_vec_in.data() ),
+                    raw_pointer_cast(h_vec_out.data()),
+                    raw_pointer_cast(h_vec_nptr.data())
+                    );
+    }
+    cout << "FREXP CPU sum: " << reduce(h_vec_out.begin(),h_vec_out.end()) << endl;
+
+}
+
+template<class T, bool mult_only>
+void CPUTestLDEXP
+(
+        host_vector<T> &h_vec_in,
+        host_vector<T> &h_vec_out
+        )
+{
+    const int intprec = 64;
+    int emax = 0;
+    double w = LDEXP(1, intprec -2 -emax);
+
+    for (int i=0; i<nx*ny*nz; i++){
+        setLDEXP<T, mult_only>
+                (
+                    i,
+                    raw_pointer_cast(h_vec_in.data()),
+                    raw_pointer_cast(h_vec_out.data()),
+                    w
+                 );
+    }
+    cout << "LDEXP CPU sum: " << reduce(h_vec_out.begin(), h_vec_out.end()) << endl;
 
 }
 
@@ -194,27 +258,15 @@ int main()
                     d_vec_in.begin(),
                     RandGen());
 
-    testFREXP<double>(d_vec_in, d_vec_out);
-    testLDEXP<double>(d_vec_in, d_vec_out);
+    GPUTestFREXP<double>(d_vec_in, d_vec_out);
+    GPUTestLDEXP<double, false>(d_vec_in, d_vec_out);
+    GPUTestLDEXP<double, true>(d_vec_in, d_vec_out);
 
     host_vector<double> h_vec_out(nx*ny*nz);
     host_vector<int> h_vec_nptr(nx*ny*nz);
 
     h_vec_in = d_vec_in;
-    for (int i=0; i<nx*ny*nz; i++){
-        setFREXP(i, raw_pointer_cast( h_vec_in.data() ),
-                raw_pointer_cast(h_vec_out.data()),
-                raw_pointer_cast(h_vec_nptr.data()));
-    }
-    cout << "FREXP CPU sum: " << reduce(h_vec_out.begin(),h_vec_out.end()) << endl;
-
-    for (int i=0; i<nx*ny*nz; i++){
-        setLDEXP
-                (
-                    i,
-                    raw_pointer_cast(h_vec_in.data()),
-                    raw_pointer_cast(h_vec_out.data())
-                 );
-    }
-    cout << "LDEXP CPU sum: " << reduce(h_vec_out.begin(), h_vec_out.end()) << endl;
+    CPUTestFREXP<double>(h_vec_in, h_vec_out, h_vec_nptr);
+    CPUTestLDEXP<double, false> (h_vec_in, h_vec_out);
+    CPUTestLDEXP<double, true> (h_vec_in, h_vec_out);
 }
