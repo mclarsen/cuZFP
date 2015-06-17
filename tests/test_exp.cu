@@ -80,14 +80,15 @@ void setLDEXP
     uint idx,
         const T *in,
         T *out,
-        const T w
+        const T w,
+        const int exp
         )
 {
     if (mult_only){
         out[idx] = in[idx] * w;
     }
     else
-        out[idx] = LDEXP(in[idx], 62);
+        out[idx] = LDEXP(in[idx], exp);
 }
 
 //*****************************************************************
@@ -103,13 +104,14 @@ void cudaTestLDEXP(
         int max_threads,
         const T *in,
         T *out,
-        const T w
+        const T w,
+        const int exp
         )
 {
     uint idx = blockDim.x * blockIdx.x + threadIdx.x;
 
     if (idx < max_threads)
-        setLDEXP<T, mult_only>(idx, in, out, w);
+        setLDEXP<T, mult_only>(idx, in, out, w, exp);
 }
 
 template<class T>
@@ -173,14 +175,16 @@ void GPUTestLDEXP(
 
     const int intprec = 64;
     int emax = 0;
-    double w = LDEXP(1, intprec -2 -emax);
+    int exp = intprec -2 -emax;
+    double w = LDEXP(1, exp);
 
     ec.chk("pre-testLDEXP");
     cudaTestLDEXP<T, mult_only><<<grid_size, block_size>>>(
         nx*ny*nz,
         raw_pointer_cast(in.data()),
         raw_pointer_cast(out.data()),
-        w
+        w,
+        exp
     ); ec.chk("testLDEXP");
     T sum = reduce(
                 out.begin(),
@@ -231,7 +235,8 @@ void CPUTestLDEXP
 {
     const int intprec = 64;
     int emax = 0;
-    double w = LDEXP(1, intprec -2 -emax);
+    int exp = intprec -2 -emax;
+    double w = LDEXP(1, exp);
 
     for (int i=0; i<nx*ny*nz; i++){
         setLDEXP<T, mult_only>
@@ -239,7 +244,8 @@ void CPUTestLDEXP
                     i,
                     raw_pointer_cast(h_vec_in.data()),
                     raw_pointer_cast(h_vec_out.data()),
-                    w
+                    w,
+                    intprec
                  );
     }
     cout << "LDEXP CPU sum: " << reduce(h_vec_out.begin(), h_vec_out.end()) << endl;
