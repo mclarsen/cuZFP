@@ -76,6 +76,7 @@ int fwd_cast(Int* q, const Scalar* p, uint sx, uint sy, uint sz)
   return emax;
 }
 
+__host__ __device__
 void decompIdx
 (
         uint sx,
