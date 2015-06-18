@@ -7,6 +7,7 @@
 #include <thrust/functional.h>
 #include <thrust/execution_policy.h>
 #include <cuda_runtime.h>
+#include <assert.h>
 
 #define KEPLER 0
 #include "ErrorCheck.h"
@@ -45,6 +46,22 @@ void cpuTestFixedPoint
 {
     Int q[64];
     int emax = fwd_cast(q, p, 1,nx,nx*ny);
+
+    Int q2[64];
+    for (int z=0; z<nz; z+=4){
+        for (int y=0; y<ny; y+=4){
+            for (int x=0; x<nx; x+=4){
+                int idx = z*nx*ny + y*nx + x;
+                int emax2 = max_exp<Scalar>(p, idx, 1,nx,nx*ny);
+                fwd_cast(q2,p, emax2, idx, 1,nx,nx*ny);
+
+            }
+        }
+    }
+
+//    for (int i=0; i<64; i++){
+//        assert(q[i] == q2[i]);
+//    }
 }
 
 int main()

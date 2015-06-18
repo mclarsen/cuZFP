@@ -75,3 +75,40 @@ int fwd_cast(Int* q, const Scalar* p, uint sx, uint sy, uint sz)
 
   return emax;
 }
+
+template<class Scalar>
+__device__ __host__
+int max_exp(const Scalar *p, uint idx, uint sx, uint sy, uint sz)
+{
+    uint mz = idx / (sz);
+    uint rem = idx % sz;
+    uint my = rem == 0  ? 0  : rem / sy;
+    uint mx = rem == 0 ? 0 : rem % sy;
+    Scalar fmax = 0;
+    for (int z=mz; z<mz+4; z++)
+        for (int y=my; y<my+4; y++)
+            for (int x=mx; x<mx+4; x++)
+                fmax = MAX(fmax, FABS(p[z*sz+y*sy+x]));
+
+    return exponent(fmax);
+}
+
+
+//gather from p into q
+template<class Int, class Scalar>
+void  fwd_cast(Int *q, const Scalar *p, int emax, uint idx, uint sx, uint sy, uint sz)
+{
+    uint mz = idx / (sz);
+    uint rem = idx % sz;
+    uint my = rem == 0  ? 0  : sy / rem;
+    uint mx = rem == 0 ? 0 : sy % rem;
+
+
+
+    Scalar w = LDEXP(1, intprec -2 -emax);
+    for (int z=mz; z<4; z++)
+        for (int y=my; y<4; y++)
+            for (int x=mx; x<4; x++,q++)
+                *q =(Int)(p[z*sz+y*sy+x]*w);
+
+}
