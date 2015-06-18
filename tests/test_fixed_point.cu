@@ -34,7 +34,7 @@ struct RandGen
     __device__ float operator () (const uint idx)
     {
         thrust::default_random_engine randEng;
-        thrust::uniform_real_distribution<float> uniDist;
+        thrust::uniform_real_distribution<float> uniDist(0.0, 0.0001);
         randEng.discard(idx);
         return uniDist(randEng);
     }
@@ -76,14 +76,14 @@ void cudaFixedPoint
     Scalar *data
         )
 {
-    int x = threadIdx.x + blockDim.x+blockIdx.x;
+    int x = threadIdx.x + blockDim.x*blockIdx.x;
     int y = threadIdx.y  + blockDim.y*blockIdx.y;
     int z = threadIdx.z + blockDim.z*blockIdx.z;
-    int eidx = z*gridDim.x*gridDim.y*16 + y*gridDim.x*4 + x;
+    int eidx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
 
     x *= 4; y*=4; z*=4;
-    int idx = z*gridDim.x*gridDim.y*16 + y*gridDim.x*4 + x;
-    emax[eidx] = max_exp(data, idx, gridDim.x*4, gridDim.y*4, gridDim.z*4);
+    int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
+    emax[eidx] = max_exp(data, idx, gridDim.x*blockDim.x*4, gridDim.y*blockDim.y*4, gridDim.z*blockDim.z*4);
 
 }
 
