@@ -45,7 +45,6 @@ void cpuTestFixedPoint
         )
 {
     Int q[64];
-    int emax = fwd_cast(q, p, 1,nx,nx*ny);
 
     Int q2[64];
     for (int z=0; z<nz; z+=4){
@@ -55,13 +54,16 @@ void cpuTestFixedPoint
                 int emax2 = max_exp<Scalar>(p, idx, 1,nx,nx*ny);
                 fwd_cast(q2,p, emax2, idx, 1,nx,nx*ny);
 
+                int emax = fwd_cast(q, p+idx, 1,nx,nx*ny);
+
+                for (int i=0; i<64; i++){
+                    assert(q[i] == q2[i]);
+                }
+
             }
         }
     }
 
-//    for (int i=0; i<64; i++){
-//        assert(q[i] == q2[i]);
-//    }
 }
 
 int main()
