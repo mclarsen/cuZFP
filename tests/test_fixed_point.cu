@@ -47,7 +47,7 @@ void cpuTestFixedPoint
         Scalar *p
         )
 {
-#pragma omp parallel for
+//#pragma omp parallel for
     for (int z=0; z<nz; z+=4){
         for (int y=0; y<ny; y+=4){
             for (int x=0; x<nx; x+=4){
@@ -84,7 +84,7 @@ void cudaFixedPoint
 
     x *= 4; y*=4; z*=4;
     int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
-    fixed_point(q, data, emax[eidx], idx, gridDim.x*blockDim.x*4, gridDim.y*blockDim.y*4, gridDim.z*blockDim.z*4);
+    fixed_point(q + eidx*64, data, emax[eidx], idx, 1, gridDim.x*blockDim.x*4, gridDim.x*blockDim.x*4*gridDim.y*blockDim.y*4);
 }
 
 template<class Scalar>
@@ -102,7 +102,7 @@ void cudaMaxExp
 
     x *= 4; y*=4; z*=4;
     int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
-    emax[eidx] = max_exp(data, idx, gridDim.x*blockDim.x*4, gridDim.y*blockDim.y*4, gridDim.z*blockDim.z*4);
+    emax[eidx] = max_exp(data, idx, 1, gridDim.x*blockDim.x*4, gridDim.x*blockDim.x*4*gridDim.y*blockDim.y*4);
 
 }
 
