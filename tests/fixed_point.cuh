@@ -1,3 +1,5 @@
+#include <helper_math.h>
+
 #define LDEXP(x, e) ldexp(x, e)
 #define FREXP(x, e) frexp(x, e)
 #define FABS(x) fabs(x)
@@ -99,7 +101,7 @@ __device__ __host__
 int max_exp(const Scalar *p, uint idx, uint sx, uint sy, uint sz)
 {
     uint mx,my,mz;
-    decompIdx(sy,sy,sz, idx, mx,my,mz);
+    decompIdx(sx,sy,sz, idx, mx,my,mz);
     Scalar fmax = 0;
     for (int z=mz; z<mz+4; z++)
         for (int y=my; y<my+4; y++)
@@ -112,13 +114,14 @@ int max_exp(const Scalar *p, uint idx, uint sx, uint sy, uint sz)
 
 //gather from p into q
 template<class Int, class Scalar>
-void  fwd_cast(Int *q, const Scalar *p, int emax, uint idx, uint sx, uint sy, uint sz)
+__host__  __device__
+void  fixed_point(Int *q, const Scalar *p, int emax, uint idx, uint sx, uint sy, uint sz)
 {
     uint mx,my,mz;
-    decompIdx(sy,sy,sz, idx, mx,my,mz);
+    decompIdx(sx,sy,sz, idx, mx,my,mz);
 
 
-    Scalar w = LDEXP(1, intprec -2 -emax);
+    Scalar w = LDEXP(1.0, intprec -2 -emax);
     for (int z=mz; z<mz+4; z++)
         for (int y=my; y<my+4; y++)
             for (int x=mx; x<mx+4; x++,q++)

@@ -22,7 +22,8 @@ using namespace std;
 const int nx = 256;
 const int ny = 256;
 const int nz = 256;
-device_vector<double> d_vec_in(nx*ny*nz), d_vec_out(nx*ny*nz);
+device_vector<double> d_vec_in(nx*ny*nz);
+device_vector<long long> d_vec_out(nx*ny*nz);
 host_vector<double> h_vec_in(nx*ny*nz);
 
 
@@ -54,7 +55,7 @@ void cpuTestFixedPoint
                 Int q[64];
                 Int q2[64];
                 int emax2 = max_exp<Scalar>(p, idx, 1,nx,nx*ny);
-                fwd_cast(q2,p, emax2, idx, 1,nx,nx*ny);
+                fixed_point(q2,p, emax2, idx, 1,nx,nx*ny);
 
                 int emax = fwd_cast(q, p+idx, 1,nx,nx*ny);
 
@@ -67,10 +68,28 @@ void cpuTestFixedPoint
     }
 
 }
+template<class Int, class Scalar>
+__global__
+void cudaFixedPoint
+(
+        const int *emax,
+        const Scalar *data,
+        Int *q
+        )
+{
+    int x = threadIdx.x + blockDim.x*blockIdx.x;
+    int y = threadIdx.y  + blockDim.y*blockIdx.y;
+    int z = threadIdx.z + blockDim.z*blockIdx.z;
+    int eidx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
+
+    x *= 4; y*=4; z*=4;
+    int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
+    fixed_point(q, data, emax[eidx], idx, gridDim.x*blockDim.x*4, gridDim.y*blockDim.y*4, gridDim.z*blockDim.z*4);
+}
 
 template<class Scalar>
 __global__
-void cudaFixedPoint
+void cudaMaxExp
 (
         int *emax,
     Scalar *data
@@ -91,6 +110,7 @@ template<class Int, class Scalar>
 void gpuTestFixedPoint
 (
         device_vector<Scalar> &data,
+        device_vector<Int> &q,
         device_vector<int> &emax
         )
 {
@@ -102,30 +122,41 @@ void gpuTestFixedPoint
 
     ErrorCheck ec;
 
-    ec.chk("pre-cudaFixedPoint");
-    cudaFixedPoint<<<block_size,grid_size>>>
+    ec.chk("pre-cudaMaxExp");
+    cudaMaxExp<<<block_size,grid_size>>>
             (
                 raw_pointer_cast(emax.data()),
                 raw_pointer_cast(data.data())
                 );
-    ec.chk("cudaFixedPoint");
+    ec.chk("cudaMaxExp");
 
+    ec.chk("pre-cudaFixedPoint");
+    cudaFixedPoint<<<block_size, grid_size>>>
+            (
+                raw_pointer_cast(emax.data()),
+                raw_pointer_cast(data.data()),
+                raw_pointer_cast(q.data())
+                );
+    ec.chk("cudaFixedPoint");
     host_vector<int> h_emax;
     host_vector<Scalar> h_p;
+    host_vector<Int> h_q;
     h_emax = emax;
     h_p = data;
-
+    h_q = q;
 
     int i=0;
     for (int z=0; z<nz; z+=4){
         for (int y=0; y<ny; y+=4){
             for (int x=0; x<nx; x+=4){
                 int idx = z*nx*ny + y*nx + x;
-                Int q[64];
                 Int q2[64];
                 int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), idx, 1,nx,nx*ny);
                 assert(emax2 == h_emax[i++]);
-                //fwd_cast(q2,p, emax2, idx, 1,nx,nx*ny);
+                fixed_point(q2,raw_pointer_cast(h_p.data()), emax2, idx, 1,nx,nx*ny);
+                for (int j=0; j<64; j++){
+                    assert(h_q[j+(i-1)*64] == q2[j]);
+                }
             }
         }
     }
@@ -144,7 +175,7 @@ int main()
                     d_vec_in.begin(),
                     RandGen());
 
-    gpuTestFixedPoint<long long, double>(d_vec_in, emax);
+    gpuTestFixedPoint<long long, double>(d_vec_in, d_vec_out, emax);
     h_vec_in = d_vec_in;
     cpuTestFixedPoint<long long, double>(raw_pointer_cast(h_vec_in.data()));
 }
