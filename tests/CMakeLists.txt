@@ -114,3 +114,13 @@ TARGET_LINK_LIBRARIES(zfp_test_decorrelate
 gomp
 cudart
 )
+
+CUDA_ADD_EXECUTABLE(zfp_test_int2uint
+ErrorCheck.cpp
+fixed_point.cuh
+test_int2uint.cu
+)
+TARGET_LINK_LIBRARIES(zfp_test_int2uint
+gomp
+cudart
+)

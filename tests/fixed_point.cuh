@@ -7,6 +7,21 @@
 const int intprec = 64;
 const int ebias = 1023;
 
+
+
+// map two's complement signed integer to negabinary unsigned integer
+template<class Int, class UInt>
+struct Int2UInt
+{
+    Int2UInt() {}
+
+    __device__ __host__ UInt operator () (const Int x)
+    {
+        return (x + (UInt)0xaaaaaaaaaaaaaaaaull) ^ (UInt)0xaaaaaaaaaaaaaaaaull;
+    }
+};
+
+
 // return normalized floating-point exponent for x >= 0
 template<class Scalar>
 __host__ __device__
