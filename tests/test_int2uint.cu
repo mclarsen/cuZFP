@@ -18,6 +18,7 @@ using namespace std;
 
 #define FREXP(x, e) frexp(x, e)
 #define LDEXP(x, e) ldexp(x, e)
+#define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
 const int nx = 256;
 const int ny = 256;
@@ -26,6 +27,106 @@ device_vector<double> d_vec_in(nx*ny*nz);
 device_vector<long long> d_vec_out(nx*ny*nz);
 device_vector<unsigned long long> d_vec_buffer(nx*ny*nz);
 host_vector<double> h_vec_in(nx*ny*nz);
+
+static const unsigned char
+perm[64] = {
+  index(0, 0, 0), //  0 : 0
+
+  index(1, 0, 0), //  1 : 1
+  index(0, 1, 0), //  2 : 1
+  index(0, 0, 1), //  3 : 1
+
+  index(0, 1, 1), //  4 : 2
+  index(1, 0, 1), //  5 : 2
+  index(1, 1, 0), //  6 : 2
+
+  index(2, 0, 0), //  7 : 2
+  index(0, 2, 0), //  8 : 2
+  index(0, 0, 2), //  9 : 2
+
+  index(1, 1, 1), // 10 : 3
+
+  index(2, 1, 0), // 11 : 3
+  index(2, 0, 1), // 12 : 3
+  index(0, 2, 1), // 13 : 3
+  index(1, 2, 0), // 14 : 3
+  index(1, 0, 2), // 15 : 3
+  index(0, 1, 2), // 16 : 3
+
+  index(3, 0, 0), // 17 : 3
+  index(0, 3, 0), // 18 : 3
+  index(0, 0, 3), // 19 : 3
+
+  index(2, 1, 1), // 20 : 4
+  index(1, 2, 1), // 21 : 4
+  index(1, 1, 2), // 22 : 4
+
+  index(0, 2, 2), // 23 : 4
+  index(2, 0, 2), // 24 : 4
+  index(2, 2, 0), // 25 : 4
+
+  index(3, 1, 0), // 26 : 4
+  index(3, 0, 1), // 27 : 4
+  index(0, 3, 1), // 28 : 4
+  index(1, 3, 0), // 29 : 4
+  index(1, 0, 3), // 30 : 4
+  index(0, 1, 3), // 31 : 4
+
+  index(1, 2, 2), // 32 : 5
+  index(2, 1, 2), // 33 : 5
+  index(2, 2, 1), // 34 : 5
+
+  index(3, 1, 1), // 35 : 5
+  index(1, 3, 1), // 36 : 5
+  index(1, 1, 3), // 37 : 5
+
+  index(3, 2, 0), // 38 : 5
+  index(3, 0, 2), // 39 : 5
+  index(0, 3, 2), // 40 : 5
+  index(2, 3, 0), // 41 : 5
+  index(2, 0, 3), // 42 : 5
+  index(0, 2, 3), // 43 : 5
+
+  index(2, 2, 2), // 44 : 6
+
+  index(3, 2, 1), // 45 : 6
+  index(3, 1, 2), // 46 : 6
+  index(1, 3, 2), // 47 : 6
+  index(2, 3, 1), // 48 : 6
+  index(2, 1, 3), // 49 : 6
+  index(1, 2, 3), // 50 : 6
+
+  index(0, 3, 3), // 51 : 6
+  index(3, 0, 3), // 52 : 6
+  index(3, 3, 0), // 53 : 6
+
+  index(3, 2, 2), // 54 : 7
+  index(2, 3, 2), // 55 : 7
+  index(2, 2, 3), // 56 : 7
+
+  index(1, 3, 3), // 57 : 7
+  index(3, 1, 3), // 58 : 7
+  index(3, 3, 1), // 59 : 7
+
+  index(2, 3, 3), // 60 : 8
+  index(3, 2, 3), // 61 : 8
+  index(3, 3, 2), // 62 : 8
+
+  index(3, 3, 3), // 63 : 9
+};
+
+
+
+void setupConst(const unsigned char *perm)
+{
+    ErrorCheck ec;
+    ec.chk("setupConst start");
+    cudaMemcpyToSymbol(c_perm, perm, sizeof(unsigned char)*64,0); ec.chk("setupConst: lic_dim");
+    ec.chk("setupConst finished");
+
+
+}
+
 
 
 //Used to generate rand array in CUDA with Thrust
@@ -70,6 +171,16 @@ void cpuTestDecorrelate
 
 }
 
+template<class Int, class UInt>
+void reorder
+(
+        const Int *q,
+        UInt *buffer
+        )
+{
+    for (uint i = 0; i < 64; i++)
+      buffer[i] = int2uint<Int, UInt>(q[perm[i]]);
+}
 
 
 template<class Int, class UInt, class Scalar>
@@ -90,7 +201,7 @@ void gpuTestint2uint
     ErrorCheck ec;
 
     ec.chk("pre-cudaMaxExp");
-    cudaMaxExp<<<block_size,grid_size>>>
+    cudaMaxExp<<<grid_size, block_size>>>
             (
                 raw_pointer_cast(emax.data()),
                 raw_pointer_cast(data.data())
@@ -98,7 +209,7 @@ void gpuTestint2uint
     ec.chk("cudaMaxExp");
 
     ec.chk("pre-cudaFixedPoint");
-    cudaFixedPoint<<<block_size, grid_size>>>
+    cudaFixedPoint<<<grid_size, block_size>>>
             (
                 raw_pointer_cast(emax.data()),
                 raw_pointer_cast(data.data()),
@@ -106,18 +217,20 @@ void gpuTestint2uint
                 );
     ec.chk("cudaFixedPoint");
 
-    cudaDecorrelate<Int><<<block_size, grid_size>>>
+    cudaDecorrelate<Int><<<grid_size, block_size>>>
         (
             raw_pointer_cast(q.data())
             );
     ec.chk("cudaDecorrelate");
 
-    Int2UInt<Int, UInt> xform;
-    thrust::transform(
-                q.begin(),
-                q.end(),
-                buffer.begin(),
-                xform);
+    block_size = dim3(8,8,8);
+    grid_size = dim3(nx,ny,nz);
+    grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+    cudaint2uint<<< grid_size, block_size>>>
+            (
+                raw_pointer_cast(q.data()),
+                raw_pointer_cast(buffer.data())
+                );
     ec.chk("cudaint2uint");
 
     host_vector<int> h_emax;
@@ -137,19 +250,16 @@ void gpuTestint2uint
                 host_vector<Int> q2(64);
                 host_vector<UInt> buf(64);
                 int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), idx, 1,nx,nx*ny);
-                assert(emax2 == h_emax[i++]);
+                assert(emax2 == h_emax[i]);
                 fixed_point(raw_pointer_cast(q2.data()),raw_pointer_cast(h_p.data()), emax2, idx, 1,nx,nx*ny);
                 fwd_xform(raw_pointer_cast(q2.data()));
-                thrust::transform
-                        (
-                            q2.begin(),
-                            q2.end(),
-                            buf.begin(),
-                            xform
-                            );
+                reorder<Int, UInt>(raw_pointer_cast(q2.data()), raw_pointer_cast(buf.data()));
+
                 for (int j=0; j<64; j++){
-                    assert(h_buf[j+(i-1)*64] == buf[j]);
+                    assert(h_buf[j+i*64] == buf[j]);
                 }
+
+                i++;
 
             }
         }
@@ -168,6 +278,7 @@ int main()
                     d_vec_in.begin(),
                     RandGen());
 
+    setupConst(perm);
     gpuTestint2uint<long long, unsigned long long, double>(d_vec_in, d_vec_out, d_vec_buffer, emax);
     h_vec_in = d_vec_in;
     //cpuTestDecorrelate<long long>(raw_pointer_cast(h_vec_in.data()));

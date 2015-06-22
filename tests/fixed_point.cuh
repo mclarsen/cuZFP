@@ -1,5 +1,8 @@
 #include <helper_math.h>
 
+
+__constant__ unsigned char c_perm[64];
+
 #define LDEXP(x, e) ldexp(x, e)
 #define FREXP(x, e) frexp(x, e)
 #define FABS(x) fabs(x)
@@ -11,15 +14,11 @@ const int ebias = 1023;
 
 // map two's complement signed integer to negabinary unsigned integer
 template<class Int, class UInt>
-struct Int2UInt
+__device__ __host__
+UInt int2uint(const Int x)
 {
-    Int2UInt() {}
-
-    __device__ __host__ UInt operator () (const Int x)
-    {
-        return (x + (UInt)0xaaaaaaaaaaaaaaaaull) ^ (UInt)0xaaaaaaaaaaaaaaaaull;
-    }
-};
+    return (x + (UInt)0xaaaaaaaaaaaaaaaaull) ^ (UInt)0xaaaaaaaaaaaaaaaaull;
+}
 
 
 // return normalized floating-point exponent for x >= 0
@@ -190,6 +189,21 @@ fwd_xform(Int* p)
       fwd_lift(p + 1 * x + 4 * y, 16);
 }
 
+template<class Int, class UInt>
+__global__
+void cudaint2uint
+(
+        const Int *p,
+        UInt *q
+
+        )
+{
+    int x = threadIdx.x + blockDim.x*blockIdx.x;
+    int y = threadIdx.y  + blockDim.y*blockIdx.y;
+    int z = threadIdx.z + blockDim.z*blockIdx.z;
+    int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
+    q[idx] = int2uint<Int, UInt>(p[c_perm[idx%64] + idx - idx % 64]);
+}
 
 template<class Int>
 __global__
