@@ -124,3 +124,14 @@ TARGET_LINK_LIBRARIES(zfp_test_int2uint
 gomp
 cudart
 )
+
+CUDA_ADD_EXECUTABLE(zfp_test_bitstream
+ErrorCheck.cpp
+fixed_point.cuh
+BitStream.cuh
+test_bitstream.cu
+)
+TARGET_LINK_LIBRARIES(zfp_test_bitstream
+gomp
+cudart
+)
