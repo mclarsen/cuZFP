@@ -17,7 +17,25 @@ public:
   Word* begin; // beginning of stream
   Word* end;   // end of stream
 
-  BitStream(){}
+  BitStream(){
+      bits = 0;
+      buffer = 0;
+      ptr = new Word[64];
+      for (int i=0; i<64; i++){
+          ptr[i] = 0;
+      }
+      begin = ptr;
+      end = ptr + 64;
+  }
+  BitStream(const BitStream &bs)
+  {
+      bits = 0;
+      buffer = 0;
+      ptr = new Word[64];
+      begin = ptr;
+      end = ptr + 64;
+  }
+
   // byte size of stream
   __device__ __host__
   size_t
@@ -92,7 +110,7 @@ public:
 template<class UInt>
 __device__ __host__
 static void
-encode_ints(BitStream* stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
+encode_ints_old(BitStream* stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
 {
   if (!maxbits)
     return;
@@ -126,6 +144,41 @@ encode_ints(BitStream* stream, const UInt* data, uint minbits, uint maxbits, uin
     stream->write_bit(0);
 }
 
+template<class UInt>
+__device__ __host__
+static void
+encode_ints(BitStream & stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
+{
+  if (!maxbits)
+    return;
+
+  uint bits = maxbits;
+  uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+
+  // output one bit plane at a time from MSB to LSB
+  for (uint k = intprec, n = 0; k-- > kmin;) {
+      if (bits){
+        // extract bit plane k to x
+        unsigned long long x = 0;
+        for (uint i = 0; i < size; i++)
+          x += ((data[i] >> k) & (unsigned long long)1) << i;
+        // encode bit plane
+        for (uint m = n;; m = count & 0xfu, count >>= 4, n += m) {
+          // encode bit k for next set of m values
+          m = MIN(m, bits);
+          bits -= m;
+          x = stream.write_bits(x, m);
+          // continue with next bit plane if out of groups or group test passes
+          if (!count || (bits--, stream.write_bit(!!x), !x))
+            break;
+        }
+      }
+  }
+
+  // pad with zeros in case fewer than minbits bits have been written
+  while (bits-- > maxbits - minbits)
+    stream.write_bit(0);
+}
 // allocate and initialize bit stream
 BitStream*
 stream_create(size_t bytes)

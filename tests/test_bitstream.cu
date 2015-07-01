@@ -29,7 +29,7 @@ device_vector<long long> d_vec_out(nx*ny*nz);
 device_vector<unsigned long long> d_vec_buffer(nx*ny*nz);
 host_vector<double> h_vec_in(nx*ny*nz);
 
-uint minbits = 0;
+uint minbits = 4096;
 uint maxbits = 4096;
 uint maxprec = 64;
 int minexp = -1074;
@@ -182,13 +182,15 @@ void cpuTestBitStream
     uint my = ny / 4;
     uint mz = nz / 4;
 
-    BitStream *stream = stream_create(blksize*mx*my);
-//#pragma omp parallel for
+    BitStream *stream_old = stream_create(blksize*mx*my);
+    vector<BitStream> stream;
+    stream.resize(mx*my*mz);
+
+    //#pragma omp parallel for
     for (int z=0; z<nz; z+=4){
         for (int y=0; y<ny; y+=4){
             for (int x=0; x<nx; x+=4){
                 int idx = z*nx*ny + y*nx + x;
-                Int q[64];
                 Int q2[64];
                 UInt buf[64];
 
@@ -196,7 +198,13 @@ void cpuTestBitStream
                 fixed_point(q2,p, emax2, idx, 1,nx,nx*ny);
                 fwd_xform<Int>(q2);
                 reorder<Int, UInt>(q2, buf);
-                encode_ints<UInt>(stream, buf, minbits, maxbits, precision(emax2, maxprec, minexp), 0x46acca631ull, 64);
+                encode_ints_old<UInt>(stream_old, buf, minbits, maxbits, precision(emax2, maxprec, minexp), 0x46acca631ull, 64);
+                encode_ints<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), 0x46acca631ull, 64);
+
+                for (int j=0; j<64; j++){
+                    assert(stream[z/4 * mx*my + y/4 *mx + x/4].begin[j] == stream_old->begin[(z/4 * mx*my + y/4 *mx + x/4)*64 + j]);
+                }
+
 //                for (int i=0; i<64; i++){
 //                    assert(q[i] == q2[i]);
 //                }
@@ -205,6 +213,14 @@ void cpuTestBitStream
         }
     }
 
+    Word *ptr = stream_old->begin;
+
+    for (int i=0; i < stream.size(); i++){
+        for (int j=0; j<64; j++){
+            assert(stream[i].begin[j] == *ptr++);
+
+        }
+    }
 }
 
 
