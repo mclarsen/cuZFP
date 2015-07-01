@@ -6,6 +6,7 @@
 
 typedef unsigned long long Word;
 
+
 static const uint wsize = bitsize(Word);
 
 class Bit
@@ -167,6 +168,7 @@ public:
     }
   }
 
+
   // flush out any remaining buffered bits
   __device__ __host__
   void
@@ -187,6 +189,14 @@ public:
 
 
 };
+
+// maximum number of bit planes to encode
+__device__ __host__
+static uint
+precision(int maxexp, uint maxprec, int minexp)
+{
+  return MIN(maxprec, MAX(0, maxexp - minexp + 8));
+}
 
 template<class UInt>
 __device__ __host__
@@ -273,3 +283,20 @@ stream_create(size_t bytes)
   return stream;
 }
 
+template< class UInt>
+__global__
+void cudaencode
+(
+        const UInt *q,
+        Bit *stream,
+        const int *emax,
+        uint minbits, uint maxbits, uint maxprec, int minexp, unsigned long long group_count, uint size
+
+        )
+{
+    int x = threadIdx.x + blockDim.x*blockIdx.x;
+    int y = threadIdx.y  + blockDim.y*blockIdx.y;
+    int z = threadIdx.z + blockDim.z*blockIdx.z;
+    int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
+    encode_ints(stream[idx], q + idx * 64, minbits, maxbits, precision(emax[idx], maxprec, minexp), group_count, size);
+}

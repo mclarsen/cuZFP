@@ -35,6 +35,8 @@ uint maxprec = 64;
 int minexp = -1074;
 const double rate = 64;
 size_t  blksize = 0;
+unsigned long long group_count = 0x46acca631ull;
+uint size = 64;
 
 
 static const unsigned char
@@ -138,12 +140,6 @@ void setupConst(const unsigned char *perm)
 
 }
 
-// maximum number of bit planes to encode
-static uint
-precision(int maxexp, uint maxprec, int minexp)
-{
-  return MIN(maxprec, MAX(0, maxexp - minexp + 8));
-}
 
 
 
@@ -183,8 +179,7 @@ void cpuTestBitStream
     uint mz = nz / 4;
 
     BitStream *stream_old = stream_create(blksize*mx*my);
-    host_vector<Bit> stream;
-    stream.resize(mx*my*mz);
+    host_vector<Bit> stream(mx*my*mz);
 
     //#pragma omp parallel for
     for (int z=0; z<nz; z+=4){
@@ -198,17 +193,8 @@ void cpuTestBitStream
                 fixed_point(q2,p, emax2, idx, 1,nx,nx*ny);
                 fwd_xform<Int>(q2);
                 reorder<Int, UInt>(q2, buf);
-                encode_ints_old<UInt>(stream_old, buf, minbits, maxbits, precision(emax2, maxprec, minexp), 0x46acca631ull, 64);
-                encode_ints<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), 0x46acca631ull, 64);
-
-                for (int j=0; j<64; j++){
-                    assert(stream[z/4 * mx*my + y/4 *mx + x/4].begin[j] == stream_old->begin[(z/4 * mx*my + y/4 *mx + x/4)*64 + j]);
-                }
-
-//                for (int i=0; i<64; i++){
-//                    assert(q[i] == q2[i]);
-//                }
-
+                encode_ints_old<UInt>(stream_old, buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+                encode_ints<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
             }
         }
     }
@@ -232,7 +218,8 @@ void gpuTestBitStream
         device_vector<Scalar> &data,
         device_vector<Int> &q,
         device_vector<UInt> &buffer,
-        device_vector<int> &emax
+        device_vector<int> &emax,
+        device_vector<Bit> &stream
         )
 {
     dim3 emax_size(nx/4, ny/4, nz/4 );
@@ -276,14 +263,28 @@ void gpuTestBitStream
                 );
     ec.chk("cudaint2uint");
 
+    block_size = dim3(8,8,8);
+    grid_size = emax_size;
+    grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+    cudaencode<UInt><<< grid_size, block_size>>>
+            (
+                raw_pointer_cast(buffer.data()),
+                raw_pointer_cast(stream.data()),
+                raw_pointer_cast(emax.data()),
+                minbits, maxbits, maxprec, minexp, group_count, size
+                );
+    ec.chk("cudaencode");
+
     host_vector<int> h_emax;
     host_vector<Scalar> h_p;
     host_vector<Int> h_q;
     host_vector<UInt> h_buf;
+    host_vector<Bit> h_bits;
     h_emax = emax;
     h_p = data;
     h_q = q;
     h_buf = buffer;
+    h_bits = stream;
 
     int i=0;
     for (int z=0; z<nz; z+=4){
@@ -292,14 +293,16 @@ void gpuTestBitStream
                 int idx = z*nx*ny + y*nx + x;
                 host_vector<Int> q2(64);
                 host_vector<UInt> buf(64);
+                Bit loc_stream;
                 int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), idx, 1,nx,nx*ny);
                 assert(emax2 == h_emax[i]);
                 fixed_point(raw_pointer_cast(q2.data()),raw_pointer_cast(h_p.data()), emax2, idx, 1,nx,nx*ny);
                 fwd_xform(raw_pointer_cast(q2.data()));
                 reorder<Int, UInt>(raw_pointer_cast(q2.data()), raw_pointer_cast(buf.data()));
+                encode_ints<UInt>(loc_stream,  raw_pointer_cast(buf.data()), minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
 
                 for (int j=0; j<64; j++){
-                    assert(h_buf[j+i*64] == buf[j]);
+                    assert(h_bits[i].begin[j] == loc_stream.begin[j]);
                 }
 
                 i++;
@@ -314,6 +317,7 @@ int main()
 
     dim3 emax_size(nx/4, ny/4, nz/4);
     device_vector<int> emax(emax_size.x * emax_size.y * emax_size.z);
+    device_vector<Bit> bits(emax_size.x * emax_size.y * emax_size.z);
     thrust::counting_iterator<uint> index_sequence_begin(0);
     thrust::transform(
                     index_sequence_begin,
@@ -322,7 +326,7 @@ int main()
                     RandGen());
 
     setupConst(perm);
-    gpuTestBitStream<long long, unsigned long long, double>(d_vec_in, d_vec_out, d_vec_buffer, emax);
+    gpuTestBitStream<long long, unsigned long long, double>(d_vec_in, d_vec_out, d_vec_buffer, emax, bits);
     h_vec_in = d_vec_in;
     cpuTestBitStream<long long, unsigned long long, double>(raw_pointer_cast(h_vec_in.data()));
 }
