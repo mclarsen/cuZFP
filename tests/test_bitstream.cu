@@ -1,4 +1,4 @@
-#include <iostream>
+﻿#include <iostream>
 #include <thrust/device_vector.h>
 #include <thrust/device_ptr.h>
 #include <thrust/host_vector.h>
@@ -183,7 +183,7 @@ void cpuTestBitStream
     uint mz = nz / 4;
 
     BitStream *stream_old = stream_create(blksize*mx*my);
-    vector<BitStream> stream;
+    host_vector<Bit> stream;
     stream.resize(mx*my*mz);
 
     //#pragma omp parallel for

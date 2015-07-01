@@ -8,6 +8,106 @@ typedef unsigned long long Word;
 
 static const uint wsize = bitsize(Word);
 
+class Bit
+{
+public:
+    uint bits;   // number of buffered bits (0 <= bits < wsize)
+    Word buffer; // buffer for incoming/outgoing bits
+    Word* ptr;   // pointer to next word to be read/written
+    Word begin[64]; // beginning of stream
+    Word* end;   // end of stream
+
+    __device__ __host__
+    Bit(){
+        bits = 0;
+        buffer = 0;
+        ptr = begin;
+        for (int i=0; i<64; i++){
+            ptr[i] = 0;
+        }
+
+        end = ptr + 64;
+    }
+
+    __device__ __host__
+    Bit(const Bit &bs)
+    {
+        bits = 0;
+        buffer = 0;
+        ptr = begin;
+        end = ptr + 64;
+    }
+
+    // byte size of stream
+    __device__ __host__
+    size_t
+    size()
+    {
+      return sizeof(Word) * (ptr - begin);
+    }
+
+    // write single bit (must be 0 or 1)
+    __device__ __host__
+    void
+    write_bit(uint bit)
+    {
+      buffer += (Word)bit << bits;
+      if (++bits == wsize) {
+        *ptr++ = buffer;
+        buffer = 0;
+        bits = 0;
+      }
+    }
+
+
+    // write 0 <= n <= 64 least significant bits of value and return remaining bits
+    __device__ __host__
+    unsigned long long
+    write_bits(unsigned long long value, uint n)
+    {
+      if (n == bitsize(value)) {
+        if (!bits)
+          *ptr++ = value;
+        else {
+          *ptr++ = buffer + (value << bits);
+          buffer = value >> (bitsize(value) - bits);
+        }
+        return 0;
+      }
+      else {
+        unsigned long long v = value >> n;
+        value -= v << n;
+        buffer += value << bits;
+        bits += n;
+        if (bits >= wsize) {
+          bits -= wsize;
+          *ptr++ = buffer;
+          buffer = value >> (n - bits);
+        }
+        return v;
+      }
+    }
+
+    // flush out any remaining buffered bits
+    __device__ __host__
+    void
+    flush()
+    {
+      if (bits)
+        write_bits( 0, wsize - bits);
+    }
+
+    __device__ __host__
+    void
+    seek( size_t offset)
+    {
+      ptr = begin + offset/wsize;
+      bits = 0;
+      buffer = 0u;
+    }
+
+};
+
 // bit stream structure (opaque to caller)
 class BitStream {
 public:
@@ -16,25 +116,6 @@ public:
   Word* ptr;   // pointer to next word to be read/written
   Word* begin; // beginning of stream
   Word* end;   // end of stream
-
-  BitStream(){
-      bits = 0;
-      buffer = 0;
-      ptr = new Word[64];
-      for (int i=0; i<64; i++){
-          ptr[i] = 0;
-      }
-      begin = ptr;
-      end = ptr + 64;
-  }
-  BitStream(const BitStream &bs)
-  {
-      bits = 0;
-      buffer = 0;
-      ptr = new Word[64];
-      begin = ptr;
-      end = ptr + 64;
-  }
 
   // byte size of stream
   __device__ __host__
@@ -147,7 +228,7 @@ encode_ints_old(BitStream* stream, const UInt* data, uint minbits, uint maxbits,
 template<class UInt>
 __device__ __host__
 static void
-encode_ints(BitStream & stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
+encode_ints(Bit & stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
 {
   if (!maxbits)
     return;
