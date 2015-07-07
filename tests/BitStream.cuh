@@ -119,7 +119,7 @@ public:
   Word* end;   // end of stream
 
   // byte size of stream
-  __device__ __host__
+   __host__
   size_t
   size()
   {
@@ -127,7 +127,7 @@ public:
   }
 
   // write single bit (must be 0 or 1)
-  __device__ __host__
+  __host__
   void
   write_bit(uint bit)
   {
@@ -141,7 +141,7 @@ public:
 
 
   // write 0 <= n <= 64 least significant bits of value and return remaining bits
-  __device__ __host__
+  __host__
   unsigned long long
   write_bits(unsigned long long value, uint n)
   {
@@ -170,7 +170,7 @@ public:
 
 
   // flush out any remaining buffered bits
-  __device__ __host__
+  __host__
   void
   flush()
   {
@@ -178,7 +178,7 @@ public:
       write_bits( 0, wsize - bits);
   }
 
-  __device__ __host__
+  __host__
   void
   seek( size_t offset)
   {
@@ -199,7 +199,7 @@ precision(int maxexp, uint maxprec, int minexp)
 }
 
 template<class UInt>
-__device__ __host__
+ __host__
 static void
 encode_ints_old(BitStream* stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
 {
@@ -279,7 +279,7 @@ stream_create(size_t bytes)
   stream->buffer = 0;
   stream->ptr = new Word[bytes];
   stream->begin = stream->ptr;
-  stream->end = stream->begin + bytes / sizeof(Word);
+  stream->end = stream->begin + bytes;
   return stream;
 }
 
