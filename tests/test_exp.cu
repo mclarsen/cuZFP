@@ -121,7 +121,7 @@ void GPUTestFREXP(
     cudaEventSynchronize(stop);
     cudaEventElapsedTime( &millisecs, start, stop );
 
-    cout << "FREXP GPU sum: " << sum << " in time: " << time << endl;
+    cout << "FREXP GPU sum: " << sum << " in time: " << millisecs << endl;
 
     cudaEventDestroy( start );
     cudaEventDestroy( stop );
