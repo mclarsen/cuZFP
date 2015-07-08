@@ -63,6 +63,9 @@ set(CUDA_NVCC_FLAGS "-arch;sm_21;--ptxas-options=-v;-Xptxas;-O3")
 #set(CUDA_NVCC_FLAGS "-arch;sm_30")
 #for k20
 #set(CUDA_NVCC_FLAGS " -gencode arch=compute_35,code=sm_35;--ptxas-options=-v;-use_fast_math")
+#for 860m (maxwell) with CUDA 6.0
+set(CUDA_NVCC_FLAGS " -arch;sm_50")
+
 
 
 INCLUDE_DIRECTORIES(

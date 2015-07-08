@@ -9,34 +9,39 @@ typedef unsigned long long Word;
 
 static const uint wsize = bitsize(Word);
 
+
+template<uint bsize>
 class Bit
 {
 public:
     uint bits;   // number of buffered bits (0 <= bits < wsize)
     Word buffer; // buffer for incoming/outgoing bits
-    Word* ptr;   // pointer to next word to be read/written
-    Word begin[64]; // beginning of stream
+    char offset;   // pointer to next word to be read/written
+    Word begin[bsize]; // beginning of stream
     Word* end;   // end of stream
 
     __device__ __host__
     Bit(){
         bits = 0;
         buffer = 0;
-        ptr = begin;
-        for (int i=0; i<64; i++){
-            ptr[i] = 0;
+        offset = 0;
+        for (int i=0; i<bsize; i++){
+            begin[i] = 0;
         }
 
-        end = ptr + 64;
+        end = begin + bsize;
     }
 
     __device__ __host__
     Bit(const Bit &bs)
     {
-        bits = 0;
-        buffer = 0;
-        ptr = begin;
-        end = ptr + 64;
+        bits = bs.bits;
+        buffer = bs.buffer;
+        offset = bs.offset;
+        for (int i=0; i<bsize; i++){
+            begin[i] = bs.begin[i];
+        }
+        end = begin + bsize;
     }
 
     // byte size of stream
@@ -44,7 +49,7 @@ public:
     size_t
     size()
     {
-      return sizeof(Word) * (ptr - begin);
+      return sizeof(Word) * (offset);
     }
 
     // write single bit (must be 0 or 1)
@@ -54,7 +59,7 @@ public:
     {
       buffer += (Word)bit << bits;
       if (++bits == wsize) {
-        *ptr++ = buffer;
+        begin[offset++] = buffer;
         buffer = 0;
         bits = 0;
       }
@@ -68,9 +73,9 @@ public:
     {
       if (n == bitsize(value)) {
         if (!bits)
-          *ptr++ = value;
+          begin[offset++] = value;
         else {
-          *ptr++ = buffer + (value << bits);
+          begin[offset++] = buffer + (value << bits);
           buffer = value >> (bitsize(value) - bits);
         }
         return 0;
@@ -82,7 +87,7 @@ public:
         bits += n;
         if (bits >= wsize) {
           bits -= wsize;
-          *ptr++ = buffer;
+          begin[offset++] = buffer;
           buffer = value >> (n - bits);
         }
         return v;
@@ -100,9 +105,9 @@ public:
 
     __device__ __host__
     void
-    seek( size_t offset)
+    seek( size_t _offset)
     {
-      ptr = begin + offset/wsize;
+      offset = _offset/wsize;
       bits = 0;
       buffer = 0u;
     }
@@ -238,7 +243,7 @@ encode_ints_old(BitStream* stream, const UInt* data, uint minbits, uint maxbits,
 template<class UInt>
 __device__ __host__
 static void
-encode_ints(Bit & stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
+encode_ints(Bit<64> & stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
 {
   if (!maxbits)
     return;
@@ -283,20 +288,20 @@ stream_create(size_t bytes)
   return stream;
 }
 
-template< class UInt>
+template< class UInt, uint bsize>
 __global__
 void cudaencode
 (
         const UInt *q,
-        Bit *stream,
+        Bit<bsize> *stream,
         const int *emax,
         uint minbits, uint maxbits, uint maxprec, int minexp, unsigned long long group_count, uint size
 
         )
 {
-    int x = threadIdx.x + blockDim.x*blockIdx.x;
-    int y = threadIdx.y  + blockDim.y*blockIdx.y;
-    int z = threadIdx.z + blockDim.z*blockIdx.z;
-    int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
-    encode_ints(stream[idx], q + idx * 64, minbits, maxbits, precision(emax[idx], maxprec, minexp), group_count, size);
+    int idx = threadIdx.x + blockDim.x*blockIdx.x;
+    extern __shared__ Bit<bsize> s_bits[];
+    s_bits[threadIdx.x] = stream[idx];
+    encode_ints(s_bits[threadIdx.x], q + idx * bsize, minbits, maxbits, precision(emax[idx], maxprec, minexp), group_count, size);
+    stream[idx] = s_bits[threadIdx.x];
 }
