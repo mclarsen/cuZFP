@@ -19,6 +19,7 @@ public:
     char offset;   // pointer to next word to be read/written
     Word begin[bsize]; // beginning of stream
     Word* end;   // end of stream
+    unsigned long long x;
 
     __device__ __host__
     Bit(){
@@ -30,6 +31,9 @@ public:
         }
 
         end = begin + bsize;
+
+
+        x = 0;
     }
 
     __device__ __host__
@@ -42,6 +46,8 @@ public:
             begin[i] = bs.begin[i];
         }
         end = begin + bsize;
+
+        x = bs.x;
     }
 
     // byte size of stream
@@ -240,10 +246,10 @@ encode_ints_old(BitStream* stream, const UInt* data, uint minbits, uint maxbits,
     stream->write_bit(0);
 }
 
-template<class UInt>
+template<class UInt, uint bsize>
 __device__ __host__
 static void
-encode_ints(Bit<64> & stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
+encode_ints(Bit<bsize> & stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
 {
   if (!maxbits)
     return;
@@ -255,17 +261,17 @@ encode_ints(Bit<64> & stream, const UInt* data, uint minbits, uint maxbits, uint
   for (uint k = intprec, n = 0; k-- > kmin;) {
       if (bits){
         // extract bit plane k to x
-        unsigned long long x = 0;
+        stream.x = 0;
         for (uint i = 0; i < size; i++)
-          x += ((data[i] >> k) & (unsigned long long)1) << i;
+          stream.x += ((data[i] >> k) & (unsigned long long)1) << i;
         // encode bit plane
         for (uint m = n;; m = count & 0xfu, count >>= 4, n += m) {
           // encode bit k for next set of m values
           m = MIN(m, bits);
           bits -= m;
-          x = stream.write_bits(x, m);
+          stream.x = stream.write_bits(stream.x, m);
           // continue with next bit plane if out of groups or group test passes
-          if (!count || (bits--, stream.write_bit(!!x), !x))
+          if (!count || (bits--, stream.write_bit(!!stream.x), !stream.x))
             break;
         }
       }
@@ -301,7 +307,11 @@ void cudaencode
 {
     int idx = threadIdx.x + blockDim.x*blockIdx.x;
     extern __shared__ Bit<bsize> s_bits[];
+
     s_bits[threadIdx.x] = stream[idx];
-    encode_ints(s_bits[threadIdx.x], q + idx * bsize, minbits, maxbits, precision(emax[idx], maxprec, minexp), group_count, size);
+
+    encode_ints<UInt, bsize>(s_bits[threadIdx.x], q + idx * bsize, minbits, maxbits, precision(emax[idx], maxprec, minexp), group_count, size);
     stream[idx] = s_bits[threadIdx.x];
+//    encode_ints<UInt, bsize>(stream[idx], q + idx * bsize, minbits, maxbits, precision(emax[idx], maxprec, minexp), group_count, size);
+
 }
