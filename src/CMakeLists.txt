@@ -8,9 +8,22 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR}
 )
 
 ##############################################################################
+
 # Use one executable only.
 CUDA_ADD_LIBRARY(zfp
-	libzfp.cpp
+bitstream.c
+decode1f.c
+decode1d.c 
+encode1f.c 
+encode1d.c 
+decode2f.c 
+decode2d.c 
+encode2f.c 
+encode2d.c 
+decode3f.c 
+decode3d.c 
+encode3f.c 
+encode3d.c
 	
 )
 
