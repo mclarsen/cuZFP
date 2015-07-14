@@ -180,6 +180,63 @@ public:
   }
 
 
+  /*****************************************************************************************/
+  /* read single bit (0 or 1) */
+  __host__
+  int
+  read_bit()
+  {
+    uint bit;
+    if (!bits) {
+      buffer = *ptr++;
+      bits = wsize;
+    }
+    bits--;
+    bit = (uint)buffer & 1u;
+    buffer >>= 1;
+    return bit;
+  }
+  /* read 0 <= n <= 64 bits */
+  __host__
+  unsigned long long
+  read_bits(uint n)
+  {
+  #if 0
+    /* read bits in LSB to MSB order */
+    uint64 value = 0;
+    for (uint i = 0; i < n; i++)
+      value += (uint64)stream_read_bit(stream) << i;
+    return value;
+  #elif 1
+    unsigned long long value;
+    /* because shifts by 64 are not possible, treat n = 64 specially */
+    if (n == bitsize(value)) {
+      if (!bits)
+        value = *ptr++;
+      else {
+        value = buffer;
+        buffer = *ptr++;
+        value += buffer << bits;
+        buffer >>= n - bits;
+      }
+    }
+    else {
+      value = buffer;
+      if (bits < n) {
+        /* not enough bits buffered; fetch wsize more */
+        buffer = *ptr++;
+        value += buffer << bits;
+        buffer >>= n - bits;
+        bits += wsize;
+      }
+      else
+        buffer >>= n;
+      value -= buffer << n;
+      bits -= n;
+    }
+    return value;
+  #endif
+  }
   // flush out any remaining buffered bits
   __host__
   void
@@ -187,6 +244,16 @@ public:
   {
     if (bits)
       write_bits( 0, wsize - bits);
+  }
+
+  /* rewind stream to beginning */
+  __host__
+  void
+  rewind()
+  {
+    ptr = begin;
+    bits = 0;
+    buffer = 0;
   }
 
   __host__

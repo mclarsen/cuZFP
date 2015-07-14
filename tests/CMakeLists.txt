@@ -100,7 +100,7 @@ cudart
 
 CUDA_ADD_EXECUTABLE(zfp_test_fixed
 ErrorCheck.cpp
-fixed_point.cuh
+encode.cuh
 test_fixed_point.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_fixed
@@ -110,7 +110,7 @@ cudart
 
 CUDA_ADD_EXECUTABLE(zfp_test_decorrelate
 ErrorCheck.cpp
-fixed_point.cuh
+encode.cuh
 test_decorrelate.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_decorrelate
@@ -120,7 +120,7 @@ cudart
 
 CUDA_ADD_EXECUTABLE(zfp_test_int2uint
 ErrorCheck.cpp
-fixed_point.cuh
+encode.cuh
 test_int2uint.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_int2uint
@@ -130,11 +130,23 @@ cudart
 
 CUDA_ADD_EXECUTABLE(zfp_test_bitstream
 ErrorCheck.cpp
-fixed_point.cuh
+encode.cuh
 BitStream.cuh
 test_bitstream.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_bitstream
+gomp
+cudart
+)
+
+CUDA_ADD_EXECUTABLE(zfp_test_decode
+ErrorCheck.cpp
+encode.cuh
+decode.cuh
+BitStream.cuh
+test_decode.cu
+)
+TARGET_LINK_LIBRARIES(zfp_test_decode
 gomp
 cudart
 )
