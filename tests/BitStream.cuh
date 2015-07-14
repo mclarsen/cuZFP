@@ -118,6 +118,72 @@ public:
       buffer = 0u;
     }
 
+    /*****************************************************************************************/
+    /* read single bit (0 or 1) */
+    __host__ __device__
+    int
+    read_bit()
+    {
+      uint bit;
+      if (!bits) {
+        buffer = begin[offset++];
+        bits = wsize;
+      }
+      bits--;
+      bit = (uint)buffer & 1u;
+      buffer >>= 1;
+      return bit;
+    }
+    /* read 0 <= n <= 64 bits */
+    __host__ __device__
+    unsigned long long
+    read_bits(uint n)
+    {
+    #if 0
+      /* read bits in LSB to MSB order */
+      uint64 value = 0;
+      for (uint i = 0; i < n; i++)
+        value += (uint64)stream_read_bit(stream) << i;
+      return value;
+    #elif 1
+      unsigned long long value;
+      /* because shifts by 64 are not possible, treat n = 64 specially */
+      if (n == bitsize(value)) {
+        if (!bits)
+          value = begin[offset++];//*ptr++;
+        else {
+          value = buffer;
+          buffer = begin[offset++];//*ptr++;
+          value += buffer << bits;
+          buffer >>= n - bits;
+        }
+      }
+      else {
+        value = buffer;
+        if (bits < n) {
+          /* not enough bits buffered; fetch wsize more */
+          buffer = begin[offset++];//*ptr++;
+          value += buffer << bits;
+          buffer >>= n - bits;
+          bits += wsize;
+        }
+        else
+          buffer >>= n;
+        value -= buffer << n;
+        bits -= n;
+      }
+      return value;
+    #endif
+    }
+    /* rewind stream to beginning */
+    __host__
+    void
+    rewind()
+    {
+      offset = 0;//ptr = begin;
+      bits = 0;
+      buffer = 0;
+    }
 };
 
 // bit stream structure (opaque to caller)

@@ -267,28 +267,48 @@ void cpuTestBitStream
     }
 
 
-//    double start_time = omp_get_wtime();
+    double start_time = omp_get_wtime();
 //#pragma omp parallel for
-//    for (int z=0; z<nz; z+=4){
-//        for (int y=0; y<ny; y+=4){
-//            for (int x=0; x<nx; x+=4){
-//                int idx = z*nx*ny + y*nx + x;
-//                Int q2[64];
-//                UInt buf[64];
+    for (int z=0; z<nz; z+=4){
+        for (int y=0; y<ny; y+=4){
+            for (int x=0; x<nx; x+=4){
+                int idx = z*nx*ny + y*nx + x;
+                Int q2[64];
+                UInt buf[64];
 
-//                int emax2 = max_exp<Scalar>(raw_pointer_cast(p.data()), idx, 1,nx,nx*ny);
-//                fixed_point(q2,raw_pointer_cast(p.data()), emax2, idx, 1,nx,nx*ny);
-//                fwd_xform<Int>(q2);
-//                reorder<Int, UInt>(q2, buf);
-//                encode_ints<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
-//            }
-//        }
-//    }
+                int emax2 = max_exp<Scalar>(raw_pointer_cast(p.data()), idx, 1,nx,nx*ny);
+                fixed_point(q2,raw_pointer_cast(p.data()), emax2, idx, 1,nx,nx*ny);
+                fwd_xform<Int>(q2);
+                reorder<Int, UInt>(q2, buf);
+                encode_ints<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
 
-//    double elapsed_time = omp_get_wtime() - start_time;
-//    cout << "CPU elapsed time: " <<  elapsed_time << endl;
-//    validateCPU(stream_old, stream);
-//    //validateEncode(stream_old, p);
+                stream[z/4*mx*my + y/4*mx + x/4].rewind();
+                UInt dec[64];
+                decode_ints<UInt, bsize>(stream[z/4*mx*my + y/4*mx + x/4], dec, minbits, maxbits, maxprec, group_count, size);
+                Int iblock[64];
+                inv_order(dec, iblock, perm, 64);
+//                for (int i=0; i<64; i++){
+//                    assert(iblock[i] == q2[i]);
+//                }
+                inv_xform(iblock);
+//                for (int i=0; i<64; i++){
+//                    assert(iblock[i] == q1[i]);
+//                }
+                Scalar fblock[64], cblock[64];
+                gather<Scalar>(cblock, raw_pointer_cast(p.data()),x,y,z, 1,nx,nx*ny);
+                inv_cast<Int, Scalar, sizeof(Scalar)>(iblock, fblock, 64, emax2);
+                for (int i=0; i<64; i++){
+                    assert(FABS(fblock[i] - cblock[i]) < 1e-6);
+                }
+
+            }
+        }
+    }
+
+    double elapsed_time = omp_get_wtime() - start_time;
+    cout << "CPU elapsed time: " <<  elapsed_time << endl;
+    //validateCPU(stream_old, stream);
+    //validateEncode(stream_old, p);
 }
 
 template<class Int, class UInt, class Scalar, uint bsize>

@@ -154,3 +154,56 @@ exit:
   *stream = s;
   return maxbits - bits;
 }
+
+template<class UInt, uint bsize>
+__device__ __host__
+static uint
+decode_ints(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
+{
+    uint intprec = CHAR_BIT * (uint)sizeof(UInt);
+    uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+    uint bits = maxbits;
+    uint i, k, m, n, test;
+    unsigned long long x;
+
+    /* initialize data array to all zeros */
+    for (i = 0; i < size; i++)
+      data[i] = 0;
+
+    /* input one bit plane at a time from MSB to LSB */
+    for (k = intprec, n = 0; k-- > kmin;) {
+      /* decode bit plane k */
+      UInt* p = data;
+      for (m = n;;) {
+        if (bits){
+            /* decode bit k for the next set of m values */
+            m = MIN(m, bits);
+            bits -= m;
+            for (x = stream.read_bits(m); m; m--, x >>= 1)
+              *p++ += (UInt)(x & 1u) << k;
+            /* continue with next bit plane if there are no more groups */
+            if (!count || !bits)
+              break;
+            /* perform group test */
+            bits--;
+            test = stream.read_bit();
+            /* continue with next bit plane if there are no more significant bits */
+            if (!test || !bits)
+              break;
+            /* decode next group of m values */
+            m = count & 0xfu;
+            count >>= 4;
+            n += m;
+        }
+      }
+    }
+
+    /* read at least minbits bits */
+    while (bits > maxbits - minbits) {
+      bits--;
+      stream.read_bit();
+    }
+
+    return maxbits - bits;
+
+}
