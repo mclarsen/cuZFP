@@ -176,7 +176,7 @@ public:
     #endif
     }
     /* rewind stream to beginning */
-    __host__
+    __host__ __device__
     void
     rewind()
     {

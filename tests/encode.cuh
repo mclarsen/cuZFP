@@ -2,6 +2,7 @@
 
 
 __constant__ unsigned char c_perm[64];
+__constant__ uint c_sizeof_scalar;
 
 #define LDEXP(x, e) ldexp(x, e)
 #define FREXP(x, e) frexp(x, e)
@@ -104,10 +105,10 @@ void decompIdx
         uint &z
         )
 {
-    z = idx / (sz);
-    uint rem = idx % sz;
-    y = rem == 0  ? 0  : rem / sy;
-    x = rem == 0 ? 0 : rem % sy;
+    z = sz == 0 ? 0 : idx / (sz);
+    uint rem = sz == 0 ? 0: idx % sz;
+    y = sy == 0  ? 0  : rem / sy;
+    x = sy == 0 ? 0 : rem % sy;
 }
 
 template<class Scalar>

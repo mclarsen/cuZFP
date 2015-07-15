@@ -4,8 +4,16 @@
 #define NBMASK 0xaaaaaaaaaaaaaaaaull
 #define LDEXP(x, e) ldexp(x, e)
 
-template<class Int, class Scalar, int sizeof_scalar>
-__host__ __device__
+template<class Int, class Scalar>
+__device__
+Scalar
+dequantize(Int x, int e)
+{
+  return LDEXP((double)x, e - (CHAR_BIT * c_sizeof_scalar - 2));
+}
+
+template<class Int, class Scalar, uint sizeof_scalar>
+__host__
 Scalar
 dequantize(Int x, int e)
 {
@@ -13,17 +21,23 @@ dequantize(Int x, int e)
 }
 
 /* inverse block-floating-point transform from signed integers */
-template<class Int, class Scalar, int sizeof_scalar>
+template<class Int, class Scalar>
 __host__ __device__
 void
-inv_cast(const Int* iblock, Scalar* fblock, uint n, int emax)
+inv_cast(const Int* p, Scalar* q, int emax, uint mx, uint my, uint mz, uint sx, uint sy, uint sz)
 {
+
   /* compute power-of-two scale factor s */
-  Scalar s = dequantize<Int, Scalar, sizeof_scalar>(1, emax);
+  Scalar s = dequantize<Int, Scalar>(1, emax);
   /* compute p-bit float x = s*y where |y| <= 2^(p-2) - 1 */
-  do
-    *fblock++ = (Scalar)(s * *iblock++);
-  while (--n);
+//  do
+//    *fblock++ = (Scalar)(s * *iblock++);
+//  while (--n);
+  for (int z=mz; z<mz+4; z++)
+      for (int y=my; y<my+4; y++)
+          for (int x=mx; x<mx+4; x++,q++)
+              *q = (Scalar)(s * p[z*sz+y*sy+x*sx]);
+
 }
 
 /* inverse lifting transform of 4-vector */
@@ -80,23 +94,13 @@ inv_xform(Int* p)
 /* map two's complement signed integer to negabinary unsigned integer */
 template<class Int, class UInt>
 __host__ __device__
-static Int
+Int
 uint2int(UInt x)
 {
   return (x ^ NBMASK) - NBMASK;
 }
 
 
-/* reorder unsigned coefficients and convert to signed integer */
-template<class Int, class UInt>
-__host__ __device__
-static void
-inv_order(const UInt* ublock, Int* iblock, const unsigned char* perm, uint n)
-{
-  do
-    iblock[*perm++] = uint2int<UInt>(*ublock++);
-  while (--n);
-}
 
 
 /* decompress sequence of unsigned integers */
@@ -155,9 +159,24 @@ exit:
   return maxbits - bits;
 }
 
+template<uint bsize>
+__global__
+void cudaRewind
+(
+        Bit<bsize> * stream
+        )
+{
+    int x = threadIdx.x + blockDim.x*blockIdx.x;
+    int y = threadIdx.y  + blockDim.y*blockIdx.y;
+    int z = threadIdx.z + blockDim.z*blockIdx.z;
+    int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
+
+    stream[idx].rewind();
+}
+
 template<class UInt, uint bsize>
 __device__ __host__
-static uint
+uint
 decode_ints(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
 {
     uint intprec = CHAR_BIT * (uint)sizeof(UInt);
@@ -207,3 +226,75 @@ decode_ints(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uint ma
     return maxbits - bits;
 
 }
+
+template< class UInt, uint bsize>
+__global__
+void cudaDecode
+(
+        UInt *q,
+        Bit<bsize> *stream,
+        const int *emax,
+        uint minbits, uint maxbits, uint maxprec, int minexp, unsigned long long group_count, uint size
+
+        )
+{
+    int idx = threadIdx.x + blockDim.x*blockIdx.x;
+    extern __shared__ Bit<bsize> s_bits[];
+
+    s_bits[threadIdx.x] = stream[idx];
+
+    decode_ints<UInt, bsize>(s_bits[threadIdx.x], q + idx * bsize, minbits, maxbits, precision(emax[idx], maxprec, minexp), group_count, size);
+    stream[idx] = s_bits[threadIdx.x];
+//    encode_ints<UInt, bsize>(stream[idx], q + idx * bsize, minbits, maxbits, precision(emax[idx], maxprec, minexp), group_count, size);
+
+}
+template<class Int, class UInt>
+__global__
+void cudaInvOrder
+(
+        const UInt *p,
+        Int *q
+        )
+{
+    int x = threadIdx.x + blockDim.x*blockIdx.x;
+    int y = threadIdx.y  + blockDim.y*blockIdx.y;
+    int z = threadIdx.z + blockDim.z*blockIdx.z;
+    int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
+    q[c_perm[idx%64] + idx - idx % 64] = uint2int<Int, UInt>(p[idx]);
+
+}
+
+template<class Int>
+__global__
+void cudaInvXForm
+(
+        Int *iblock
+        )
+{
+    int x = threadIdx.x + blockDim.x*blockIdx.x;
+    int y = threadIdx.y  + blockDim.y*blockIdx.y;
+    int z = threadIdx.z + blockDim.z*blockIdx.z;
+    int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
+    inv_xform(iblock + idx*64);
+
+}
+
+template<class Int, class Scalar>
+__global__
+void cudaInvCast
+(
+        const int *emax,
+        Scalar *data,
+        const Int *q
+        )
+{
+    int x = threadIdx.x + blockDim.x*blockIdx.x;
+    int y = threadIdx.y  + blockDim.y*blockIdx.y;
+    int z = threadIdx.z + blockDim.z*blockIdx.z;
+    int eidx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
+
+    x *= 4; y*=4; z*=4;
+    //int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
+    inv_cast<Int, Scalar>(q + eidx*64, data, emax[eidx], x,y,z, 1, gridDim.x*blockDim.x*4, gridDim.x*blockDim.x*4*gridDim.y*blockDim.y*4);
+}
+

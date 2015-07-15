@@ -20,9 +20,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 128;
-const size_t ny = 128;
-const size_t nz = 128;
+const size_t nx = 64;
+const size_t ny = 64;
+const size_t nz = 64;
 
 uint minbits = 4096;
 uint maxbits = 4096;
@@ -125,17 +125,32 @@ perm[64] = {
 static size_t block_size(double rate) { return (lrint(64 * rate) + CHAR_BIT - 1) / CHAR_BIT; }
 
 
+template<class Scalar>
 void setupConst(const unsigned char *perm)
 {
     ErrorCheck ec;
     ec.chk("setupConst start");
-    cudaMemcpyToSymbol(c_perm, perm, sizeof(unsigned char)*64,0); ec.chk("setupConst: lic_dim");
+    cudaMemcpyToSymbol(c_perm, perm, sizeof(unsigned char)*64,0); ec.chk("setupConst: c_perm");
+
+    const uint sizeof_scalar = sizeof(Scalar);
+    cudaMemcpyToSymbol(c_sizeof_scalar, &sizeof_scalar, sizeof(uint)); ec.chk("setupConst: c_sizeof_scalar");
+
     ec.chk("setupConst finished");
 
 
 }
 
 
+/* reorder unsigned coefficients and convert to signed integer */
+template<class Int, class UInt>
+__host__
+static void
+inv_order(const UInt* ublock, Int* iblock, const unsigned char* perm, uint n)
+{
+  do
+    iblock[*perm++] = uint2int<UInt>(*ublock++);
+  while (--n);
+}
 
 
 //Used to generate rand array in CUDA with Thrust
@@ -257,7 +272,7 @@ void cpuTestBitStream
                 Scalar fblock[64], cblock[64];
                 gather<Scalar>(cblock, raw_pointer_cast(p.data()),x,y,z, 1,nx,nx*ny);
 
-                inv_cast<Int, Scalar, sizeof(Scalar)>(iblock, fblock, 64, emax2);
+                inv_cast<Int, Scalar, sizeof(Scalar)>(iblock, fblock, emax2, 0,0,0, 1, 4,16);
                 for (int i=0; i<64; i++){
                     assert(FABS(fblock[i] - cblock[i]) < 1e-6);
                 }
@@ -268,7 +283,7 @@ void cpuTestBitStream
 
 
     double start_time = omp_get_wtime();
-//#pragma omp parallel for
+#pragma omp parallel for
     for (int z=0; z<nz; z+=4){
         for (int y=0; y<ny; y+=4){
             for (int x=0; x<nx; x+=4){
@@ -296,7 +311,7 @@ void cpuTestBitStream
 //                }
                 Scalar fblock[64], cblock[64];
                 gather<Scalar>(cblock, raw_pointer_cast(p.data()),x,y,z, 1,nx,nx*ny);
-                inv_cast<Int, Scalar, sizeof(Scalar)>(iblock, fblock, 64, emax2);
+                inv_cast<Int, Scalar, sizeof(Scalar)>(iblock, fblock, emax2, 0,0,0, 1,4,16);
                 for (int i=0; i<64; i++){
                     assert(FABS(fblock[i] - cblock[i]) < 1e-6);
                 }
@@ -419,8 +434,8 @@ void gpuTestBitStream
                 );
     ec.chk("cudaint2uint");
 
-    q.clear();
-    q.shrink_to_fit();
+//    q.clear();
+//    q.shrink_to_fit();
 
     device_vector<Bit<bsize> > stream(emax_size.x * emax_size.y * emax_size.z);
 
@@ -443,7 +458,63 @@ void gpuTestBitStream
 
     cout << "encode GPU in time: " << millisecs << endl;
 
-    gpuValidate<Int, UInt, Scalar, bsize>(data, buffer, stream);
+    block_size = dim3(8,8,8);
+    grid_size =  emax_size;
+    grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+    cudaRewind<bsize><<< grid_size,block_size >>>
+        (
+            raw_pointer_cast(stream.data())
+        );
+    ec.chk("cudaRewind");
+
+    block_size = dim3(8,8,8);
+    grid_size =  emax_size;
+    grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+    cudaDecode<UInt, bsize><<< emax_size.x*emax_size.y*emax_size.z/16,16, 16*(sizeof(Bit<bsize>) + sizeof(int))>>>
+        (
+             raw_pointer_cast(buffer.data()),
+             raw_pointer_cast(stream.data()),
+             raw_pointer_cast(emax.data()),
+             minbits, maxbits, maxprec, minexp, group_count, size
+        );
+    cudaStreamSynchronize(0);
+    ec.chk("cudaDecode");
+
+    block_size = dim3(8,8,8);
+    grid_size = dim3(nx,ny,nz);
+    grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+    cudaInvOrder<<<grid_size, block_size>>>
+        (
+            raw_pointer_cast(buffer.data()),
+            raw_pointer_cast(q.data())
+        );
+    cudaStreamSynchronize(0);
+    ec.chk("cudaInvOrder");
+
+    block_size = dim3(8,8,8);
+    grid_size = emax_size;
+    grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
+
+    cudaInvXForm<Int><<<grid_size, block_size>>>
+        (
+            raw_pointer_cast(q.data())
+        );
+    cudaStreamSynchronize(0);
+    ec.chk("cudaInvXForm");
+
+    block_size = dim3(8,8,8);
+    grid_size = emax_size;
+    grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
+
+    cudaInvCast<Int, Scalar><<<grid_size, block_size>>>
+            (
+                raw_pointer_cast(emax.data()),
+                raw_pointer_cast(data.data()),
+                raw_pointer_cast(q.data())
+                );
+    ec.chk("cudaInvCast");
+
+    //gpuValidate<Int, UInt, Scalar, bsize>(data, buffer, stream);
 
 }
 
@@ -464,11 +535,11 @@ int main()
 
     h_vec_in = d_vec_in;
 //    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
-    setupConst(perm);
-//    cout << "Begin gpuTestBitStream" << endl;
-//    gpuTestBitStream<long long, unsigned long long, double, 64>(d_vec_in, d_vec_out, d_vec_buffer);
-//    cout << "Finish gpuTestBitStream" << endl;
-    cout << "Begin cpuTestBitStream" << endl;
-    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
-    cout << "End cpuTestBitStream" << endl;
+    setupConst<double>(perm);
+    cout << "Begin gpuTestBitStream" << endl;
+    gpuTestBitStream<long long, unsigned long long, double, 64>(d_vec_in, d_vec_out, d_vec_buffer);
+   cout << "Finish gpuTestBitStream" << endl;
+//    cout << "Begin cpuTestBitStream" << endl;
+//    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
+//    cout << "End cpuTestBitStream" << endl;
 }
