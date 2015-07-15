@@ -329,18 +329,17 @@ void cpuTestBitStream
 template<class Int, class UInt, class Scalar, uint bsize>
 void gpuValidate
 (
-        device_vector<Scalar> &data,
-        device_vector<UInt> &buffer,
-        device_vector<Bit<bsize> > &stream
+        host_vector<Scalar> &p,
+        device_vector<Int> &q,
+        device_vector<Scalar> &data
         )
 {
     host_vector<Scalar> h_p;
-    host_vector<UInt> h_buf;
-    host_vector<Bit<bsize> > h_bits;
+    host_vector<Int> h_q;
 
     h_p = data;
-    h_buf = buffer;
-    h_bits = stream;
+    h_q = q;
+
 
     int i=0;
     for (int z=0; z<nz; z+=4){
@@ -356,14 +355,29 @@ void gpuValidate
                 reorder<Int, UInt>(raw_pointer_cast(q2.data()), raw_pointer_cast(buf.data()));
                 encode_ints<UInt>(loc_stream,  raw_pointer_cast(buf.data()), minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
 
+                loc_stream.rewind();
+                UInt dec[64];
+                decode_ints<UInt, bsize>(loc_stream, dec, minbits, maxbits,  precision(emax2, maxprec, minexp),group_count,size);
+
                 for (int j=0; j<64; j++){
-                    assert(h_bits[i].begin[j] == loc_stream.begin[j]);
+                    assert(dec[j] == buf[j]);
+                }
+
+                Int iblock[64];
+                inv_order(dec, iblock, perm, 64);
+                inv_xform(iblock);
+
+                for (int j=0; j<64; j++){
+                    assert(h_q[i*64+j] == iblock[j]);
                 }
 
                 i++;
 
             }
         }
+    }
+    for (int i=0; i<h_p.size(); i++){
+        assert(h_p[i] == p[i]);
     }
 }
 
@@ -381,6 +395,9 @@ void gpuTestBitStream
     host_vector<Int> h_q;
     host_vector<UInt> h_buf;
     host_vector<Bit<bsize> > h_bits;
+
+    host_vector<Scalar> h_data;
+    h_data = data;
 
     dim3 emax_size(nx/4, ny/4, nz/4 );
 
@@ -514,7 +531,7 @@ void gpuTestBitStream
                 );
     ec.chk("cudaInvCast");
 
-    //gpuValidate<Int, UInt, Scalar, bsize>(data, buffer, stream);
+    gpuValidate<Int, UInt, Scalar, bsize>(h_data, q, data);
 
 }
 

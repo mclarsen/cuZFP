@@ -35,8 +35,8 @@ inv_cast(const Int* p, Scalar* q, int emax, uint mx, uint my, uint mz, uint sx, 
 //  while (--n);
   for (int z=mz; z<mz+4; z++)
       for (int y=my; y<my+4; y++)
-          for (int x=mx; x<mx+4; x++,q++)
-              *q = (Scalar)(s * p[z*sz+y*sy+x*sx]);
+          for (int x=mx; x<mx+4; x++,p++)
+              q[z*sz+y*sy+x*sx] = (Scalar)(s * *p);
 
 }
 
