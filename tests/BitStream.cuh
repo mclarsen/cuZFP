@@ -484,17 +484,15 @@ extract_bit
 
 }
 
- template<class UInt, uint bsize>
- __device__ __host__
- static void
- encode_ints_par(Bit<bsize> & stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
+
+template<class UInt, uint bsize>
+__device__ __host__
+void
+encode_group_test(unsigned long long *x, uint *g, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
  {
      uint intprec = CHAR_BIT * (uint)sizeof(UInt);
      uint kmin = intprec > maxprec ? intprec - maxprec : 0;
-     uint bits = maxbits;
-     uint m, n;
-     unsigned long long x[CHAR_BIT * sizeof(UInt)];
-     uint g[CHAR_BIT * sizeof(UInt)];
+
 
      if (!maxbits)
       return;
@@ -504,8 +502,16 @@ extract_bit
      for (uint k = kmin; k < intprec; k++) {
         extract_bit(k, x[k], g[k], data, count, size);
      }
+}
 
+template<class UInt, uint bsize>
+__device__ __host__
+void encode_bit_plane(const unsigned long long *x, const uint *g, Bit<bsize> & stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count)
+{
+    uint m, n;
      uint h = 0, k = 0;
+     uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+     uint bits = maxbits;
      /* serial: output one bit plane at a time from MSB to LSB */
      for (k = intprec, n = 0, h = 0; k-- > kmin;) {
       /* encode bit k for first n values */
@@ -553,6 +559,18 @@ extract_bit
       bits--;
      }
  }
+template<class UInt, uint bsize>
+__device__ __host__
+static void
+encode_ints_par(Bit<bsize> & stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
+{
+    unsigned long long x[CHAR_BIT * sizeof(UInt)];
+    uint g[CHAR_BIT * sizeof(UInt)];
+
+    encode_group_test<UInt, bsize>(x, g, data, minbits, maxbits, maxprec, count, size);
+    encode_bit_plane<UInt, bsize>(x, g, stream, data, minbits, maxbits, maxprec, count);
+
+}
 
 template<class UInt, uint bsize>
 __device__ __host__
