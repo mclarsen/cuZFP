@@ -204,7 +204,7 @@ public:
   }
 
   // write single bit (must be 0 or 1)
-  __host__
+  __host__ __device__
   void
   write_bit(uint bit)
   {
@@ -218,7 +218,7 @@ public:
 
 
   // write 0 <= n <= 64 least significant bits of value and return remaining bits
-  __host__
+  __host__ __device__
   unsigned long long
   write_bits(unsigned long long value, uint n)
   {
@@ -377,6 +377,85 @@ encode_ints_old(BitStream* stream, const UInt* data, uint minbits, uint maxbits,
   // pad with zeros in case fewer than minbits bits have been written
   while (bits-- > maxbits - minbits)
     stream->write_bit(0);
+}
+
+
+/* compress sequence of unsigned integers */
+template<class UInt>
+ __device__ __host__
+void
+encode_ints_old_par(BitStream* stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
+{
+    uint intprec = CHAR_BIT * (uint)sizeof(UInt);
+    uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+    uint bits = maxbits;
+    uint i, k, m, n;
+    unsigned long long x[CHAR_BIT * sizeof(UInt)], y, c;
+    uint g[CHAR_BIT * sizeof(UInt)], h;
+
+    if (!maxbits)
+     return;
+
+    /* parallel: extract and group test bit planes */
+    for (k = kmin; k < intprec; k++) {
+     /* extract bit plane k to x[k] */
+     y = 0;
+     for (i = 0; i < size; i++)
+       y += ((data[i] >> k) & (unsigned long long)1) << i;
+     x[k] = y;
+     /* count number of positive group tests g[k] among 3*d in d dimensions */
+     h = 0;
+     for (c = count; y; y >>= c & 0xfu, c >>= 4)
+       h++;
+     g[k] = h;
+    }
+
+    /* serial: output one bit plane at a time from MSB to LSB */
+    for (k = intprec, n = 0, h = 0; k-- > kmin;) {
+     /* encode bit k for first n values */
+     y = x[k];
+     if (n < bits) {
+       y = stream->write_bits(y, n);
+       bits -= n;
+     }
+     else {
+       stream->write_bits(y, bits);
+       bits = 0;
+       return;
+     }
+     /* perform series of group tests */
+     while (h < g[k]) {
+       /* output a one bit for a positive group test */
+       stream->write_bit(1);
+       bits--;
+       /* add next group of m values to significant set */
+       m = count & 0xfu;
+       count >>= 4;
+       n += m;
+       /* encode next group of m values */
+       if (m < bits) {
+         y = stream->write_bits( y, m);
+         bits -= m;
+       }
+       else {
+         stream->write_bits(y, bits);
+         bits = 0;
+         return;
+       }
+       h++;
+     }
+     /* if there are more groups, output a zero bit for a negative group test */
+     if (count) {
+       stream->write_bit(0);
+       bits--;
+     }
+    }
+
+    /* write at least minbits bits by padding with zeros */
+    while (bits > maxbits - minbits) {
+     stream->write_bit(0);
+     bits--;
+    }
 }
 
 template<class UInt, uint bsize>

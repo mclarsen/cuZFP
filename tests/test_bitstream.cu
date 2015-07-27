@@ -207,7 +207,8 @@ void cpuTestBitStream
                 fixed_point(q2,raw_pointer_cast(p.data()), emax2, idx, 1,nx,nx*ny);
                 fwd_xform<Int>(q2);
                 reorder<Int, UInt>(q2, buf);
-                encode_ints_old<UInt>(stream_old, buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+                //encode_ints_old<UInt>(stream_old, buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+                encode_ints_old_par<UInt>(stream_old, buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
 
             }
         }
@@ -390,7 +391,7 @@ int main()
 //    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
     setupConst(perm);
     cout << "Begin gpuTestBitStream" << endl;
-    gpuTestBitStream<long long, unsigned long long, double, 64>(d_vec_in, d_vec_out, d_vec_buffer);
+    //gpuTestBitStream<long long, unsigned long long, double, 64>(d_vec_in, d_vec_out, d_vec_buffer);
     cout << "Finish gpuTestBitStream" << endl;
     cout << "Begin cpuTestBitStream" << endl;
     cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
