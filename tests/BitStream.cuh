@@ -457,6 +457,33 @@ encode_ints_old_par(BitStream* stream, const UInt* data, uint minbits, uint maxb
      bits--;
     }
 }
+
+
+template<class UInt>
+void
+__device__ __host__
+extract_bit
+(
+        uint k,
+        unsigned long long &x,
+        uint &g,
+        const UInt *data,
+        unsigned long long count,
+        uint size
+     )
+{
+ /* extract bit plane k to x[k] */
+ unsigned long long y = 0;
+ for (uint i = 0; i < size; i++)
+   y += ((data[i] >> k) & (unsigned long long)1) << i;
+ x = y;
+ /* count number of positive group tests g[k] among 3*d in d dimensions */
+ g = 0;
+ for (unsigned long long c = count; y; y >>= c & 0xfu, c >>= 4)
+   g++;
+
+}
+
  template<class UInt, uint bsize>
  __device__ __host__
  static void
@@ -475,16 +502,7 @@ encode_ints_old_par(BitStream* stream, const UInt* data, uint minbits, uint maxb
      /* parallel: extract and group test bit planes */
 #pragma omp parallel for
      for (uint k = kmin; k < intprec; k++) {
-      /* extract bit plane k to x[k] */
-      unsigned long long y = 0;
-      for (uint i = 0; i < size; i++)
-        y += ((data[i] >> k) & (unsigned long long)1) << i;
-      x[k] = y;
-      /* count number of positive group tests g[k] among 3*d in d dimensions */
-      g[k] = 0;
-      for (unsigned long long c = count; y; y >>= c & 0xfu, c >>= 4)
-        g[k]++;
-
+        extract_bit(k, x[k], g[k], data, count, size);
      }
 
      uint h = 0, k = 0;
