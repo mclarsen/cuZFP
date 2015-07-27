@@ -207,14 +207,14 @@ void cpuTestBitStream
                 fixed_point(q2,raw_pointer_cast(p.data()), emax2, idx, 1,nx,nx*ny);
                 fwd_xform<Int>(q2);
                 reorder<Int, UInt>(q2, buf);
-                //encode_ints_old<UInt>(stream_old, buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
-                encode_ints_old_par<UInt>(stream_old, buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+                encode_ints_old<UInt>(stream_old, buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+                //encode_ints_old_par<UInt>(stream_old, buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
 
             }
         }
     }
     double start_time = omp_get_wtime();
-#pragma omp parallel for
+//#pragma omp parallel for
     for (int z=0; z<nz; z+=4){
         for (int y=0; y<ny; y+=4){
             for (int x=0; x<nx; x+=4){
@@ -226,7 +226,8 @@ void cpuTestBitStream
                 fixed_point(q2,raw_pointer_cast(p.data()), emax2, idx, 1,nx,nx*ny);
                 fwd_xform<Int>(q2);
                 reorder<Int, UInt>(q2, buf);
-                encode_ints<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+                //encode_ints<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+                encode_ints_par<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
             }
         }
     }

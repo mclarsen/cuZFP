@@ -457,6 +457,84 @@ encode_ints_old_par(BitStream* stream, const UInt* data, uint minbits, uint maxb
      bits--;
     }
 }
+ template<class UInt, uint bsize>
+ __device__ __host__
+ static void
+ encode_ints_par(Bit<bsize> & stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
+ {
+     uint intprec = CHAR_BIT * (uint)sizeof(UInt);
+     uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+     uint bits = maxbits;
+     uint m, n;
+     unsigned long long x[CHAR_BIT * sizeof(UInt)];
+     uint g[CHAR_BIT * sizeof(UInt)];
+
+     if (!maxbits)
+      return;
+
+     /* parallel: extract and group test bit planes */
+#pragma omp parallel for
+     for (uint k = kmin; k < intprec; k++) {
+      /* extract bit plane k to x[k] */
+      unsigned long long y = 0;
+      for (uint i = 0; i < size; i++)
+        y += ((data[i] >> k) & (unsigned long long)1) << i;
+      x[k] = y;
+      /* count number of positive group tests g[k] among 3*d in d dimensions */
+      g[k] = 0;
+      for (unsigned long long c = count; y; y >>= c & 0xfu, c >>= 4)
+        g[k]++;
+
+     }
+
+     uint h = 0, k = 0;
+     /* serial: output one bit plane at a time from MSB to LSB */
+     for (k = intprec, n = 0, h = 0; k-- > kmin;) {
+      /* encode bit k for first n values */
+      unsigned long long y = x[k];
+      if (n < bits) {
+        y = stream.write_bits(y, n);
+        bits -= n;
+      }
+      else {
+        stream.write_bits(y, bits);
+        bits = 0;
+        return;
+      }
+      /* perform series of group tests */
+      while (h < g[k]) {
+        /* output a one bit for a positive group test */
+        stream.write_bit(1);
+        bits--;
+        /* add next group of m values to significant set */
+        m = count & 0xfu;
+        count >>= 4;
+        n += m;
+        /* encode next group of m values */
+        if (m < bits) {
+          y = stream.write_bits( y, m);
+          bits -= m;
+        }
+        else {
+          stream.write_bits(y, bits);
+          bits = 0;
+          return;
+        }
+        h++;
+      }
+      /* if there are more groups, output a zero bit for a negative group test */
+      if (count) {
+        stream.write_bit(0);
+        bits--;
+      }
+     }
+
+     /* write at least minbits bits by padding with zeros */
+     while (bits > maxbits - minbits) {
+      stream.write_bit(0);
+      bits--;
+     }
+ }
 
 template<class UInt, uint bsize>
 __device__ __host__
