@@ -1,0 +1,46 @@
+\begin{thebibliography}{1}
+
+\bibitem{notes2002}
+G.~Grinstein, D.~Keim, and M.~Ward.
+\newblock Information visualization, visual data mining, and its application to
+  drug design.
+\newblock IEEE Visualization 2002 Course \#1 Notes, October 2002.
+
+\bibitem{kindlmann:1999:SAG}
+G.~Kindlmann.
+\newblock Semi-automatic generation of transfer functions for direct volume
+  rendering.
+\newblock Master's thesis, Cornell University, 1999.
+
+\bibitem{kitware2003}
+Kitware, Inc.
+\newblock {\em The Visualization Toolkit User's Guide}, January 2003.
+
+\bibitem{levoy:1989:DSV}
+M.~Levoy.
+\newblock {\em Display of Surfaces from Volume Data}.
+\newblock PhD thesis, University of North Carolina at Chapel Hill, 1989.
+
+\bibitem{Lorensen:1987:MCA}
+W.~E. Lorensen and H.~E. Cline.
+\newblock Marching cubes: A high resolution 3d surface construction algorithm.
+\newblock In {\em Computer Graphics (Proceedings of SIGGRAPH 87)}, volume~21,
+  pages 163--169, July 1987.
+
+\bibitem{Max:1995:OMF}
+N.~Max.
+\newblock Optical models for direct volume rendering.
+\newblock {\em IEEE Transactions on Visualization and Computer Graphics},
+  1(2):99--108, June 1995.
+
+\bibitem{Nielson:1991:TAD}
+G.~M. Nielson and B.~Hamann.
+\newblock The asymptotic decider: Removing the ambiguity in marching cubes.
+\newblock In {\em Visualization '91}, pages 83--91, 1991.
+
+\bibitem{ware:2004:IVP}
+C.~Ware.
+\newblock {\em Information Visualization: Perception for Design}.
+\newblock Morgan Kaufmann Publishers, second edition, 2004.
+
+\end{thebibliography}

@@ -1,0 +1,35 @@
+% Filename: sci-techdoc.sty
+% Rob's SCI Technical document style file
+% 
+% This just produces the cover page
+%
+\pagestyle{headings}
+%
+% ----------------------------------------------------------------------
+% Add a banner to the page
+%
+\def\@texttop{\ifnum\c@page=1%
+ \begin{center}
+ \vspace*{-70pt}%
+\hspace*{-50pt}%
+\includegraphics{scitech-header.eps}
+
+ \end{center}
+
+\vskip 0pt plus .00006fil%
+\vspace{20 pt}%
+\vspace{-.25in}%
+\relax\fi}%
+
+%
+% ----------------------------------------------------------------------
+% Remove \hspace*{100pt}
+%
+\def\ps@firstpage{\def\@oddhead{}\def\@oddfoot{\raisebox
+ {-45pt}[0pt]{\hbox to \textwidth
+ {\xpt\sf
+ \ifx\@empty\telephonenum\hfill\fi
+ \fromlocation \hfill
+ \ifx\@empty\telephonenum\else\telephonenum\fi
+ }}\hss}
+ \def\@evenhead{}\def\@evenfoot{}}
