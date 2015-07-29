@@ -28,7 +28,7 @@
 \usepackage{mathptmx}
 \usepackage{graphicx}
 \usepackage{times}
-
+\usepackage{epstopdf}
 %% We encourage the use of mathptmx for consistent usage of times font
 %% throughout the proceedings. However, if you encounter conflicts
 %% with other math-related packages, you may want to disable it.
@@ -151,11 +151,57 @@ Some stuff about Nebo.
 ZFP on CPU.
 
 \section{GPU}
+\subsection{Encode}
+Similar to the CPU encoding, the GPU encoding is divided into different components. First, the block is transformed into a fixed-point format by computing the maximum exponent for a block of floating point values and then the floating-point value is converted to a fixed-point integer block of values (Sec.~\ref{subsubsec:fixed}). In Section~\ref{subsubsec:forwardxform}, the block of integers are lifted to decorrelate the integers. Then, in Section~\ref{subsubsec:reorder}, the integer block is converted to an unsigned integer and finally in Sec.~\ref{subsubsec:encode}, the unsigned block is encoded. 
+
+\subsubsection{Fixed-Point Conversion}
+\label{subsubsec:fixed}
+
+First, the maximum exponent of a 4x4x4 block is computed. For every floating-point value in the block, the maximum exponent of the block is computed. To parallelize this in CUDA, a CUDA thread is assigned to each block and the every cell in the block is traversed to determine the maximum exponent. 
+
+Once the maximum exponent of the floating point block is determined,
+all the floating-point values of the block are converted to fixed-point representation by normalizing to the maximum exponent 
+and casting this value to an integer. Similar to the maximum exponent, for every block, a CUDA thread is assigned and the thread loops over all the blocks in the thread to convert the floating-point values to integers.
+
+\subsubsection{Forward Transform}
+\label{subsubsec:forwardxform}
+To achieve good compression, spatially similar values need to be decorrelated. A separable transform is used as in Lindstrom~\cite{lindstrom:2014}. Using the transform matrix for a 4-vector, 
+
+\begin{flushleft}
+	\begin{equation}
+	A = \frac{1}{2}\left( \begin{array}{llll}
+	1 &1 &1 &1 \\
+	c &s &-s &-c\\
+	1 &-1 &-1 &1\\
+	s &-c &c &-s
+	
+	\end{array}\cfrac \right)
+	\label{eq:cotenergy}
+	\end{equation}
+\end{flushleft}
+and
+\begin{flushleft}
+	\begin{equation}
+	\begin{array}{lr}
+	s = \sqrt{2}sin(\frac{\pi}{2}t) &
+	c = \sqrt{2}cos(\frac{\pi}{2}t)
+	
+	\end{array}
+	\label{eq:cotenergy}
+	\end{equation}
+\end{flushleft}
+
+where $t \in [0,1]$
+\subsubsection{reorder}
+\label{subsubsec:reorder}
+\subsubsection{Encode}
+\label{subsubsec:encode}
 
 \section{Results}
 \section{Future Works}
 
 \begin{enumerate}
+\item use real world test data.
 \item Re-factor the CUDA code to get more performance. This is on-going.
 \item Test performance with and without zfp.
 \end{enumerate}
