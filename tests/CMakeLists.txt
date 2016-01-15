@@ -64,8 +64,8 @@ set(CUDA_NVCC_FLAGS "-arch;sm_21;--ptxas-options=-v;-Xptxas;-O3")
 #for k20
 #set(CUDA_NVCC_FLAGS " -gencode arch=compute_35,code=sm_35;--ptxas-options=-v;-use_fast_math")
 #for 860m (maxwell) with CUDA 6.0
-set(CUDA_NVCC_FLAGS " -arch;sm_50")
-
+#set(CUDA_NVCC_FLAGS " -arch;sm_50")
+set(CUDA_NVCC_FLAGS "-gencode arch=compute_52,code=sm_52")
 
 
 INCLUDE_DIRECTORIES(
@@ -135,6 +135,18 @@ BitStream.cuh
 test_bitstream.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_bitstream
+gomp
+cudart
+)
+
+CUDA_ADD_EXECUTABLE(zfp_test_inv_xform
+ErrorCheck.cpp
+encode.cuh
+decode.cuh
+BitStream.cuh
+test_inv_xform.cu
+)
+TARGET_LINK_LIBRARIES(zfp_test_inv_xform
 gomp
 cudart
 )

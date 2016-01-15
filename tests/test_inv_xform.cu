@@ -202,7 +202,7 @@ void gpuTestinv_xform
     grid_size = emax_size;
     grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
 
-    cudaInvXForm<Int><<<1, 64>>>
+    cudaInvXForm<Int><<<block_size, grid_size>>>
         (
             raw_pointer_cast(q_out.data())
         );
@@ -220,12 +220,12 @@ void gpuTestinv_xform
             for (int x=0; x<nx; x+=4){
                 int idx = z*nx*ny + y*nx + x;
                 Int iblock[64];
-                for (int i=0; i<64; i++)
-                    iblock[i] = h_q[idx*64 + i];
+                for (int j=0; j<64; j++)
+                    iblock[j] = h_q[i*64 + j];
                 inv_xform(iblock);
 
                 for (int j=0; j<64;j++){
-                    assert(iblock[j] == h_qout[idx + j]);
+                    assert(iblock[j] == h_qout[i*64 + j]);
                 }
 
                 i++;
