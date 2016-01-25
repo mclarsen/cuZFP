@@ -10,6 +10,10 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 endif()
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_CXX_FLAGS}")
+IF(WIN32)
+ELSE(WIN32)
+	SET(LIBOMP gomp)
+ENDIF(WIN32)
 
 FIND_PACKAGE(CUDA)
 if (CUDA_SDK_ROOT_DIR MATCHES "CUDA_SDK_ROOT_DIR-NOTFOUND")
@@ -57,15 +61,13 @@ else(WIN32)
         "${CUDA_SDK_ROOT_DIR}/C/lib/"
     )
 endif(WIN32)
-#set(CUDA_NVCC_FLAGS "-arch;sm_20;--ptxas-options=-v;-use_fast_math")
-set(CUDA_NVCC_FLAGS "-arch;sm_21;--ptxas-options=-v;-Xptxas;-O3")
-#for 650 ti boost
-#set(CUDA_NVCC_FLAGS "-arch;sm_30")
-#for k20
-#set(CUDA_NVCC_FLAGS " -gencode arch=compute_35,code=sm_35;--ptxas-options=-v;-use_fast_math")
-#for 860m (maxwell) with CUDA 6.0
-#set(CUDA_NVCC_FLAGS " -arch;sm_50")
-set(CUDA_NVCC_FLAGS "-gencode arch=compute_52,code=sm_52")
+list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_30,code=sm_30")
+list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_35,code=sm_35")
+list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_50,code=sm_50")
+list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_52,code=sm_52")
+#list(APPEND CUDA_NVCC_FLAGS "-G")
+#list(APPEND CUDA_NVCC_FLAGS "--ptxas-options=-v")
+#list(APPEND CUDA_NVCC_FLAGS "-Xptxas;-O3")
 
 
 INCLUDE_DIRECTORIES(
@@ -104,7 +106,7 @@ encode.cuh
 test_fixed_point.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_fixed
-gomp
+${LIBOMP}
 cudart
 )
 
@@ -114,7 +116,8 @@ encode.cuh
 test_decorrelate.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_decorrelate
-gomp
+${LIBOMP}
+
 cudart
 )
 
@@ -124,7 +127,8 @@ encode.cuh
 test_int2uint.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_int2uint
-gomp
+${LIBOMP}
+
 cudart
 )
 
@@ -135,7 +139,8 @@ BitStream.cuh
 test_bitstream.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_bitstream
-gomp
+${LIBOMP}
+
 cudart
 )
 
@@ -147,7 +152,8 @@ BitStream.cuh
 test_inv_xform.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_inv_xform
-gomp
+${LIBOMP}
+
 cudart
 )
 
@@ -159,6 +165,7 @@ BitStream.cuh
 test_decode.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_decode
-gomp
+${LIBOMP}
+
 cudart
 )

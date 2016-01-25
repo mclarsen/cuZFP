@@ -26,10 +26,14 @@ __host__ __device__
 void
 inv_cast(const Int* p, Scalar* q, int emax, uint mx, uint my, uint mz, uint sx, uint sy, uint sz)
 {
-
-  /* compute power-of-two scale factor s */
-  Scalar s = dequantize<Int, Scalar>(1, emax);
-  /* compute p-bit float x = s*y where |y| <= 2^(p-2) - 1 */
+	Scalar s;
+#ifndef __CUDA_ARCH__
+	s = dequantize<Int, Scalar, sizeof(uint)>(1, emax);
+#else
+	/* compute power-of-two scale factor s */
+	s = dequantize<Int, Scalar>(1, emax);
+#endif
+	/* compute p-bit float x = s*y where |y| <= 2^(p-2) - 1 */
 //  do
 //    *fblock++ = (Scalar)(s * *iblock++);
 //  while (--n);

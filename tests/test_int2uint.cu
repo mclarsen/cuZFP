@@ -23,10 +23,10 @@ using namespace std;
 const int nx = 256;
 const int ny = 256;
 const int nz = 256;
-device_vector<double> d_vec_in(nx*ny*nz);
-device_vector<long long> d_vec_out(nx*ny*nz);
-device_vector<unsigned long long> d_vec_buffer(nx*ny*nz);
-host_vector<double> h_vec_in(nx*ny*nz);
+device_vector<double> d_vec_in;
+device_vector<long long> d_vec_out;
+device_vector<unsigned long long> d_vec_buffer;;
+host_vector<double> h_vec_in;
 
 static const unsigned char
 perm[64] = {
@@ -268,7 +268,13 @@ void gpuTestint2uint
 
 int main()
 {
-
+	cudaSetDevice(0);
+	cudaFree(0);
+	h_vec_in.resize(nx*ny*nz);
+	d_vec_in.resize(nx*ny*nz);
+	d_vec_buffer.resize(nx*ny*nz);
+	d_vec_out.resize(nx*ny*nz);
+	
     dim3 emax_size(nx/4, ny/4, nz/4);
     device_vector<int> emax(emax_size.x * emax_size.y * emax_size.z);
     thrust::counting_iterator<uint> index_sequence_begin(0);

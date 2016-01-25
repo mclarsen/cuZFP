@@ -24,7 +24,6 @@ using namespace std;
 const int nx = 256;
 const int ny = 256;
 const int nz = 256;
-device_vector<long long> d_vec_buffer(nx*ny*nz);
 
 static const unsigned char
 perm[64] = {
@@ -141,110 +140,64 @@ struct RandGen
     }
 };
 
-template<class Int, class Scalar>
-void cpuTestDecorrelate
-(
-        Scalar *p
-        )
-{
-//#pragma omp parallel for
-    for (int z=0; z<nz; z+=4){
-        for (int y=0; y<ny; y+=4){
-            for (int x=0; x<nx; x+=4){
-                int idx = z*nx*ny + y*nx + x;
-                Int q[64];
-                Int q2[64];
-                int emax2 = max_exp<Scalar>(p, idx, 1,nx,nx*ny);
-                fixed_point(q2,p, emax2, idx, 1,nx,nx*ny);
-
-                int emax = fwd_cast(q, p+idx, 1,nx,nx*ny);
-
-                for (int i=0; i<64; i++){
-                    assert(q[i] == q2[i]);
-                }
-
-            }
-        }
-    }
-
-}
-
-template<class Int, class UInt>
-void reorder
-(
-        const Int *q,
-        UInt *buffer
-        )
-{
-    for (uint i = 0; i < 64; i++)
-      buffer[i] = int2uint<Int, UInt>(q[perm[i]]);
-}
 
 
-template<class Int, class UInt, class Scalar>
+template<class Int>
 void gpuTestinv_xform
 (
-        device_vector<Int> &q
+        host_vector<Int> &h_q
         )
 {
-    device_vector<Int> q_out;
-    q_out.resize(nx*ny*nz);
-    q_out = q;
-    dim3 emax_size(nx/4, ny/4, nz/4 );
+	ErrorCheck ec;
+	device_vector<Int> q_out;
+	q_out.resize(nx*ny*nz);
+	q_out = h_q;
+	dim3 emax_size(nx / 4, ny / 4, nz / 4);
 
-    dim3 block_size(8,8,8);
-    dim3 grid_size = emax_size;
-    grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
-
-    ErrorCheck ec;
-
-    block_size = dim3(8,8,8);
-    grid_size = emax_size;
-    grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
-
-    cudaInvXForm<Int><<<block_size, grid_size>>>
-        (
-            raw_pointer_cast(q_out.data())
-        );
-    cudaStreamSynchronize(0);
-    ec.chk("cudaInvXForm");
+	dim3 block_size(8, 8, 8);
+	dim3 grid_size = emax_size;
+	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
 
 
-    host_vector<Int> h_q, h_qout;
-    h_q = q;
-    h_qout = q_out;
+	cudaInvXForm<Int> << <block_size, grid_size >> >
+		(
+		raw_pointer_cast(q_out.data())
+		);
+	cudaStreamSynchronize(0);
+	ec.chk("cudaInvXForm");
 
-    int i=0;
-    for (int z=0; z<nz; z+=4){
-        for (int y=0; y<ny; y+=4){
-            for (int x=0; x<nx; x+=4){
-                int idx = z*nx*ny + y*nx + x;
-                Int iblock[64];
-                for (int j=0; j<64; j++)
-                    iblock[j] = h_q[i*64 + j];
-                inv_xform(iblock);
 
-                for (int j=0; j<64;j++){
-                    assert(iblock[j] == h_qout[i*64 + j]);
-                }
+	host_vector<Int> h_qout;
 
-                i++;
-
-            }
-        }
-    }
+	h_qout = q_out;
+	std::vector<Int> iblock;
+	iblock.resize(h_q.size());
+	thrust::copy(h_q.begin(), h_q.end(), iblock.begin());
+	for (int i = 0; i < nx*ny*nz / 64; i++){
+		inv_xform(&iblock[0] + i * 64);
+	}
+	int i = 0;
+	for (i = 0; i < nx*ny*nz; i++){
+		assert(iblock[i] == h_qout[i]);
+	}
 }
+
+typedef long long Int;
 
 int main()
 {
-    host_vector<long long> h_q;
+
+    host_vector<Int> h_q;
     h_q.resize(nx*ny*nz);
     for (int i=0; i<h_q.size(); i++){
         h_q[i] = i;
     }
 
-    d_vec_buffer = h_q;
+
 
     setupConst(perm);
-    gpuTestinv_xform<long long, unsigned long long, double>(d_vec_buffer);
+    gpuTestinv_xform<long long>(h_q);
+
+
+
 }

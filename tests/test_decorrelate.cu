@@ -22,9 +22,6 @@ using namespace std;
 const int nx = 256;
 const int ny = 256;
 const int nz = 256;
-device_vector<double> d_vec_in(nx*ny*nz);
-device_vector<long long> d_vec_out(nx*ny*nz);
-host_vector<double> h_vec_in(nx*ny*nz);
 
 
 //Used to generate rand array in CUDA with Thrust
@@ -139,6 +136,9 @@ void gpuTestDecorrelate
 
 int main()
 {
+	device_vector<double> d_vec_in(nx*ny*nz);
+	device_vector<long long> d_vec_out(nx*ny*nz);
+	host_vector<double> h_vec_in(nx*ny*nz);
 
     dim3 emax_size(nx/4, ny/4, nz/4);
     device_vector<int> emax(emax_size.x * emax_size.y * emax_size.z);

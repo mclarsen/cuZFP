@@ -499,7 +499,7 @@ encode_group_test(unsigned long long *x, uint *g, const UInt* data, uint minbits
 
      /* parallel: extract and group test bit planes */
 #pragma omp parallel for
-     for (uint k = kmin; k < intprec; k++) {
+     for (int k = kmin; k < intprec; k++) {
         extract_bit(k, x[k], g[k], data, count, size);
      }
 }
