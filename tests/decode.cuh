@@ -28,7 +28,7 @@ inv_cast(const Int* p, Scalar* q, int emax, uint mx, uint my, uint mz, uint sx, 
 {
 	Scalar s;
 #ifndef __CUDA_ARCH__
-	s = dequantize<Int, Scalar, sizeof(uint)>(1, emax);
+	s = dequantize<Int, Scalar, sizeof(Scalar)>(1, emax);
 #else
 	/* compute power-of-two scale factor s */
 	s = dequantize<Int, Scalar>(1, emax);
