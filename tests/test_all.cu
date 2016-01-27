@@ -206,125 +206,6 @@ void validateEncode
 
 }
 
-template<class Scalar>
-void
-gather( Scalar* q, const Scalar* p, uint mx, uint my, uint mz, uint sx, uint sy, uint sz)
-{
-  for (int z=mz; z<mz+4; z++)
-      for (int y=my; y<my+4; y++)
-          for (int x=mx; x<mx+4; x++,q++)
-              *q = p[z*sz+y*sy+x*sx];
-}
-
-template<class Int, class UInt, class Scalar, uint bsize>
-void cpuTestBitStream
-(
-        host_vector<Scalar> &p
-        )
-{
-    blksize = block_size(rate);
-    uint mx = nx / 4;
-    uint my = ny / 4;
-    uint mz = nz / 4;
-
-    //BitStream *stream_old = stream_create(blksize*mx*my);
-    BitStream *stream_old = stream_create(nx*ny*nz);
-    host_vector<Bit<bsize> > stream(mx*my*mz);
-    int chk_idx = 0;
-    for (int z=0; z<nz; z+=4){
-        for (int y=0; y<ny; y+=4){
-            for (int x=0; x<nx; x+=4){
-                int idx = z*nx*ny + y*nx + x;
-                Int q1[64], q2[64], q3[64];
-                UInt buf[64];
-
-                int emax2 = max_exp<Scalar>(raw_pointer_cast(p.data()), idx, 1,nx,nx*ny);
-                fixed_point(q1,raw_pointer_cast(p.data()), emax2, idx, 1,nx,nx*ny);
-                for (int i=0; i<64; i++){
-                    q2[i] = q1[i];
-                }
-
-                fwd_xform<Int>(q2);
-                for (int i=0; i<64; i++){
-                    q3[i] = q2[i];
-                }
-                reorder<Int, UInt>(q3, buf);
-
-                encode_ints_old<UInt>(stream_old, buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
-
-                stream_old->rewind();
-                UInt dec[64];
-                decode_ints_old<Int,UInt>(stream_old, minbits, maxbits,  precision(emax2, maxprec, minexp),  dec,size, group_count);
-
-                for (int i=0; i<64; i++){
-                    assert(dec[i] == buf[i]);
-                }
-
-                Int iblock[64];
-                inv_order(dec, iblock, perm, 64);
-                for (int i=0; i<64; i++){
-                    assert(iblock[i] == q2[i]);
-                }
-                inv_xform(iblock);
-                for (int i=0; i<64; i++){
-                    assert(iblock[i] == q1[i]);
-                }
-                Scalar fblock[64], cblock[64];
-                gather<Scalar>(cblock, raw_pointer_cast(p.data()),x,y,z, 1,nx,nx*ny);
-
-                inv_cast<Int, Scalar>(iblock, fblock, emax2, 0,0,0, 1, 4,16);
-                for (int i=0; i<64; i++){
-                    assert(FABS(fblock[i] - cblock[i]) < 1e-6);
-                }
-                chk_idx++;
-            }
-        }
-    }
-
-
-    double start_time = omp_get_wtime();
-#pragma omp parallel for
-    for (int z=0; z<nz; z+=4){
-        for (int y=0; y<ny; y+=4){
-            for (int x=0; x<nx; x+=4){
-                int idx = z*nx*ny + y*nx + x;
-                Int q2[64];
-                UInt buf[64];
-
-                int emax2 = max_exp<Scalar>(raw_pointer_cast(p.data()), idx, 1,nx,nx*ny);
-                fixed_point(q2,raw_pointer_cast(p.data()), emax2, idx, 1,nx,nx*ny);
-                fwd_xform<Int>(q2);
-                reorder<Int, UInt>(q2, buf);
-                encode_ints<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
-
-                stream[z/4*mx*my + y/4*mx + x/4].rewind();
-                UInt dec[64];
-                decode_ints<UInt, bsize>(stream[z/4*mx*my + y/4*mx + x/4], dec, minbits, maxbits, maxprec, group_count, size);
-                Int iblock[64];
-                inv_order(dec, iblock, perm, 64);
-//                for (int i=0; i<64; i++){
-//                    assert(iblock[i] == q2[i]);
-//                }
-                inv_xform(iblock);
-//                for (int i=0; i<64; i++){
-//                    assert(iblock[i] == q1[i]);
-//                }
-                Scalar fblock[64], cblock[64];
-                gather<Scalar>(cblock, raw_pointer_cast(p.data()),x,y,z, 1,nx,nx*ny);
-                inv_cast<Int, Scalar>(iblock, fblock, emax2, 0,0,0, 1,4,16);
-                for (int i=0; i<64; i++){
-                    assert(FABS(fblock[i] - cblock[i]) < 1e-6);
-                }
-
-            }
-        }
-    }
-
-    double elapsed_time = omp_get_wtime() - start_time;
-    cout << "CPU elapsed time: " <<  elapsed_time << endl;
-    //validateCPU(stream_old, stream);
-    //validateEncode(stream_old, p);
-}
 
 template<class Int, class UInt, class Scalar, uint bsize>
 void gpuValidate
@@ -434,7 +315,8 @@ device_vector<UInt> &buffer
 		);
 	ec.chk("cudaFixedPoint");
 
-
+	data.clear();
+	data.shrink_to_fit();
 	cudaDecorrelate<Int> << <grid_size, block_size >> >
 		(
 		raw_pointer_cast(q.data())
@@ -501,7 +383,6 @@ device_vector<UInt> &buffer
              raw_pointer_cast(emax.data()),
              minbits, maxbits, maxprec, minexp, group_count, size
         );
-    cudaStreamSynchronize(0);
     ec.chk("cudaDecode");
 
     block_size = dim3(8,8,8);
@@ -512,7 +393,6 @@ device_vector<UInt> &buffer
             raw_pointer_cast(buffer.data()),
             raw_pointer_cast(q.data())
         );
-    cudaStreamSynchronize(0);
     ec.chk("cudaInvOrder");
 
     block_size = dim3(8,8,8);
@@ -523,7 +403,6 @@ device_vector<UInt> &buffer
         (
             raw_pointer_cast(q.data())
         );
-    cudaStreamSynchronize(0);
     ec.chk("cudaInvXForm");
 
     block_size = dim3(8,8,8);
@@ -541,7 +420,7 @@ device_vector<UInt> &buffer
 	cudaEventRecord(stop_decode, 0);
 	cudaEventSynchronize(stop_decode);
 	cudaEventElapsedTime(&millisecs, start_decode, stop_decode);
-	ec.chk("cudaencode");
+	ec.chk("cudadecode");
 
 	cout << "decode GPU in time (in ms): " << millisecs << endl;
 
@@ -562,7 +441,7 @@ host_vector<Scalar> &p
 	host_vector<Bit<bsize> > stream(mx*my*mz);
 	double start_time = omp_get_wtime();
 
-//#pragma omp parallel for
+#pragma omp parallel for
 	for (int z = 0; z<nz; z += 4){
 		for (int y = 0; y<ny; y += 4){
 			for (int x = 0; x<nx; x += 4){
@@ -582,7 +461,7 @@ host_vector<Scalar> &p
 
 	std::vector<Scalar> data_out(nx*ny*nz);
 
-//#pragma omp parallel for
+#pragma omp parallel for
 	for (int z = 0; z < nz; z += 4){
 		for (int y = 0; y < ny; y += 4){
 			for (int x = 0; x < nx; x += 4){
@@ -597,7 +476,7 @@ host_vector<Scalar> &p
 				Int iblock[64];
 				inv_order(dec, iblock, perm, 64);
 				inv_xform(iblock);
-				inv_cast(iblock, &data_out[z*nx*ny+y*nx+x], emax2, 0, 0, 0, 1, 4, 16);
+				inv_cast(iblock, &data_out[idx], emax2, 0, 0, 0, 1, 4, 16);
 
 
 			}
@@ -635,6 +514,6 @@ int main()
    cout << "Finish gpuTestAll" << endl;
     cout << "Begin cpuTestAll" << endl;
     //testCPU<long long, unsigned long long, double, 64>(h_vec_in);
-	cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
+	cpuTest<long long, unsigned long long, double, 64>(h_vec_in);
     cout << "End cpuTestAll" << endl;
 }
