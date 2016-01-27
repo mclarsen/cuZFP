@@ -178,91 +178,6 @@ void reorder
 }
 
 
-template<uint bsize>
-void validateCPU
-(
-        const BitStream *stream_old,
-        host_vector<Bit<bsize> > &stream
-        )
-{
-    Word *ptr = stream_old->begin;
-
-    for (int i=0; i < stream.size(); i++){
-        for (int j=0; j<64; j++){
-            assert(stream[i].begin[j] == *ptr++);
-
-        }
-    }
-
-}
-
-template<class Scalar>
-void validateEncode
-(
-        host_vector<Scalar> &p,
-        BitStream *stream
-        )
-{
-
-}
-
-
-template<class Int, class UInt, class Scalar, uint bsize>
-void gpuValidate
-(
-        host_vector<Scalar> &p,
-        device_vector<Int> &q,
-        device_vector<Scalar> &data
-        )
-{
-    host_vector<Scalar> h_p;
-    host_vector<Int> h_q;
-
-    h_p = data;
-    h_q = q;
-
-
-    int i=0;
-    for (int z=0; z<nz; z+=4){
-        for (int y=0; y<ny; y+=4){
-            for (int x=0; x<nx; x+=4){
-                int idx = z*nx*ny + y*nx + x;
-                host_vector<Int> q2(64);
-                host_vector<UInt> buf(64);
-                Bit<bsize> loc_stream;
-                int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), idx, 1,nx,nx*ny);
-                fixed_point(raw_pointer_cast(q2.data()),raw_pointer_cast(h_p.data()), emax2, idx, 1,nx,nx*ny);
-                fwd_xform(raw_pointer_cast(q2.data()));
-                reorder<Int, UInt>(raw_pointer_cast(q2.data()), raw_pointer_cast(buf.data()));
-                encode_ints<UInt>(loc_stream,  raw_pointer_cast(buf.data()), minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
-
-                loc_stream.rewind();
-                UInt dec[64];
-                decode_ints<UInt, bsize>(loc_stream, dec, minbits, maxbits,  precision(emax2, maxprec, minexp),group_count,size);
-
-                for (int j=0; j<64; j++){
-                    assert(dec[j] == buf[j]);
-                }
-
-                Int iblock[64];
-                inv_order(dec, iblock, perm, 64);
-                inv_xform(iblock);
-
-                for (int j=0; j<64; j++){
-                    assert(h_q[i*64+j] == iblock[j]);
-                }
-
-                i++;
-
-            }
-        }
-    }
-    for (int i=0; i<h_p.size(); i++){
-        assert(h_p[i] == p[i]);
-    }
-}
-
-
 template<class Int, class UInt, class Scalar, uint bsize>
 void gpuTest
 (
@@ -315,8 +230,7 @@ device_vector<UInt> &buffer
 		);
 	ec.chk("cudaFixedPoint");
 
-	data.clear();
-	data.shrink_to_fit();
+
 	cudaDecorrelate<Int> << <grid_size, block_size >> >
 		(
 		raw_pointer_cast(q.data())
@@ -373,6 +287,7 @@ device_vector<UInt> &buffer
 	cudaEventCreate(&stop_decode);
 	cudaEventRecord(start_decode, 0);
 
+	cudaMemset(thrust::raw_pointer_cast(buffer.data()),0, sizeof(UInt) * q.size());
     block_size = dim3(8,8,8);
     grid_size =  emax_size;
     grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
@@ -383,7 +298,10 @@ device_vector<UInt> &buffer
              raw_pointer_cast(emax.data()),
              minbits, maxbits, maxprec, minexp, group_count, size
         );
+    cudaStreamSynchronize(0);
     ec.chk("cudaDecode");
+
+	cudaMemset(thrust::raw_pointer_cast(q.data()), 0, sizeof(Int)*q.size());
 
     block_size = dim3(8,8,8);
     grid_size = dim3(nx,ny,nz);
@@ -393,6 +311,7 @@ device_vector<UInt> &buffer
             raw_pointer_cast(buffer.data()),
             raw_pointer_cast(q.data())
         );
+    cudaStreamSynchronize(0);
     ec.chk("cudaInvOrder");
 
     block_size = dim3(8,8,8);
@@ -403,8 +322,10 @@ device_vector<UInt> &buffer
         (
             raw_pointer_cast(q.data())
         );
+    cudaStreamSynchronize(0);
     ec.chk("cudaInvXForm");
 
+	cudaMemset(thrust::raw_pointer_cast(data.data()), 0, sizeof(Scalar)*data.size());
     block_size = dim3(8,8,8);
     grid_size = emax_size;
     grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
@@ -420,12 +341,15 @@ device_vector<UInt> &buffer
 	cudaEventRecord(stop_decode, 0);
 	cudaEventSynchronize(stop_decode);
 	cudaEventElapsedTime(&millisecs, start_decode, stop_decode);
-	ec.chk("cudadecode");
+	ec.chk("cudaencode");
 
 	cout << "decode GPU in time (in ms): " << millisecs << endl;
 
-    gpuValidate<Int, UInt, Scalar, bsize>(h_data, q, data);
+	host_vector<Scalar> data_out = data;
 
+	for (int i = 0; i < nx*ny*nz; i++){
+		assert(h_data[i] == data_out[i]);
+	}
 }
 
 template<class Int, class UInt, class Scalar, uint bsize>
@@ -453,8 +377,8 @@ host_vector<Scalar> &p
 				fixed_point(q2, raw_pointer_cast(p.data()), emax2, idx, 1, nx, nx*ny);
 				fwd_xform<Int>(q2);
 				reorder<Int, UInt>(q2, buf);
-				encode_ints<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
-				//encode_ints_par<UInt>(stream[z / 4 * mx*my + y / 4 * mx + x / 4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+				//encode_ints<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+				encode_ints_par<UInt>(stream[z / 4 * mx*my + y / 4 * mx + x / 4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
 			}
 		}
 	}
@@ -466,7 +390,7 @@ host_vector<Scalar> &p
 		for (int y = 0; y < ny; y += 4){
 			for (int x = 0; x < nx; x += 4){
 				int idx = z*nx*ny + y*nx + x;
-				host_vector<UInt> buf(64);
+
 				stream[z / 4 * mx*my + y / 4 * mx + x / 4].rewind();
 				int emax2 = max_exp<Scalar>(raw_pointer_cast(p.data()), idx, 1, nx, nx*ny);
 
@@ -476,8 +400,18 @@ host_vector<Scalar> &p
 				Int iblock[64];
 				inv_order(dec, iblock, perm, 64);
 				inv_xform(iblock);
-				inv_cast(iblock, &data_out[idx], emax2, 0, 0, 0, 1, 4, 16);
+				//inv_cast(iblock, &data_out[z*nx*ny+y*nx+x], emax2, 0, 0, 0, 1, 4, 16);
 
+				Scalar fblock[64];
+				inv_cast(iblock, fblock, emax2, 0, 0, 0, 1, 4, 16);
+				for (int i = 0; i < 4; i++){
+					for (int j = 0; j < 4; j++){
+						for (int k = 0; k < 4; k++){
+							data_out[idx + i*nx*ny + j*nx + k] = fblock[i * 16 + j * 4 + k];
+
+						}
+					}
+				}
 
 			}
 		}
