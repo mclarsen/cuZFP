@@ -169,3 +169,16 @@ ${LIBOMP}
 
 cudart
 )
+
+CUDA_ADD_EXECUTABLE(zfp_test_all
+ErrorCheck.cpp
+encode.cuh
+decode.cuh
+BitStream.cuh
+test_all.cu
+)
+TARGET_LINK_LIBRARIES(zfp_test_all
+${LIBOMP}
+
+cudart
+)
