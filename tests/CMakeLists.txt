@@ -69,11 +69,22 @@ list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_52,code=sm_52")
 #list(APPEND CUDA_NVCC_FLAGS "--ptxas-options=-v")
 #list(APPEND CUDA_NVCC_FLAGS "-Xptxas;-O3")
 
+#set(BaseName "binary" CACHE STRING "BaseName chosen by the user at CMake configure time")
+set(BUILD_ZFP_PARALLEL "v1.0" CACHE STRING "Build Version 1.0|2.0")
+set_property(CACHE BUILD_ZFP_PARALLEL PROPERTY STRINGS "v1.0" "v1.0;v2.0")
+
+#message(${BUILD_ZFP_PARALLEL})
+
+SET (ZFP_PARALLEL_VERSION "v1.0")
+IF(${BUILD_ZFP_PARALLEL} MATCHES "v2.0")
+    SET(ZFP_PARALLEL_VERSION "v2.0")
+ENDIF()
+
 
 INCLUDE_DIRECTORIES(
 	"/usr/local/include"
 	"/usr/include"
-    "../"
+    "../${ZFP_PARALLEL_VERSION}/"
 )
 
 message("${CMAKE_CURRENT_SOURCE_DIR}/../")
@@ -101,9 +112,9 @@ TARGET_LINK_LIBRARIES(zfp_test_exp
 
 cudart
 )
-set(ENC_CUH "../include/encode.cuh")
-set(DEC_CUH "../include/decode.cuh")
-set(BIT_CUH "../include/BitStream.cuh")
+set(ENC_CUH "../${ZFP_PARALLEL_VERSION}/include/encode.cuh")
+set(DEC_CUH "../${ZFP_PARALLEL_VERSION}/include/decode.cuh")
+set(BIT_CUH "../${ZFP_PARALLEL_VERSION}/include/BitStream.cuh")
 
 CUDA_ADD_EXECUTABLE(zfp_test_fixed
 ErrorCheck.cpp
