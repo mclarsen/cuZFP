@@ -10,7 +10,7 @@
 
 #define KEPLER 0
 #include "ErrorCheck.h"
-#include "encode.cuh"
+#include "include/encode.cuh"
 
 using namespace thrust;
 using namespace std;

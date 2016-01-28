@@ -11,7 +11,7 @@
 
 #define KEPLER 0
 #include "ErrorCheck.h"
-#include "encode.cuh"
+#include "include/encode.cuh"
 
 using namespace thrust;
 using namespace std;
@@ -39,7 +39,7 @@ struct RandGen
 };
 
 template<class Int, class Scalar>
-void cpuTestFixedPoint
+void cpuTestDecorrelate
 (
         Scalar *p
         )
@@ -66,8 +66,10 @@ void cpuTestFixedPoint
 
 }
 
+
+
 template<class Int, class Scalar>
-void gpuTestFixedPoint
+void gpuTestDecorrelate
 (
         device_vector<Scalar> &data,
         device_vector<Int> &q,
@@ -98,6 +100,13 @@ void gpuTestFixedPoint
                 raw_pointer_cast(q.data())
                 );
     ec.chk("cudaFixedPoint");
+
+    cudaDecorrelate<Int><<<block_size, grid_size>>>
+        (
+            raw_pointer_cast(q.data())
+            );
+    ec.chk("cudaDecorrelate");
+
     host_vector<int> h_emax;
     host_vector<Scalar> h_p;
     host_vector<Int> h_q;
@@ -114,9 +123,12 @@ void gpuTestFixedPoint
                 int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), idx, 1,nx,nx*ny);
                 assert(emax2 == h_emax[i++]);
                 fixed_point(q2,raw_pointer_cast(h_p.data()), emax2, idx, 1,nx,nx*ny);
+                fwd_xform(q2);
+
                 for (int j=0; j<64; j++){
                     assert(h_q[j+(i-1)*64] == q2[j]);
                 }
+
             }
         }
     }
@@ -138,7 +150,7 @@ int main()
                     d_vec_in.begin(),
                     RandGen());
 
-    gpuTestFixedPoint<long long, double>(d_vec_in, d_vec_out, emax);
+    gpuTestDecorrelate<long long, double>(d_vec_in, d_vec_out, emax);
     h_vec_in = d_vec_in;
-    cpuTestFixedPoint<long long, double>(raw_pointer_cast(h_vec_in.data()));
+    cpuTestDecorrelate<long long>(raw_pointer_cast(h_vec_in.data()));
 }

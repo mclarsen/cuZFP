@@ -61,9 +61,9 @@ else(WIN32)
         "${CUDA_SDK_ROOT_DIR}/C/lib/"
     )
 endif(WIN32)
-list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_30,code=sm_30")
-list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_35,code=sm_35")
-list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_50,code=sm_50")
+#list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_30,code=sm_30")
+#list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_35,code=sm_35")
+#list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_50,code=sm_50")
 list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_52,code=sm_52")
 #list(APPEND CUDA_NVCC_FLAGS "-G")
 #list(APPEND CUDA_NVCC_FLAGS "--ptxas-options=-v")
@@ -73,8 +73,10 @@ list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_52,code=sm_52")
 INCLUDE_DIRECTORIES(
 	"/usr/local/include"
 	"/usr/include"
+    "../"
 )
 
+message("${CMAKE_CURRENT_SOURCE_DIR}/../")
 LINK_DIRECTORIES(
 	"/usr/lib"
 	"/usr/local/lib"
@@ -87,8 +89,8 @@ LINK_DIRECTORIES(
 
 #ADD_DEFINITIONS("-std=c++0x -march=native -msse2")
 #ADD_DEFINITIONS("-std=c99")
-#SET(CMAKE_BUILD_TYPE Release)
-SET(CMAKE_BUILD_TYPE Debug)
+SET(CMAKE_BUILD_TYPE Release)
+#SET(CMAKE_BUILD_TYPE Debug)
 
 
 CUDA_ADD_EXECUTABLE(zfp_test_exp
@@ -99,10 +101,13 @@ TARGET_LINK_LIBRARIES(zfp_test_exp
 
 cudart
 )
+set(ENC_CUH "../include/encode.cuh")
+set(DEC_CUH "../include/decode.cuh")
+set(BIT_CUH "../include/BitStream.cuh")
 
 CUDA_ADD_EXECUTABLE(zfp_test_fixed
 ErrorCheck.cpp
-encode.cuh
+${ENC_CUH}
 test_fixed_point.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_fixed
@@ -112,7 +117,7 @@ cudart
 
 CUDA_ADD_EXECUTABLE(zfp_test_decorrelate
 ErrorCheck.cpp
-encode.cuh
+${ENC_CUH}
 test_decorrelate.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_decorrelate
@@ -123,7 +128,7 @@ cudart
 
 CUDA_ADD_EXECUTABLE(zfp_test_int2uint
 ErrorCheck.cpp
-encode.cuh
+${ENC_CUH}
 test_int2uint.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_int2uint
@@ -134,8 +139,8 @@ cudart
 
 CUDA_ADD_EXECUTABLE(zfp_test_bitstream
 ErrorCheck.cpp
-encode.cuh
-BitStream.cuh
+${ENC_CUH}
+${BIT_CUH}
 test_bitstream.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_bitstream
@@ -146,9 +151,9 @@ cudart
 
 CUDA_ADD_EXECUTABLE(zfp_test_inv_xform
 ErrorCheck.cpp
-encode.cuh
-decode.cuh
-BitStream.cuh
+${ENC_CUH}
+${DEC_CUH}
+${BIT_CUH}
 test_inv_xform.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_inv_xform
@@ -159,9 +164,9 @@ cudart
 
 CUDA_ADD_EXECUTABLE(zfp_test_decode
 ErrorCheck.cpp
-encode.cuh
-decode.cuh
-BitStream.cuh
+${ENC_CUH}
+${DEC_CUH}
+${BIT_CUH}
 test_decode.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_decode
@@ -172,9 +177,9 @@ cudart
 
 CUDA_ADD_EXECUTABLE(zfp_test_all
 ErrorCheck.cpp
-encode.cuh
-decode.cuh
-BitStream.cuh
+${ENC_CUH}
+${DEC_CUH}
+${BIT_CUH}
 test_all.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_all

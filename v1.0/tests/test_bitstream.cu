@@ -1,4 +1,4 @@
-#include <iostream>
+﻿#include <iostream>
 #include <thrust/device_vector.h>
 #include <thrust/device_ptr.h>
 #include <thrust/host_vector.h>
@@ -12,17 +12,17 @@
 
 #define KEPLER 0
 #include "ErrorCheck.h"
-#include "encode.cuh"
-#include "decode.cuh"
+#include "include/encode.cuh"
+#include "include/BitStream.cuh"
 
 using namespace thrust;
 using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 64;
-const size_t ny = 64;
-const size_t nz = 64;
+const size_t nx = 512;
+const size_t ny = 512;
+const size_t nz = 512;
 
 uint minbits = 4096;
 uint maxbits = 4096;
@@ -125,32 +125,17 @@ perm[64] = {
 static size_t block_size(double rate) { return (lrint(64 * rate) + CHAR_BIT - 1) / CHAR_BIT; }
 
 
-template<class Scalar>
 void setupConst(const unsigned char *perm)
 {
     ErrorCheck ec;
     ec.chk("setupConst start");
-    cudaMemcpyToSymbol(c_perm, perm, sizeof(unsigned char)*64,0); ec.chk("setupConst: c_perm");
-
-    const uint sizeof_scalar = sizeof(Scalar);
-    cudaMemcpyToSymbol(c_sizeof_scalar, &sizeof_scalar, sizeof(uint)); ec.chk("setupConst: c_sizeof_scalar");
-
+    cudaMemcpyToSymbol(c_perm, perm, sizeof(unsigned char)*64,0); ec.chk("setupConst: lic_dim");
     ec.chk("setupConst finished");
 
 
 }
 
 
-/* reorder unsigned coefficients and convert to signed integer */
-template<class Int, class UInt>
-__host__
-static void
-inv_order(const UInt* ublock, Int* iblock, const unsigned char* perm, uint n)
-{
-  do
-    iblock[*perm++] = uint2int<UInt>(*ublock++);
-  while (--n);
-}
 
 
 //Used to generate rand array in CUDA with Thrust
@@ -196,26 +181,6 @@ void validateCPU
 
 }
 
-template<class Scalar>
-void validateEncode
-(
-        host_vector<Scalar> &p,
-        BitStream *stream
-        )
-{
-
-}
-
-template<class Scalar>
-void
-gather( Scalar* q, const Scalar* p, uint mx, uint my, uint mz, uint sx, uint sy, uint sz)
-{
-  for (int z=mz; z<mz+4; z++)
-      for (int y=my; y<my+4; y++)
-          for (int x=mx; x<mx+4; x++,q++)
-              *q = p[z*sz+y*sy+x*sx];
-}
-
 template<class Int, class UInt, class Scalar, uint bsize>
 void cpuTestBitStream
 (
@@ -230,60 +195,7 @@ void cpuTestBitStream
     //BitStream *stream_old = stream_create(blksize*mx*my);
     BitStream *stream_old = stream_create(nx*ny*nz);
     host_vector<Bit<bsize> > stream(mx*my*mz);
-    int chk_idx = 0;
-    for (int z=0; z<nz; z+=4){
-        for (int y=0; y<ny; y+=4){
-            for (int x=0; x<nx; x+=4){
-                int idx = z*nx*ny + y*nx + x;
-                Int q1[64], q2[64], q3[64];
-                UInt buf[64];
 
-                int emax2 = max_exp<Scalar>(raw_pointer_cast(p.data()), idx, 1,nx,nx*ny);
-                fixed_point(q1,raw_pointer_cast(p.data()), emax2, idx, 1,nx,nx*ny);
-                for (int i=0; i<64; i++){
-                    q2[i] = q1[i];
-                }
-
-                fwd_xform<Int>(q2);
-                for (int i=0; i<64; i++){
-                    q3[i] = q2[i];
-                }
-                reorder<Int, UInt>(q3, buf);
-
-                encode_ints_old<UInt>(stream_old, buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
-
-                stream_old->rewind();
-                UInt dec[64];
-                decode_ints_old<Int,UInt>(stream_old, minbits, maxbits,  precision(emax2, maxprec, minexp),  dec,size, group_count);
-
-                for (int i=0; i<64; i++){
-                    assert(dec[i] == buf[i]);
-                }
-
-                Int iblock[64];
-                inv_order(dec, iblock, perm, 64);
-                for (int i=0; i<64; i++){
-                    assert(iblock[i] == q2[i]);
-                }
-                inv_xform(iblock);
-                for (int i=0; i<64; i++){
-                    assert(iblock[i] == q1[i]);
-                }
-                Scalar fblock[64], cblock[64];
-                gather<Scalar>(cblock, raw_pointer_cast(p.data()),x,y,z, 1,nx,nx*ny);
-
-                inv_cast<Int, Scalar, sizeof(Scalar)>(iblock, fblock, emax2, 0,0,0, 1, 4,16);
-                for (int i=0; i<64; i++){
-                    assert(FABS(fblock[i] - cblock[i]) < 1e-6);
-                }
-                chk_idx++;
-            }
-        }
-    }
-
-
-    double start_time = omp_get_wtime();
-#pragma omp parallel for
     for (int z=0; z<nz; z+=4){
         for (int y=0; y<ny; y+=4){
             for (int x=0; x<nx; x+=4){
@@ -295,51 +207,51 @@ void cpuTestBitStream
                 fixed_point(q2,raw_pointer_cast(p.data()), emax2, idx, 1,nx,nx*ny);
                 fwd_xform<Int>(q2);
                 reorder<Int, UInt>(q2, buf);
-                encode_ints<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+                encode_ints_old<UInt>(stream_old, buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+                //encode_ints_old_par<UInt>(stream_old, buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
 
-                stream[z/4*mx*my + y/4*mx + x/4].rewind();
-                UInt dec[64];
-                decode_ints<UInt, bsize>(stream[z/4*mx*my + y/4*mx + x/4], dec, minbits, maxbits, maxprec, group_count, size);
-                Int iblock[64];
-                inv_order(dec, iblock, perm, 64);
-//                for (int i=0; i<64; i++){
-//                    assert(iblock[i] == q2[i]);
-//                }
-                inv_xform(iblock);
-//                for (int i=0; i<64; i++){
-//                    assert(iblock[i] == q1[i]);
-//                }
-                Scalar fblock[64], cblock[64];
-                gather<Scalar>(cblock, raw_pointer_cast(p.data()),x,y,z, 1,nx,nx*ny);
-                inv_cast<Int, Scalar, sizeof(Scalar)>(iblock, fblock, emax2, 0,0,0, 1,4,16);
-                for (int i=0; i<64; i++){
-                    assert(FABS(fblock[i] - cblock[i]) < 1e-6);
-                }
+            }
+        }
+    }
+    double start_time = omp_get_wtime();
+//#pragma omp parallel for
+    for (int z=0; z<nz; z+=4){
+        for (int y=0; y<ny; y+=4){
+            for (int x=0; x<nx; x+=4){
+                int idx = z*nx*ny + y*nx + x;
+                Int q2[64];
+                UInt buf[64];
 
+                int emax2 = max_exp<Scalar>(raw_pointer_cast(p.data()), idx, 1,nx,nx*ny);
+                fixed_point(q2,raw_pointer_cast(p.data()), emax2, idx, 1,nx,nx*ny);
+                fwd_xform<Int>(q2);
+                reorder<Int, UInt>(q2, buf);
+                //encode_ints<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+                encode_ints_par<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
             }
         }
     }
 
     double elapsed_time = omp_get_wtime() - start_time;
     cout << "CPU elapsed time: " <<  elapsed_time << endl;
-    //validateCPU(stream_old, stream);
-    //validateEncode(stream_old, p);
+    validateCPU(stream_old, stream);
 }
 
 template<class Int, class UInt, class Scalar, uint bsize>
 void gpuValidate
 (
-        host_vector<Scalar> &p,
-        device_vector<Int> &q,
-        device_vector<Scalar> &data
+        device_vector<Scalar> &data,
+        device_vector<UInt> &buffer,
+        device_vector<Bit<bsize> > &stream
         )
 {
     host_vector<Scalar> h_p;
-    host_vector<Int> h_q;
+    host_vector<UInt> h_buf;
+    host_vector<Bit<bsize> > h_bits;
 
     h_p = data;
-    h_q = q;
-
+    h_buf = buffer;
+    h_bits = stream;
 
     int i=0;
     for (int z=0; z<nz; z+=4){
@@ -355,29 +267,14 @@ void gpuValidate
                 reorder<Int, UInt>(raw_pointer_cast(q2.data()), raw_pointer_cast(buf.data()));
                 encode_ints<UInt>(loc_stream,  raw_pointer_cast(buf.data()), minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
 
-                loc_stream.rewind();
-                UInt dec[64];
-                decode_ints<UInt, bsize>(loc_stream, dec, minbits, maxbits,  precision(emax2, maxprec, minexp),group_count,size);
-
                 for (int j=0; j<64; j++){
-                    assert(dec[j] == buf[j]);
-                }
-
-                Int iblock[64];
-                inv_order(dec, iblock, perm, 64);
-                inv_xform(iblock);
-
-                for (int j=0; j<64; j++){
-                    assert(h_q[i*64+j] == iblock[j]);
+                    assert(h_bits[i].begin[j] == loc_stream.begin[j]);
                 }
 
                 i++;
 
             }
         }
-    }
-    for (int i=0; i<h_p.size(); i++){
-        assert(h_p[i] == p[i]);
     }
 }
 
@@ -395,9 +292,6 @@ void gpuTestBitStream
     host_vector<Int> h_q;
     host_vector<UInt> h_buf;
     host_vector<Bit<bsize> > h_bits;
-
-    host_vector<Scalar> h_data;
-    h_data = data;
 
     dim3 emax_size(nx/4, ny/4, nz/4 );
 
@@ -451,8 +345,8 @@ void gpuTestBitStream
                 );
     ec.chk("cudaint2uint");
 
-//    q.clear();
-//    q.shrink_to_fit();
+    q.clear();
+    q.shrink_to_fit();
 
     device_vector<Bit<bsize> > stream(emax_size.x * emax_size.y * emax_size.z);
 
@@ -475,63 +369,7 @@ void gpuTestBitStream
 
     cout << "encode GPU in time: " << millisecs << endl;
 
-    block_size = dim3(8,8,8);
-    grid_size =  emax_size;
-    grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-    cudaRewind<bsize><<< grid_size,block_size >>>
-        (
-            raw_pointer_cast(stream.data())
-        );
-    ec.chk("cudaRewind");
-
-    block_size = dim3(8,8,8);
-    grid_size =  emax_size;
-    grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-    cudaDecode<UInt, bsize><<< emax_size.x*emax_size.y*emax_size.z/16,16, 16*(sizeof(Bit<bsize>) + sizeof(int))>>>
-        (
-             raw_pointer_cast(buffer.data()),
-             raw_pointer_cast(stream.data()),
-             raw_pointer_cast(emax.data()),
-             minbits, maxbits, maxprec, minexp, group_count, size
-        );
-    cudaStreamSynchronize(0);
-    ec.chk("cudaDecode");
-
-    block_size = dim3(8,8,8);
-    grid_size = dim3(nx,ny,nz);
-    grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-    cudaInvOrder<<<grid_size, block_size>>>
-        (
-            raw_pointer_cast(buffer.data()),
-            raw_pointer_cast(q.data())
-        );
-    cudaStreamSynchronize(0);
-    ec.chk("cudaInvOrder");
-
-    block_size = dim3(8,8,8);
-    grid_size = emax_size;
-    grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
-
-    cudaInvXForm<Int><<<grid_size, block_size>>>
-        (
-            raw_pointer_cast(q.data())
-        );
-    cudaStreamSynchronize(0);
-    ec.chk("cudaInvXForm");
-
-    block_size = dim3(8,8,8);
-    grid_size = emax_size;
-    grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
-
-    cudaInvCast<Int, Scalar><<<grid_size, block_size>>>
-            (
-                raw_pointer_cast(emax.data()),
-                raw_pointer_cast(data.data()),
-                raw_pointer_cast(q.data())
-                );
-    ec.chk("cudaInvCast");
-
-    gpuValidate<Int, UInt, Scalar, bsize>(h_data, q, data);
+    gpuValidate<Int, UInt, Scalar, bsize>(data, buffer, stream);
 
 }
 
@@ -552,11 +390,11 @@ int main()
 
     h_vec_in = d_vec_in;
 //    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
-    setupConst<double>(perm);
+    setupConst(perm);
     cout << "Begin gpuTestBitStream" << endl;
-    gpuTestBitStream<long long, unsigned long long, double, 64>(d_vec_in, d_vec_out, d_vec_buffer);
-   cout << "Finish gpuTestBitStream" << endl;
-//    cout << "Begin cpuTestBitStream" << endl;
-//    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
-//    cout << "End cpuTestBitStream" << endl;
+    //gpuTestBitStream<long long, unsigned long long, double, 64>(d_vec_in, d_vec_out, d_vec_buffer);
+    cout << "Finish gpuTestBitStream" << endl;
+    cout << "Begin cpuTestBitStream" << endl;
+    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
+    cout << "End cpuTestBitStream" << endl;
 }
