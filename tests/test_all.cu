@@ -348,7 +348,12 @@ device_vector<UInt> &buffer
 	host_vector<Scalar> data_out = data;
 
 	for (int i = 0; i < nx*ny*nz; i++){
-		assert(h_data[i] == data_out[i]);
+        if (h_data[i] != data_out[i]){
+            cout << i << " " << h_data[i] << " " << data_out[i] << endl;
+            exit(-1);
+        }
+
+        //assert(h_data[i] == data_out[i]);
 	}
 }
 
@@ -422,7 +427,11 @@ host_vector<Scalar> &p
 	cout << "CPU elapsed time (in secs): " << elapsed_time << endl;
 
 	for (int i = 0; i < nx*ny*nz; i++){
-		assert(data_out[i] == p[i]);
+        if (data_out[i] != p[i]){
+            cout << i << " " << data_out[i] << " " << p[i] << endl;
+            exit(-1);
+        }
+        //assert(data_out[i] == p[i]);
 	}
 }
 int main()
