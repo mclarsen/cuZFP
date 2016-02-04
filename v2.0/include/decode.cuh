@@ -75,26 +75,57 @@ inv_lift(Int* p, uint s)
   p -= s; *p = x;
 }
 
+/* transform along z */
+template<class Int>
+__host__ __device__
+static void
+inv_xform_yx(Int* p)
+{
+    uint x, y;
+    for (y = 0; y < 4; y++)
+      for (x = 0; x < 4; x++)
+        inv_lift(p + 1 * x + 4 * y, 16);
+
+}
+
+/* transform along y */
+template<class Int>
+__host__ __device__
+static void
+inv_xform_xz(Int* p)
+{
+    uint x, z;
+    for (x = 0; x < 4; x++)
+      for (z = 0; z < 4; z++)
+        inv_lift(p + 16 * z + 1 * x, 4);
+
+}
+
+/* transform along x */
+template<class Int>
+__host__ __device__
+static void
+inv_xform_zy(Int* p)
+{
+    uint y, z;
+    for (z = 0; z < 4; z++)
+      for (y = 0; y < 4; y++)
+        inv_lift(p + 4 * y + 16 * z, 1);
+
+}
+
 /* inverse decorrelating 3D transform */
 template<class Int>
 __host__ __device__
 static void
 inv_xform(Int* p)
 {
-  uint x, y, z;
-  /* transform along z */
-  for (y = 0; y < 4; y++)
-    for (x = 0; x < 4; x++)
-      inv_lift(p + 1 * x + 4 * y, 16);
-  /* transform along y */
-  for (x = 0; x < 4; x++)
-    for (z = 0; z < 4; z++)
-      inv_lift(p + 16 * z + 1 * x, 4);
-  /* transform along x */
-  for (z = 0; z < 4; z++)
-    for (y = 0; y < 4; y++)
-      inv_lift(p + 4 * y + 16 * z, 1);
+
+    inv_xform_yx(p);
+    inv_xform_xz(p);
+    inv_xform_zy(p);
 }
+
 /* map two's complement signed integer to negabinary unsigned integer */
 template<class Int, class UInt>
 __host__ __device__
@@ -281,6 +312,52 @@ void cudaInvXForm
     int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
     inv_xform(iblock + idx*64);
 
+}
+
+
+template<class Int>
+__global__
+void cudaInvXFormYX
+(
+        Int *iblock
+        )
+{
+    int i = threadIdx.x + blockDim.x*blockIdx.x;
+    int j = threadIdx.y  + blockDim.y*blockIdx.y;
+    int k = threadIdx.z + blockDim.z*blockIdx.z;
+    int idx = j*gridDim.x*blockDim.x + i;
+    inv_lift(iblock + k%16 + 64*idx, 16);
+
+}
+
+
+template<class Int>
+__global__
+void cudaInvXFormXZ
+(
+        Int *iblock
+        )
+{
+    int i = threadIdx.x + blockDim.x*blockIdx.x;
+    int j = threadIdx.y  + blockDim.y*blockIdx.y;
+    int k = threadIdx.z + blockDim.z*blockIdx.z;
+    int idx = j*gridDim.x*blockDim.x + i;
+    inv_lift(iblock + k%4 + 16*idx,4);
+
+}
+
+template<class Int>
+__global__
+void cudaInvXFormZY
+(
+        Int *p
+        )
+{
+    int x = threadIdx.x + blockDim.x*blockIdx.x;
+    int y = threadIdx.y  + blockDim.y*blockIdx.y;
+    int z = threadIdx.z + blockDim.z*blockIdx.z;
+    int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
+    inv_lift(p+4*idx,1);
 }
 
 template<class Int, class Scalar>

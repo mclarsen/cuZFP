@@ -140,6 +140,63 @@ struct RandGen
     }
 };
 
+template<class Int>
+void gpuInvXform
+(
+        device_vector<Int> &q
+        )
+{
+    ErrorCheck ec;
+    dim3 block_size, grid_size;
+    uint tot_size = 0;
+
+    tot_size = nx*ny*nz;
+    tot_size /= 64;
+    block_size = dim3(8, 8, 16);
+    grid_size.x = sqrt(tot_size);
+    grid_size.y = sqrt(tot_size);
+    grid_size.z = 1;
+    grid_size.x /= block_size.x; grid_size.y /= block_size.y;
+
+    cout << grid_size.x << " " << grid_size.y << " " << grid_size.z << endl;
+    cudaInvXFormYX<Int> << <grid_size, block_size >> >
+        (
+        raw_pointer_cast(q.data())
+        );
+    cudaStreamSynchronize(0);
+    ec.chk("cudaInvXFormYX");
+
+    tot_size = nx*ny*nz;
+
+    tot_size /= 16;
+    block_size = dim3(8, 8, 4);
+    grid_size.x = sqrt(tot_size);
+    grid_size.y = sqrt(tot_size);
+    grid_size.z = 1;
+    grid_size.x /= block_size.x; grid_size.y /= block_size.y;
+
+    cout << grid_size.x << " " << grid_size.y << " " << grid_size.z << endl;
+    cudaInvXFormXZ<Int> << <grid_size, block_size >> >
+        (
+        raw_pointer_cast(q.data())
+        );
+    cudaStreamSynchronize(0);
+    ec.chk("cudaInvXFormXZ");
+
+    block_size = dim3(8, 8, 8);
+    grid_size = dim3(nx,ny,nz);
+    grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+    grid_size.z /= 4;
+
+    cout << grid_size.x << " " << grid_size.y << " " << grid_size.z << endl;
+    cudaInvXFormZY<Int> << <grid_size, block_size >> >
+        (
+        raw_pointer_cast(q.data())
+        );
+    cudaStreamSynchronize(0);
+    ec.chk("cudaInvXFormZY");
+
+}
 
 
 template<class Int>
@@ -159,13 +216,13 @@ void gpuTestinv_xform
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
 
 
-	cudaInvXForm<Int> << <block_size, grid_size >> >
-		(
-		raw_pointer_cast(q_out.data())
-		);
-	cudaStreamSynchronize(0);
-	ec.chk("cudaInvXForm");
-
+//	cudaInvXForm<Int> << <block_size, grid_size >> >
+//		(
+//		raw_pointer_cast(q_out.data())
+//		);
+//	cudaStreamSynchronize(0);
+//	ec.chk("cudaInvXForm");
+    gpuInvXform(q_out);
 
 	host_vector<Int> h_qout;
 
@@ -174,11 +231,17 @@ void gpuTestinv_xform
 	iblock.resize(h_q.size());
 	thrust::copy(h_q.begin(), h_q.end(), iblock.begin());
 	for (int i = 0; i < nx*ny*nz / 64; i++){
-		inv_xform(&iblock[0] + i * 64);
-	}
+        inv_xform(&iblock[0] + i * 64);
+//        inv_xform_yx(&iblock[0] + i * 64);
+//        inv_xform_xz(&iblock[0] + i * 64);
+//        inv_xform_zy(&iblock[0] + i * 64);
+    }
 	int i = 0;
 	for (i = 0; i < nx*ny*nz; i++){
-		assert(iblock[i] == h_qout[i]);
+        if(iblock[i] != h_qout[i]){
+            cout << i << " " << iblock[i] << " " << h_qout[i] << endl;
+            exit(-1);
+        }
 	}
 }
 
