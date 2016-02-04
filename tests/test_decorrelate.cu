@@ -66,6 +66,74 @@ void cpuTestDecorrelate
 
 }
 
+template<class Int>
+void gpuDecorrelate
+(
+        device_vector<Int> &q
+        )
+{
+    ErrorCheck ec;
+    dim3 emax_size(nx/4, ny/4, nz/4 );
+    dim3 block_size(8,8,8);
+    dim3 grid_size = emax_size;
+    grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
+
+    cudaDecorrelate<Int><<<block_size, grid_size>>>
+        (
+            raw_pointer_cast(q.data())
+            );
+    ec.chk("cudaDecorrelate");
+
+
+//    ErrorCheck ec;
+//    uint tot_size = nx*ny*nz;
+//    dim3 block_size, grid_size;
+//    block_size = dim3(8, 8, 8);
+//    grid_size = dim3(nx,ny,nz);
+//    grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+//    grid_size.z /= 4;
+
+//    cout << grid_size.x << " " << grid_size.y << " " << grid_size.z << endl;
+//    cudaDecorrelateZY<Int><<< grid_size, block_size>>>
+//        (
+//            raw_pointer_cast(q.data())
+//            );
+//    cudaThreadSynchronize();
+//    ec.chk("cudaDecorrelateZY");
+//    tot_size = nx*ny*nz;
+
+//    tot_size /= 16;
+//    block_size = dim3(8, 8, 4);
+//    grid_size.x = sqrt(tot_size);
+//    grid_size.y = sqrt(tot_size);
+//    grid_size.z = 1;
+//    grid_size.x /= block_size.x; grid_size.y /= block_size.y;
+
+//    cout << grid_size.x << " " << grid_size.y << " " << grid_size.z << endl;
+//    cudaDecorrelateXZ<Int><<< grid_size, block_size>>>
+//        (
+//            raw_pointer_cast(q.data())
+//            );
+//    cudaThreadSynchronize();
+//    ec.chk("cudaDecorrelateXZ");
+
+//    tot_size = nx*ny*nz;
+//    tot_size /= 64;
+//    block_size = dim3(8, 8, 16);
+//    grid_size.x = sqrt(tot_size);
+//    grid_size.y = sqrt(tot_size);
+//    grid_size.z = 1;
+//    grid_size.x /= block_size.x; grid_size.y /= block_size.y;
+
+//    cout << grid_size.x << " " << grid_size.y << " " << grid_size.z << endl;
+//    cudaDecorrelateYX<Int><<< grid_size, block_size>>>
+//        (
+//            raw_pointer_cast(q.data())
+//            );
+//    cudaThreadSynchronize();
+//    ec.chk("cudaDecorrelateYX");
+}
+
 
 
 template<class Int, class Scalar>
@@ -102,56 +170,19 @@ void gpuTestDecorrelate
                 );
     ec.chk("cudaFixedPoint");
 
-//    cudaDecorrelate<Int><<<block_size, grid_size>>>
-//        (
-//            raw_pointer_cast(q.data())
-//            );
-//    ec.chk("cudaDecorrelate");
+    float millisecs;
+    cudaEvent_t start_decode, stop_decode;
+    cudaEventCreate(&start_decode);
+    cudaEventCreate(&stop_decode);
+    cudaEventRecord(start_decode, 0);
 
-    block_size = dim3(8, 8, 8);
-    grid_size = dim3(nx,ny,nz);
-    grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-    grid_size.z /= 4;
+    gpuDecorrelate(q);
 
-    cout << grid_size.x << " " << grid_size.y << " " << grid_size.z << endl;
-    cudaDecorrelateZY<Int><<< grid_size, block_size>>>
-        (
-            raw_pointer_cast(q.data())
-            );
-    cudaThreadSynchronize();
-    ec.chk("cudaDecorrelateZY");
-    tot_size = nx*ny*nz;
+    cudaEventRecord(stop_decode, 0);
+    cudaEventSynchronize(stop_decode);
+    cudaEventElapsedTime(&millisecs, start_decode, stop_decode);
 
-    tot_size /= 16;
-    block_size = dim3(8, 8, 4);
-    grid_size.x = sqrt(tot_size);
-    grid_size.y = sqrt(tot_size);
-    grid_size.z = 1;
-    grid_size.x /= block_size.x; grid_size.y /= block_size.y;
-
-    cout << grid_size.x << " " << grid_size.y << " " << grid_size.z << endl;
-    cudaDecorrelateXZ<Int><<< grid_size, block_size>>>
-        (
-            raw_pointer_cast(q.data())
-            );
-    cudaThreadSynchronize();
-    ec.chk("cudaDecorrelateXZ");
-
-    tot_size = nx*ny*nz;
-    tot_size /= 64;
-    block_size = dim3(8, 8, 16);
-    grid_size.x = sqrt(tot_size);
-    grid_size.y = sqrt(tot_size);
-    grid_size.z = 1;
-    grid_size.x /= block_size.x; grid_size.y /= block_size.y;
-
-    cout << grid_size.x << " " << grid_size.y << " " << grid_size.z << endl;
-    cudaDecorrelateYX<Int><<< grid_size, block_size>>>
-        (
-            raw_pointer_cast(q.data())
-            );
-    cudaThreadSynchronize();
-    ec.chk("cudaDecorrelateYX");
+    cout << "decorrelate GPU in time (in ms): " << millisecs << endl;
 
 
     host_vector<int> h_emax;
