@@ -78,6 +78,7 @@ void gpuTestDecorrelate
 {
     dim3 emax_size(nx/4, ny/4, nz/4 );
 
+    uint tot_size = nx*ny*nz;
     dim3 block_size(8,8,8);
     dim3 grid_size = emax_size;
     grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
@@ -101,11 +102,57 @@ void gpuTestDecorrelate
                 );
     ec.chk("cudaFixedPoint");
 
-    cudaDecorrelate<Int><<<block_size, grid_size>>>
+//    cudaDecorrelate<Int><<<block_size, grid_size>>>
+//        (
+//            raw_pointer_cast(q.data())
+//            );
+//    ec.chk("cudaDecorrelate");
+
+    block_size = dim3(8, 8, 8);
+    grid_size = dim3(nx,ny,nz);
+    grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+    grid_size.z /= 4;
+
+    cout << grid_size.x << " " << grid_size.y << " " << grid_size.z << endl;
+    cudaDecorrelateZY<Int><<< grid_size, block_size>>>
         (
             raw_pointer_cast(q.data())
             );
-    ec.chk("cudaDecorrelate");
+    cudaThreadSynchronize();
+    ec.chk("cudaDecorrelateZY");
+    tot_size = nx*ny*nz;
+
+    tot_size /= 16;
+    block_size = dim3(8, 8, 4);
+    grid_size.x = sqrt(tot_size);
+    grid_size.y = sqrt(tot_size);
+    grid_size.z = 1;
+    grid_size.x /= block_size.x; grid_size.y /= block_size.y;
+
+    cout << grid_size.x << " " << grid_size.y << " " << grid_size.z << endl;
+    cudaDecorrelateXZ<Int><<< grid_size, block_size>>>
+        (
+            raw_pointer_cast(q.data())
+            );
+    cudaThreadSynchronize();
+    ec.chk("cudaDecorrelateXZ");
+
+    tot_size = nx*ny*nz;
+    tot_size /= 64;
+    block_size = dim3(8, 8, 16);
+    grid_size.x = sqrt(tot_size);
+    grid_size.y = sqrt(tot_size);
+    grid_size.z = 1;
+    grid_size.x /= block_size.x; grid_size.y /= block_size.y;
+
+    cout << grid_size.x << " " << grid_size.y << " " << grid_size.z << endl;
+    cudaDecorrelateYX<Int><<< grid_size, block_size>>>
+        (
+            raw_pointer_cast(q.data())
+            );
+    cudaThreadSynchronize();
+    ec.chk("cudaDecorrelateYX");
+
 
     host_vector<int> h_emax;
     host_vector<Scalar> h_p;
@@ -124,11 +171,17 @@ void gpuTestDecorrelate
                 assert(emax2 == h_emax[i++]);
                 fixed_point(q2,raw_pointer_cast(h_p.data()), emax2, x,y,z, 1,nx,nx*ny);
                 fwd_xform(q2);
+//                fwd_xform_zy(q2);
+//                fwd_xform_xz(q2);
+//                fwd_xform_yx(q2);
 
                 for (int j=0; j<64; j++){
-                    assert(h_q[j+(i-1)*64] == q2[j]);
+                    if(h_q[j+i*64] != q2[j]){
+                        cout << x << " " << y << " " << z << " " << i << " " << j << " " << j+i*64 << " " << h_q[j+i*64] << " " << q2[j] << endl;
+                        exit(-1);
+                    }
                 }
-
+                i++;
             }
         }
     }

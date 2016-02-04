@@ -247,6 +247,50 @@ void cudaDecorrelate
     fwd_xform(p + idx*64);
 }
 
+template<class Int>
+__global__
+void cudaDecorrelateZY
+(
+        Int *p
+        )
+{
+    int x = threadIdx.x + blockDim.x*blockIdx.x;
+    int y = threadIdx.y  + blockDim.y*blockIdx.y;
+    int z = threadIdx.z + blockDim.z*blockIdx.z;
+    int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
+    fwd_lift(p+4*idx,1);
+}
+
+template<class Int>
+__global__
+void cudaDecorrelateXZ
+(
+        Int *p
+        )
+{
+    int i = threadIdx.x + blockDim.x*blockIdx.x;
+    int j = threadIdx.y  + blockDim.y*blockIdx.y;
+    int k = threadIdx.z  + blockDim.z*blockIdx.z;
+
+    int idx = j*gridDim.x*blockDim.x + i;
+    fwd_lift(p + k%4 + 16*idx,4);
+}
+
+template<class Int>
+__global__
+void cudaDecorrelateYX
+(
+        Int *p
+        )
+{
+    int i = threadIdx.x + blockDim.x*blockIdx.x;
+    int j = threadIdx.y  + blockDim.y*blockIdx.y;
+    int k = threadIdx.z  + blockDim.z*blockIdx.z;
+
+    int idx = j*gridDim.x*blockDim.x + i;
+    fwd_lift(p + k % 16 + 64*idx, 16);
+}
+
 template<class Int, class Scalar>
 __global__
 void cudaFixedPoint
