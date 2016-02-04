@@ -238,8 +238,8 @@ void cpuTestBitStream
                 Int q1[64], q2[64], q3[64];
                 UInt buf[64];
 
-                int emax2 = max_exp<Scalar>(raw_pointer_cast(p.data()), idx, 1,nx,nx*ny);
-                fixed_point(q1,raw_pointer_cast(p.data()), emax2, idx, 1,nx,nx*ny);
+                int emax2 = max_exp<Scalar>(raw_pointer_cast(p.data()), x,y,z, 1,nx,nx*ny);
+                fixed_point(q1,raw_pointer_cast(p.data()), emax2, x,y,z, 1,nx,nx*ny);
                 for (int i=0; i<64; i++){
                     q2[i] = q1[i];
                 }
@@ -291,8 +291,8 @@ void cpuTestBitStream
                 Int q2[64];
                 UInt buf[64];
 
-                int emax2 = max_exp<Scalar>(raw_pointer_cast(p.data()), idx, 1,nx,nx*ny);
-                fixed_point(q2,raw_pointer_cast(p.data()), emax2, idx, 1,nx,nx*ny);
+                int emax2 = max_exp<Scalar>(raw_pointer_cast(p.data()), x,y,z, 1,nx,nx*ny);
+                fixed_point(q2,raw_pointer_cast(p.data()), emax2, x,y,z, 1,nx,nx*ny);
                 fwd_xform<Int>(q2);
                 reorder<Int, UInt>(q2, buf);
                 encode_ints<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
@@ -349,8 +349,8 @@ void gpuValidate
                 host_vector<Int> q2(64);
                 host_vector<UInt> buf(64);
                 Bit<bsize> loc_stream;
-                int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), idx, 1,nx,nx*ny);
-                fixed_point(raw_pointer_cast(q2.data()),raw_pointer_cast(h_p.data()), emax2, idx, 1,nx,nx*ny);
+                int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), x,y,z, 1,nx,nx*ny);
+                fixed_point(raw_pointer_cast(q2.data()),raw_pointer_cast(h_p.data()), emax2, x,y,z, 1,nx,nx*ny);
                 fwd_xform(raw_pointer_cast(q2.data()));
                 reorder<Int, UInt>(raw_pointer_cast(q2.data()), raw_pointer_cast(buf.data()));
                 encode_ints<UInt>(loc_stream,  raw_pointer_cast(buf.data()), minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);

@@ -51,8 +51,8 @@ void cpuTestFixedPoint
                 int idx = z*nx*ny + y*nx + x;
                 Int q[64];
                 Int q2[64];
-                int emax2 = max_exp<Scalar>(p, idx, 1,nx,nx*ny);
-                fixed_point(q2,p, emax2, idx, 1,nx,nx*ny);
+                int emax2 = max_exp<Scalar>(p, x,y,z, 1,nx,nx*ny);
+                fixed_point(q2,p, emax2, x,y,z, 1,nx,nx*ny);
 
                 int emax = fwd_cast(q, p+idx, 1,nx,nx*ny);
 
@@ -111,9 +111,9 @@ void gpuTestFixedPoint
             for (int x=0; x<nx; x+=4){
                 int idx = z*nx*ny + y*nx + x;
                 Int q2[64];
-                int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), idx, 1,nx,nx*ny);
+                int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), x,y,z, 1,nx,nx*ny);
                 assert(emax2 == h_emax[i++]);
-                fixed_point(q2,raw_pointer_cast(h_p.data()), emax2, idx, 1,nx,nx*ny);
+                fixed_point(q2,raw_pointer_cast(h_p.data()), emax2, x,y,z, 1,nx,nx*ny);
                 for (int j=0; j<64; j++){
                     assert(h_q[j+(i-1)*64] == q2[j]);
                 }

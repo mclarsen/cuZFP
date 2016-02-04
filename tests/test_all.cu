@@ -378,8 +378,8 @@ host_vector<Scalar> &p
 				Int q2[64];
 				UInt buf[64];
 
-				int emax2 = max_exp<Scalar>(raw_pointer_cast(p.data()), idx, 1, nx, nx*ny);
-				fixed_point(q2, raw_pointer_cast(p.data()), emax2, idx, 1, nx, nx*ny);
+                int emax2 = max_exp<Scalar>(raw_pointer_cast(p.data()), x,y,z, 1, nx, nx*ny);
+                fixed_point(q2, raw_pointer_cast(p.data()), emax2, x,y,z, 1, nx, nx*ny);
 				fwd_xform<Int>(q2);
 				reorder<Int, UInt>(q2, buf);
 				//encode_ints<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
@@ -397,7 +397,7 @@ host_vector<Scalar> &p
 				int idx = z*nx*ny + y*nx + x;
 
 				stream[z / 4 * mx*my + y / 4 * mx + x / 4].rewind();
-				int emax2 = max_exp<Scalar>(raw_pointer_cast(p.data()), idx, 1, nx, nx*ny);
+                int emax2 = max_exp<Scalar>(raw_pointer_cast(p.data()), x,y,z, 1, nx, nx*ny);
 
 				UInt dec[64];
 				decode_ints<UInt, bsize>(stream[z / 4 * mx*my + y / 4 * mx + x / 4], dec, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);

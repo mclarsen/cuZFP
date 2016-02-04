@@ -156,8 +156,8 @@ void cpuTestDecorrelate
                 int idx = z*nx*ny + y*nx + x;
                 Int q[64];
                 Int q2[64];
-                int emax2 = max_exp<Scalar>(p, idx, 1,nx,nx*ny);
-                fixed_point(q2,p, emax2, idx, 1,nx,nx*ny);
+                int emax2 = max_exp<Scalar>(p, x,y,z, 1,nx,nx*ny);
+                fixed_point(q2,p, emax2, x,y,z, 1,nx,nx*ny);
 
                 int emax = fwd_cast(q, p+idx, 1,nx,nx*ny);
 
@@ -249,9 +249,9 @@ void gpuTestint2uint
                 int idx = z*nx*ny + y*nx + x;
                 host_vector<Int> q2(64);
                 host_vector<UInt> buf(64);
-                int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), idx, 1,nx,nx*ny);
+                int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), x,y,z, 1,nx,nx*ny);
                 assert(emax2 == h_emax[i]);
-                fixed_point(raw_pointer_cast(q2.data()),raw_pointer_cast(h_p.data()), emax2, idx, 1,nx,nx*ny);
+                fixed_point(raw_pointer_cast(q2.data()),raw_pointer_cast(h_p.data()), emax2, x,y,z, 1,nx,nx*ny);
                 fwd_xform(raw_pointer_cast(q2.data()));
                 reorder<Int, UInt>(raw_pointer_cast(q2.data()), raw_pointer_cast(buf.data()));
 
