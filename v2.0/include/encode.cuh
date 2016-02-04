@@ -172,6 +172,39 @@ fwd_lift(Int* p, uint s)
   p -= s; *p = y;
   p -= s; *p = x;
 }
+// forward decorrelating transform
+template<class Int>
+__device__ __host__
+static void
+fwd_xform_zy(Int* p)
+{
+    for (uint z = 0; z < 4; z++)
+      for (uint y = 0; y < 4; y++)
+        fwd_lift(p + 4 * y + 16 * z, 1);
+
+}
+// forward decorrelating transform
+template<class Int>
+__device__ __host__
+static void
+fwd_xform_xz(Int* p)
+{
+    for (uint x = 0; x < 4; x++)
+      for (uint z = 0; z < 4; z++)
+        fwd_lift(p + 16 * z + 1 * x, 4);
+
+}
+// forward decorrelating transform
+template<class Int>
+__device__ __host__
+static void
+fwd_xform_yx(Int* p)
+{
+    for (uint y = 0; y < 4; y++)
+      for (uint x = 0; x < 4; x++)
+        fwd_lift(p + 1 * x + 4 * y, 16);
+
+}
 
 // forward decorrelating transform
 template<class Int>
@@ -179,15 +212,9 @@ __device__ __host__
 static void
 fwd_xform(Int* p)
 {
-  for (uint z = 0; z < 4; z++)
-    for (uint y = 0; y < 4; y++)
-      fwd_lift(p + 4 * y + 16 * z, 1);
-  for (uint x = 0; x < 4; x++)
-    for (uint z = 0; z < 4; z++)
-      fwd_lift(p + 16 * z + 1 * x, 4);
-  for (uint y = 0; y < 4; y++)
-    for (uint x = 0; x < 4; x++)
-      fwd_lift(p + 1 * x + 4 * y, 16);
+    fwd_xform_zy(p);
+    fwd_xform_xz(p);
+    fwd_xform_yx(p);
 }
 
 template<class Int, class UInt>
