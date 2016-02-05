@@ -574,6 +574,35 @@ encode_ints_par(Bit<bsize> & stream, const UInt* data, uint minbits, uint maxbit
 
 template<class UInt, uint bsize>
 __device__ __host__
+bool encode_bitplane
+(
+        Bit<bsize> &stream,
+        const UInt *data,
+        unsigned long long &count,
+        uint size,
+        uint &bits,
+        uint &n,
+        const uint k
+        )
+{
+    // extract bit plane k to x
+    stream.x = 0;
+    for (uint i = 0; i < size; i++)
+      stream.x += ((data[i] >> k) & (unsigned long long)1) << i;
+    // encode bit plane
+    for (uint m = n;; m = count & 0xfu, count >>= 4, n += m) {
+      // encode bit k for next set of m values
+      m = MIN(m, bits);
+      bits -= m;
+      stream.x = stream.write_bits(stream.x, m);
+      // continue with next bit plane if out of groups or group test passes
+      if (!count || (bits--, stream.write_bit(!!stream.x), !stream.x))
+        return false;
+    }
+    return true;
+}
+template<class UInt, uint bsize>
+__device__ __host__
 static void
 encode_ints(Bit<bsize> & stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
 {
@@ -586,20 +615,8 @@ encode_ints(Bit<bsize> & stream, const UInt* data, uint minbits, uint maxbits, u
   // output one bit plane at a time from MSB to LSB
   for (uint k = intprec, n = 0; k-- > kmin;) {
       if (bits){
-        // extract bit plane k to x
-        stream.x = 0;
-        for (uint i = 0; i < size; i++)
-          stream.x += ((data[i] >> k) & (unsigned long long)1) << i;
-        // encode bit plane
-        for (uint m = n;; m = count & 0xfu, count >>= 4, n += m) {
-          // encode bit k for next set of m values
-          m = MIN(m, bits);
-          bits -= m;
-          stream.x = stream.write_bits(stream.x, m);
-          // continue with next bit plane if out of groups or group test passes
-          if (!count || (bits--, stream.write_bit(!!stream.x), !stream.x))
-            break;
-        }
+          if (encode_bitplane(stream, data, count, size, bits, n, k))
+              break;
       }
   }
 
