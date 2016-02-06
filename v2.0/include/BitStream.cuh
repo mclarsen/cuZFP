@@ -574,7 +574,7 @@ encode_ints_par(Bit<bsize> & stream, const UInt* data, uint minbits, uint maxbit
 
 template<class UInt, uint bsize>
 __device__ __host__
-bool encode_bitplane
+void encode_bitplane
 (
         Bit<bsize> &stream,
         const UInt *data,
@@ -597,9 +597,8 @@ bool encode_bitplane
       stream.x = stream.write_bits(stream.x, m);
       // continue with next bit plane if out of groups or group test passes
       if (!count || (bits--, stream.write_bit(!!stream.x), !stream.x))
-        return false;
+        break;
     }
-    return true;
 }
 template<class UInt, uint bsize>
 __device__ __host__
@@ -615,8 +614,7 @@ encode_ints(Bit<bsize> & stream, const UInt* data, uint minbits, uint maxbits, u
   // output one bit plane at a time from MSB to LSB
   for (uint k = intprec, n = 0; k-- > kmin;) {
       if (bits){
-          if (encode_bitplane(stream, data, count, size, bits, n, k))
-              break;
+          encode_bitplane(stream, data, count, size, bits, n, k);
       }
   }
 
