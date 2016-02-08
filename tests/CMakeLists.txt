@@ -100,10 +100,12 @@ LINK_DIRECTORIES(
 
 #ADD_DEFINITIONS("-std=c++0x -march=native -msse2")
 #ADD_DEFINITIONS("-std=c99")
-SET(CMAKE_BUILD_TYPE Release)
-#SET(CMAKE_BUILD_TYPE Debug)
-
-
+#SET(CMAKE_BUILD_TYPE Release)
+SET(CMAKE_BUILD_TYPE Debug)
+set(ENC_CUH "../${ZFP_PARALLEL_VERSION}/include/encode.cuh")
+set(DEC_CUH "../${ZFP_PARALLEL_VERSION}/include/decode.cuh")
+set(BIT_CUH "../${ZFP_PARALLEL_VERSION}/include/BitStream.cuh")
+if(false)
 CUDA_ADD_EXECUTABLE(zfp_test_exp
 ErrorCheck.cpp
 test_exp.cu
@@ -112,9 +114,6 @@ TARGET_LINK_LIBRARIES(zfp_test_exp
 
 cudart
 )
-set(ENC_CUH "../${ZFP_PARALLEL_VERSION}/include/encode.cuh")
-set(DEC_CUH "../${ZFP_PARALLEL_VERSION}/include/decode.cuh")
-set(BIT_CUH "../${ZFP_PARALLEL_VERSION}/include/BitStream.cuh")
 
 CUDA_ADD_EXECUTABLE(zfp_test_fixed
 ErrorCheck.cpp
@@ -185,7 +184,6 @@ ${LIBOMP}
 
 cudart
 )
-
 CUDA_ADD_EXECUTABLE(zfp_test_all
 ErrorCheck.cpp
 ${ENC_CUH}
@@ -194,6 +192,20 @@ ${BIT_CUH}
 test_all.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_all
+${LIBOMP}
+
+cudart
+)
+endif()
+
+
+CUDA_ADD_EXECUTABLE(zfp_test_encode_par
+ErrorCheck.cpp
+${ENC_CUH}
+${BIT_CUH}
+test_encode_par.cu
+)
+TARGET_LINK_LIBRARIES(zfp_test_encode_par
 ${LIBOMP}
 
 cudart
