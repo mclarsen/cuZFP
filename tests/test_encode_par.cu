@@ -181,6 +181,83 @@ void validateCPU
 
 }
 
+template<class UInt, uint bsize>
+__device__ __host__
+void encode_bit_plane_par(const unsigned long long *x, const uint *g, Bit<bsize> & stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count)
+{
+    uint m, n;
+     uint k = 0;
+     uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+     uint bits = maxbits;
+     /* serial: output one bit plane at a time from MSB to LSB */
+     for (k = intprec, n = 0; k-- > kmin;) {
+      /* encode bit k for first n values */
+      unsigned long long y = x[k];
+      if (n < bits) {
+        y = stream.write_bits(y, n);
+        bits -= n;
+      }
+      else {
+        stream.write_bits(y, bits);
+        bits = 0;
+        return;
+      }
+      uint h = g[min(k+1,intprec-1)];
+      /* perform series of group tests */
+      while (h++ < g[k]) {
+        /* output a one bit for a positive group test */
+        stream.write_bit(1);
+        bits--;
+        /* add next group of m values to significant set */
+        m = count & 0xfu;
+        count >>= 4;
+        n += m;
+        /* encode next group of m values */
+        if (m < bits) {
+          y = stream.write_bits( y, m);
+          bits -= m;
+        }
+        else {
+          stream.write_bits(y, bits);
+          bits = 0;
+          return;
+        }
+      }
+      /* if there are more groups, output a zero bit for a negative group test */
+      if (count) {
+        stream.write_bit(0);
+        bits--;
+      }
+     }
+
+     /* write at least minbits bits by padding with zeros */
+     while (bits > maxbits - minbits) {
+      stream.write_bit(0);
+      bits--;
+     }
+ }
+template<class UInt, uint bsize>
+static void
+encode_ints_par(Bit<bsize> & stream, const UInt* data, uint prec)
+{
+    uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+
+    unsigned long long x[CHAR_BIT * sizeof(UInt)];
+    uint g[CHAR_BIT * sizeof(UInt)];
+
+    encode_group_test<UInt, bsize>(x, g, data, minbits, maxbits, prec, group_count, size);
+    uint cur = g[CHAR_BIT * sizeof(UInt)-1];
+    uint k = intprec-1;
+    for (k = intprec-1; k-- > kmin;) {
+        if (cur < g[k])
+            cur = g[k];
+        else if (cur > g[k])
+            g[k] = cur;
+    }
+    encode_bit_plane_par<UInt, bsize>(x, g, stream, data, minbits, maxbits, prec, group_count);
+
+}
+
 template<class Int, class UInt, class Scalar, uint bsize>
 void cpuTestBitStream
 (
@@ -214,7 +291,6 @@ void cpuTestBitStream
         }
     }
     double start_time = omp_get_wtime();
-//#pragma omp parallel for
     for (int z=0; z<nz; z+=4){
         for (int y=0; y<ny; y+=4){
             for (int x=0; x<nx; x+=4){
@@ -226,8 +302,7 @@ void cpuTestBitStream
                 fixed_point(q2,raw_pointer_cast(p.data()), emax2, x,y,z, 1,nx,nx*ny);
                 fwd_xform<Int>(q2);
                 reorder<Int, UInt>(q2, buf);
-                //encode_ints<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
-                encode_ints_par<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+                encode_ints_par<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, precision(emax2, maxprec, minexp));
             }
         }
     }
