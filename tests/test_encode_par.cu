@@ -180,62 +180,147 @@ void validateCPU
     }
 
 }
+void
+__device__ __host__
+write_bitters(Word *bitters, uint k, unsigned long long value, uint n, uint &sbits)
+{
+  unsigned long long v = value >> n;
+  value -= v << n;
+  bitters[(intprec-1) - k] += value << sbits;
+  sbits += n;
+}
 
+__device__ __host__
+void
+write_bitter(Word *bitters, uint k, uint bit, uint &sbits)
+{
+  bitters[(intprec-1) - k] += (Word)bit << sbits++;
+}
 template<class UInt, uint bsize>
 __device__ __host__
-void encode_bit_plane_par(const unsigned long long *x, const uint *g, Bit<bsize> & stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count)
+void encode_bit_plane_par(const unsigned long long *x, const uint *g, Bit<bsize> & stream, uint minbits, uint maxbits, uint maxprec, unsigned long long count)
 {
     uint m, n;
-     uint k = 0;
-     uint kmin = intprec > maxprec ? intprec - maxprec : 0;
-     uint bits = maxbits;
-     /* serial: output one bit plane at a time from MSB to LSB */
-     for (k = intprec, n = 0; k-- > kmin;) {
-      /* encode bit k for first n values */
-      unsigned long long y = x[k];
-      if (n < bits) {
-        y = stream.write_bits(y, n);
-        bits -= n;
+   uint k = 0;
+   uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+   uint bits = maxbits;
+
+   /* serial: output one bit plane at a time from MSB to LSB */
+   for (k = intprec, n = 0; k-- > kmin;) {
+    /* encode bit k for first n values */
+    unsigned long long y = x[k];
+    if (n < bits) {
+      y = stream.write_bits(y, n);
+      bits -= n;
+    }
+    else {
+      stream.write_bits(y, bits);
+      bits = 0;
+      return;
+    }
+    uint h = g[min(k+1,intprec-1)];
+    /* perform series of group tests */
+    while (h++ < g[k]) {
+      /* output a one bit for a positive group test */
+      stream.write_bit(1);
+      bits--;
+      /* add next group of m values to significant set */
+      m = count & 0xfu;
+      count >>= 4;
+      n += m;
+      /* encode next group of m values */
+      if (m < bits) {
+        y = stream.write_bits( y, m);
+        bits -= m;
       }
       else {
         stream.write_bits(y, bits);
         bits = 0;
         return;
       }
-      uint h = g[min(k+1,intprec-1)];
-      /* perform series of group tests */
-      while (h++ < g[k]) {
-        /* output a one bit for a positive group test */
-        stream.write_bit(1);
-        bits--;
-        /* add next group of m values to significant set */
-        m = count & 0xfu;
-        count >>= 4;
-        n += m;
-        /* encode next group of m values */
-        if (m < bits) {
-          y = stream.write_bits( y, m);
-          bits -= m;
-        }
-        else {
-          stream.write_bits(y, bits);
-          bits = 0;
-          return;
-        }
-      }
-      /* if there are more groups, output a zero bit for a negative group test */
-      if (count) {
-        stream.write_bit(0);
-        bits--;
-      }
-     }
-
-     /* write at least minbits bits by padding with zeros */
-     while (bits > maxbits - minbits) {
+    }
+    /* if there are more groups, output a zero bit for a negative group test */
+    if (count) {
       stream.write_bit(0);
       bits--;
-     }
- }
+    }
+   }
+
+   /* write at least minbits bits by padding with zeros */
+   while (bits > maxbits - minbits) {
+    stream.write_bit(0);
+    bits--;
+   }
+}
+template<class UInt, uint bsize>
+__device__ __host__
+void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, Word *bitters, uint *sbits, Bit<bsize> & stream, uint minbits, uint maxbits, uint maxprec, unsigned long long count)
+{
+    uint m, n;
+   uint k = 0;
+   uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+   uint bits = maxbits;
+
+   /* serial: output one bit plane at a time from MSB to LSB */
+   for (k = intprec, n = 0; k-- > kmin;) {
+     bitters[(intprec-1) - k] = 0;
+     sbits[(intprec-1) - k] = 0;
+    /* encode bit k for first n values */
+    unsigned long long y = x[k];
+    if (n < bits) {
+      y = stream.write_bits(y, n);
+      bits -= n;
+
+      write_bitters(bitters, k, y, n, sbits[(intprec -1) - k]);
+
+    }
+    else {
+      stream.write_bits(y, bits);
+      bits = 0;
+      return;
+    }
+    uint h = g[min(k+1,intprec-1)];
+    /* perform series of group tests */
+    while (h++ < g[k]) {
+      /* output a one bit for a positive group test */
+      stream.write_bit(1);
+      write_bitter(bitters, k, 1, sbits[(intprec -1) - k]);
+      bits--;
+      /* add next group of m values to significant set */
+      m = count & 0xfu;
+      count >>= 4;
+      n += m;
+      /* encode next group of m values */
+      if (m < bits) {
+        y = stream.write_bits( y, m);
+        write_bitters(bitters, k, y, m, sbits[(intprec -1) - k]);
+        bits -= m;
+      }
+      else {
+        stream.write_bits(y, bits);
+        write_bitters(bitters, k, y, m, sbits[(intprec -1) - k]);
+        bits = 0;
+        return;
+      }
+    }
+    /* if there are more groups, output a zero bit for a negative group test */
+    if (count) {
+      stream.write_bit(0);
+      write_bitter(bitters, k, 0, sbits[(intprec -1) - k]);
+      bits--;
+    }
+   }
+
+   uint tot_sbits  = 0;
+   for (int i=0; i<CHAR_BIT *sizeof(UInt); i++){
+     tot_sbits += sbits[i];
+   }
+   /* write at least minbits bits by padding with zeros */
+   while (bits > maxbits - minbits) {
+    stream.write_bit(0);
+    bits--;
+   }
+}
 template<class UInt, uint bsize>
 static void
 encode_ints_par(Bit<bsize> & stream, const UInt* data, uint prec)
@@ -244,6 +329,9 @@ encode_ints_par(Bit<bsize> & stream, const UInt* data, uint prec)
 
     unsigned long long x[CHAR_BIT * sizeof(UInt)];
     uint g[CHAR_BIT * sizeof(UInt)];
+
+    Word bitters[CHAR_BIT * sizeof(UInt)];
+    uint sbits[CHAR_BIT *sizeof(UInt)];
 
     encode_group_test<UInt, bsize>(x, g, data, minbits, maxbits, prec, group_count, size);
     uint cur = g[CHAR_BIT * sizeof(UInt)-1];
@@ -254,7 +342,7 @@ encode_ints_par(Bit<bsize> & stream, const UInt* data, uint prec)
         else if (cur > g[k])
             g[k] = cur;
     }
-    encode_bit_plane_par<UInt, bsize>(x, g, stream, data, minbits, maxbits, prec, group_count);
+    encode_bit_plane_par<UInt, bsize>(x, g, stream, minbits, maxbits, prec, group_count);
 
 }
 
