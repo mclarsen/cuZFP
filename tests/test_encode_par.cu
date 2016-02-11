@@ -1,4 +1,5 @@
 ﻿#include <iostream>
+#include <helper_math.h>
 #include <thrust/device_vector.h>
 #include <thrust/device_ptr.h>
 #include <thrust/host_vector.h>
@@ -10,11 +11,12 @@
 #include <assert.h>
 #include <omp.h>
 
+
 #define KEPLER 0
 #include "ErrorCheck.h"
 #include "include/encode.cuh"
 #include "include/BitStream.cuh"
-
+#include "include/ull128.h"
 using namespace thrust;
 using namespace std;
 
@@ -180,22 +182,8 @@ void validateCPU
     }
 
 }
-void
-__device__ __host__
-write_bitters(Word &bitters, unsigned long long value, uint n, uint &sbits)
-{
-  unsigned long long v = value >> n;
-  value -= v << n;
-  bitters += value << sbits;
-  sbits += n;
-}
 
-__device__ __host__
-void
-write_bitter(Word &bitters, uint bit, uint &sbits)
-{
-  bitters += (Word)bit << sbits++;
-}
+
 template<class UInt, uint bsize>
 __device__ __host__
 void encode_bit_plane_par(const unsigned long long *x, const uint *g, Bit<bsize> & stream, uint minbits, uint maxbits, uint maxprec, unsigned long long count)
@@ -252,9 +240,54 @@ void encode_bit_plane_par(const unsigned long long *x, const uint *g, Bit<bsize>
     bits--;
    }
 }
+
+void
+__device__ __host__
+write_bitters(ulonglong2 &bitters, ulonglong2 value, uint n, uint &sbits)
+{
+	if (n == bitsize(value.x)){
+		bitters.x = value.x;
+		bitters.y = value.y;
+	}
+	else{
+		ulonglong2 v = rshiftull2(value, n);
+		v = lshiftull2(v, n);
+		value.x -= v.x;
+		value.y -= v.y;
+		v = lshiftull2(value, sbits);
+		bitters.x += v.x;
+		bitters.y += v.y;
+		sbits += n;
+	}
+}
+
+__device__ __host__
+void
+write_bitter(ulonglong2 &bitters, ulonglong2 bit, uint &sbits)
+{
+	ulonglong2 val = lshiftull2(bit, sbits++);
+	bitters.x += val.x;
+	bitters.y += val.y;
+}
+
+__device__ __host__ 
+void 
+write_out(unsigned long long *out, uint &tot_sbits, uint &offset, unsigned long long value, uint sbits)
+{
+
+	unsigned long long v = value >> sbits;
+	value -= v << sbits;
+	out[offset] += value << tot_sbits;
+	tot_sbits += sbits;
+	if (tot_sbits >= wsize) {
+		tot_sbits -= wsize;
+		offset++;
+		out[offset] = value >> (sbits - tot_sbits);
+	}
+}
 template<class UInt, uint bsize>
 __device__ __host__
-void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, Word *bitters, Word *out, uint *sbits, Bit<bsize> & stream, uint minbits, uint maxbits, uint maxprec, unsigned long long count)
+void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, ulonglong2 *bitters, Word *out, uint *sbits, Bit<bsize> & stream, uint minbits, uint maxbits, uint maxprec, unsigned long long count)
 {
 	uint m, n;
 	uint k = 0;
@@ -263,13 +296,15 @@ void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, Word *b
 
 	/* serial: output one bit plane at a time from MSB to LSB */
 	for (k = intprec, n = 0; k-- > kmin;) {
-		bitters[(intprec - 1) - k] = 0;
+		bitters[(intprec - 1) - k].x = 0;
+		bitters[(intprec - 1) - k].y = 0;
+
 		sbits[(intprec - 1) - k] = 0;
 		/* encode bit k for first n values */
 		unsigned long long y = x[k];
 		if (n < bits) {
 			bits -= n;
-			write_bitters(bitters[(intprec - 1) - k], y, n, sbits[(intprec - 1) - k]);
+			write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(y,0), n, sbits[(intprec - 1) - k]);
 		}
 		else {
 			bits = 0;
@@ -280,7 +315,7 @@ void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, Word *b
 		/* perform series of group tests */
 		while (h++ < g[k]) {
 			/* output a one bit for a positive group test */
-			write_bitter(bitters[(intprec - 1) - k], 1, sbits[(intprec - 1) - k]);
+			write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(1,0), sbits[(intprec - 1) - k]);
 			bits--;
 			/* add next group of m values to significant set */
 			m = count & 0xfu;
@@ -288,36 +323,34 @@ void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, Word *b
 			n += m;
 			/* encode next group of m values */
 			if (m < bits) {
-				write_bitters(bitters[(intprec - 1) - k], y, m, sbits[(intprec - 1) - k]);
+				write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(y,0), m, sbits[(intprec - 1) - k]);
 				bits -= m;
 			}
 			else {
-				write_bitters(bitters[(intprec - 1) - k], y, m, sbits[(intprec - 1) - k]);
+				write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(y, 0), m, sbits[(intprec - 1) - k]);
 				bits = 0;
 				return;
 			}
 		}
 		/* if there are more groups, output a zero bit for a negative group test */
 		if (count) {
-			write_bitter(bitters[(intprec - 1) - k], 0, sbits[(intprec - 1) - k]);
+			write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(0,0), sbits[(intprec - 1) - k]);
 			bits--;
 		}
 	}
 
-	uint tot_sbits = sbits[0];
-	uint cur_out = 0;
-	out[cur_out] = 0;
+	uint tot_sbits = 0;// sbits[0];
+	uint offset = 0;
 
+	uint sbits_cnt = 0;
 	for (int i = 0; i < CHAR_BIT *sizeof(UInt); i++){
-		unsigned long long value = bitters[i];
-		unsigned long long v = value >> sbits[i];
-		value -= v << sbits[i];
-		out[cur_out] += value << tot_sbits;
-		tot_sbits += sbits[i];
-		if (tot_sbits >= wsize){
-			tot_sbits -= wsize;
-			cur_out++;
-			out[cur_out] = bitters[i] >> (sbits[i] - tot_sbits);
+		sbits_cnt += sbits[i];
+		if (sbits[i] < 64){
+			write_out(out, tot_sbits, offset, bitters[i].x, sbits[i]);
+		}
+		else{
+			write_out(out, tot_sbits, offset, bitters[i].x, 64);
+			write_out(out, tot_sbits, offset, bitters[i].y, sbits[i] - 64);
 		}
 	}
 
@@ -336,24 +369,25 @@ template<class UInt, uint bsize>
 static void
 encode_ints_par(Bit<bsize> & stream, const UInt* data, uint prec)
 {
-    uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+  uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 
-    unsigned long long x[CHAR_BIT * sizeof(UInt)];
-    uint g[CHAR_BIT * sizeof(UInt)];
+  unsigned long long x[CHAR_BIT * sizeof(UInt)];
+  uint g[CHAR_BIT * sizeof(UInt)];
 
 
-    encode_group_test<UInt, bsize>(x, g, data, minbits, maxbits, prec, group_count, size);
-    uint cur = g[CHAR_BIT * sizeof(UInt)-1];
-    uint k = intprec-1;
-    for (k = intprec-1; k-- > kmin;) {
-        if (cur < g[k])
-            cur = g[k];
-        else if (cur > g[k])
-            g[k] = cur;
-    }
-    encode_bit_plane_par<UInt, bsize>(x, g, stream, minbits, maxbits, prec, group_count);
+  encode_group_test<UInt, bsize>(x, g, data, minbits, maxbits, prec, group_count, size);
+  uint cur = g[CHAR_BIT * sizeof(UInt)-1];
+  uint k = intprec-1;
+  for (k = intprec-1; k-- > kmin;) {
+      if (cur < g[k])
+          cur = g[k];
+      else if (cur > g[k])
+          g[k] = cur;
+  }
+  encode_bit_plane_par<UInt, bsize>(x, g, stream, minbits, maxbits, prec, group_count);
 
-		Word bitters[CHAR_BIT * sizeof(UInt)], out[CHAR_BIT * sizeof(UInt)];
+	ulonglong2 bitters[CHAR_BIT * sizeof(UInt)];
+	Word out[CHAR_BIT * sizeof(UInt)];
 	uint sbits[CHAR_BIT *sizeof(UInt)];
 
 	for (int i = 0; i < CHAR_BIT *sizeof(UInt); i++){
