@@ -210,3 +210,15 @@ ${LIBOMP}
 
 cudart
 )
+
+CUDA_ADD_EXECUTABLE(zfp_test_ull128
+ErrorCheck.cpp
+${ENC_CUH}
+${BIT_CUH}
+test_ull128.cu
+)
+TARGET_LINK_LIBRARIES(zfp_test_ull128
+${LIBOMP}
+
+cudart
+)
