@@ -239,25 +239,44 @@ void encode_bit_plane_par(const unsigned long long *x, const uint *g, Bit<bsize>
     stream.write_bit(0);
     bits--;
    }
+
 }
 
-void
+
+__device__ __host__
+ulonglong2 subull2(ulonglong2 in1, ulonglong2 in2)
+{
+	ulonglong2 difference;
+	difference.y = in1.y - in2.y;
+	difference.x = in1.x - in2.x;
+	// check for underflow of low 64 bits, subtract carry to high
+	if (difference.y > in1.x)
+		--difference.y;
+	return difference;
+}
+
+unsigned long long
 __device__ __host__
 write_bitters(ulonglong2 &bitters, ulonglong2 value, uint n, uint &sbits)
 {
 	if (n == bitsize(value.x)){
 		bitters.x = value.x;
 		bitters.y = value.y;
+		sbits += n;
+		return 0;
 	}
 	else{
 		ulonglong2 v = rshiftull2(value, n);
+		ulonglong2 ret = rshiftull2(value, n);
 		v = lshiftull2(v, n);
-		value.x -= v.x;
-		value.y -= v.y;
+		value = subull2(value, v);
+
 		v = lshiftull2(value, sbits);
 		bitters.x += v.x;
 		bitters.y += v.y;
+
 		sbits += n;
+		return ret.x;
 	}
 }
 
@@ -275,8 +294,6 @@ void
 write_out(unsigned long long *out, uint &tot_sbits, uint &offset, unsigned long long value, uint sbits)
 {
 
-	unsigned long long v = value >> sbits;
-	value -= v << sbits;
 	out[offset] += value << tot_sbits;
 	tot_sbits += sbits;
 	if (tot_sbits >= wsize) {
@@ -294,6 +311,10 @@ void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, ulonglo
 	uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 	uint bits = maxbits;
 
+
+	uint tot_sbits = 0;// sbits[0];
+	uint offset = 0;
+
 	/* serial: output one bit plane at a time from MSB to LSB */
 	for (k = intprec, n = 0; k-- > kmin;) {
 		bitters[(intprec - 1) - k].x = 0;
@@ -304,7 +325,7 @@ void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, ulonglo
 		unsigned long long y = x[k];
 		if (n < bits) {
 			bits -= n;
-			write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(y,0), n, sbits[(intprec - 1) - k]);
+			y = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(y,0), n, sbits[(intprec - 1) - k]);
 		}
 		else {
 			bits = 0;
@@ -315,7 +336,7 @@ void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, ulonglo
 		/* perform series of group tests */
 		while (h++ < g[k]) {
 			/* output a one bit for a positive group test */
-			write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(1,0), sbits[(intprec - 1) - k]);
+			write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(1, 0), sbits[(intprec - 1) - k]);
 			bits--;
 			/* add next group of m values to significant set */
 			m = count & 0xfu;
@@ -323,11 +344,11 @@ void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, ulonglo
 			n += m;
 			/* encode next group of m values */
 			if (m < bits) {
-				write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(y,0), m, sbits[(intprec - 1) - k]);
+				y = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(y, 0), m, sbits[(intprec - 1) - k]);
 				bits -= m;
 			}
 			else {
-				write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(y, 0), m, sbits[(intprec - 1) - k]);
+				y = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(y, 0), m, sbits[(intprec - 1) - k]);
 				bits = 0;
 				return;
 			}
@@ -339,13 +360,10 @@ void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, ulonglo
 		}
 	}
 
-	uint tot_sbits = 0;// sbits[0];
-	uint offset = 0;
-
 	uint sbits_cnt = 0;
 	for (int i = 0; i < CHAR_BIT *sizeof(UInt); i++){
 		sbits_cnt += sbits[i];
-		if (sbits[i] < 64){
+		if (sbits[i] <= 64){
 			write_out(out, tot_sbits, offset, bitters[i].x, sbits[i]);
 		}
 		else{
