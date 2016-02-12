@@ -13,10 +13,10 @@ ulonglong2 lshiftull2(const ulonglong2 &in, size_t len)
 			a.x <<= len;
 		}
 		else{
-			len -= 64;
-			unsigned long long v = value >> len;
+			a.y = a.x = 0;
 
-			a.y <<= len;
+			len -= 64;
+			unsigned long long v = value << len;
 			a.y += v;
 		}
 	}
