@@ -299,7 +299,8 @@ write_out(unsigned long long *out, uint &tot_sbits, uint &offset, unsigned long 
 	if (tot_sbits >= wsize) {
 		tot_sbits -= wsize;
 		offset++;
-		out[offset] = value >> (sbits - tot_sbits);
+		if (tot_sbits > 0)
+			out[offset] = value >> (sbits - tot_sbits);
 	}
 }
 template<class UInt, uint bsize>
@@ -314,7 +315,7 @@ void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, ulonglo
 
 	uint tot_sbits = 0;// sbits[0];
 	uint offset = 0;
-
+		
 	/* serial: output one bit plane at a time from MSB to LSB */
 	for (k = intprec, n = 0; k-- > kmin;) {
 		bitters[(intprec - 1) - k].x = 0;
@@ -358,22 +359,21 @@ void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, ulonglo
 			write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(0,0), sbits[(intprec - 1) - k]);
 			bits--;
 		}
-	}
-
-	uint sbits_cnt = 0;
-	for (int i = 0; i < CHAR_BIT *sizeof(UInt); i++){
-		sbits_cnt += sbits[i];
-		if (sbits[i] <= 64){
-			write_out(out, tot_sbits, offset, bitters[i].x, sbits[i]);
+		if (sbits[(intprec - 1) - k] <= 64){
+			write_out(out, tot_sbits, offset, bitters[(intprec - 1) - k].x, sbits[(intprec - 1) - k]);
 		}
 		else{
-			write_out(out, tot_sbits, offset, bitters[i].x, 64);
-			write_out(out, tot_sbits, offset, bitters[i].y, sbits[i] - 64);
+			write_out(out, tot_sbits, offset, bitters[(intprec - 1) - k].x, 64);
+			write_out(out, tot_sbits, offset, bitters[(intprec - 1) - k].y, sbits[(intprec - 1) - k] - 64);
 		}
 	}
 
+	//uint sbits_cnt = 0;
+	//for (int i = 0; i < CHAR_BIT *sizeof(UInt); i++){
+	//	sbits_cnt += sbits[i];
+	//}
+
 #ifndef __CUDA_ARCH__
-   cout << "tot bits: " << tot_sbits << " bits: " << bits << endl;
 	 for (int i = 0; i < CHAR_BIT*sizeof(UInt); i++){
 		 if (out[i] != stream.begin[i]){
 			 cout << "failed: " << i << " " << out[i] << " " << stream.begin[i] << endl;
