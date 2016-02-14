@@ -307,55 +307,66 @@ template<class UInt, uint bsize>
 __device__ __host__
 void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, ulonglong2 *bitters, Word *out, uint *sbits, Bit<bsize> & stream, uint minbits, uint maxbits, uint maxprec, unsigned long long count)
 {
-	uint m, n;
 	uint k = 0;
 	uint kmin = intprec > maxprec ? intprec - maxprec : 0;
-	uint bits = maxbits;
 
+	uint h[64], j[64];
 
-		
+	unsigned long long cnt[64];
+
+	for (k = intprec; k-- > kmin;) {
+		h[k] = g[min(k + 1, intprec - 1)];
+	}
+
+	for (k = intprec; k-- > kmin;) {
+		cnt[k] = count;
+		cnt[k] >>= h[k] * 4;
+	}
+	uint g_cnt[10];
+	uint sum = 0;
+	g_cnt[0] = 0;
+	for (int i = 1; i < 10; i++){
+		sum += count & 0xf;
+		g_cnt[i] = sum;
+		count >>= 4;
+	}
+
+	uint n_cnt[64];
+	for (k = intprec; k-- > kmin;) {
+		n_cnt[k] = g_cnt[h[k]]; 
+	}
+
 	/* serial: output one bit plane at a time from MSB to LSB */
-	for (k = intprec, n = 0; k-- > kmin;) {
+	for (k = intprec; k-- > kmin;) {
 		bitters[(intprec - 1) - k].x = 0;
 		bitters[(intprec - 1) - k].y = 0;
 
 		sbits[(intprec - 1) - k] = 0;
 		/* encode bit k for first n values */
 		unsigned long long y = x[k];
-		if (n < bits) {
-			bits -= n;
-			y = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(y,0), n, sbits[(intprec - 1) - k]);
-		}
-		else {
-			bits = 0;
-			return;
-		}
+		y = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(y, 0), n_cnt[k], sbits[(intprec - 1) - k]);
 
-		uint h = g[min(k + 1, intprec - 1)];
 		/* perform series of group tests */
-		while (h++ < g[k]) {
+		while (h[k]++ < g[k]) {
 			/* output a one bit for a positive group test */
 			write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(1, 0), sbits[(intprec - 1) - k]);
-			bits--;
 			/* add next group of m values to significant set */
-			m = count & 0xfu;
-			count >>= 4;
-			n += m;
+			uint m = cnt[k] & 0xfu;
+			cnt[k] >>= 4;
+			n_cnt[k] += m;
 			/* encode next group of m values */
-			if (m < bits) {
-				y = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(y, 0), m, sbits[(intprec - 1) - k]);
-				bits -= m;
-			}
-			else {
-				y = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(y, 0), m, sbits[(intprec - 1) - k]);
-				bits = 0;
-				return;
-			}
+			y = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(y, 0), m, sbits[(intprec - 1) - k]);
+			//if (m < bits) {
+			//	bits -= m;
+			//}
+			//else {
+			//	bits = 0;
+			//	return;
+			//}
 		}
 		/* if there are more groups, output a zero bit for a negative group test */
-		if (count) {
-			write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(0,0), sbits[(intprec - 1) - k]);
-			bits--;
+		if (cnt[k]) {
+			write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(0, 0), sbits[(intprec - 1) - k]);
 		}
 	}
 
@@ -373,12 +384,12 @@ void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, ulonglo
 	}
 
 #ifndef __CUDA_ARCH__
-	 for (int i = 0; i < CHAR_BIT*sizeof(UInt); i++){
-		 if (out[i] != stream.begin[i]){
-			 cout << "failed: " << i << " " << out[i] << " " << stream.begin[i] << endl;
-			 exit(-1);
-		 }
-	 }
+	for (int i = 0; i < CHAR_BIT*sizeof(UInt); i++){
+		if (out[i] != stream.begin[i]){
+			cout << "failed: " << i << " " << out[i] << " " << stream.begin[i] << endl;
+			exit(-1);
+		}
+	}
 
 #endif
 }
