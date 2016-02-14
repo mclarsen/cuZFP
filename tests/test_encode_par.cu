@@ -305,20 +305,22 @@ write_out(unsigned long long *out, uint &tot_sbits, uint &offset, unsigned long 
 }
 template<class UInt, uint bsize>
 __device__ __host__
-void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, ulonglong2 *bitters, Word *out, uint *sbits, Bit<bsize> & stream, uint minbits, uint maxbits, uint maxprec, unsigned long long count)
+void encode_bit_plane_thrust(unsigned long long *x, const uint *g, ulonglong2 *bitters, Word *out, uint *sbits, Bit<bsize> & stream, uint minbits, uint maxbits, uint maxprec, unsigned long long count)
 {
-	uint k = 0;
+	int k = 0;
 	uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 
-	uint h[64], j[64];
+	uint h[64], j[64], n_cnt[64];
 
 	unsigned long long cnt[64];
 
-	for (k = intprec; k-- > kmin;) {
+#pragma omp parallel for
+	for (k = kmin; k < intprec; k++) {
 		h[k] = g[min(k + 1, intprec - 1)];
 	}
 
-	for (k = intprec; k-- > kmin;) {
+#pragma omp parallel for
+	for (k = kmin; k < intprec; k++) {
 		cnt[k] = count;
 		cnt[k] >>= h[k] * 4;
 	}
@@ -331,21 +333,24 @@ void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, ulonglo
 		count >>= 4;
 	}
 
-	uint n_cnt[64];
-	for (k = intprec; k-- > kmin;) {
-		n_cnt[k] = g_cnt[h[k]]; 
+#pragma omp parallel for
+	for (k = kmin; k < intprec; k++) {
+		n_cnt[k] = g_cnt[h[k]];
 	}
 
 	/* serial: output one bit plane at a time from MSB to LSB */
-	for (k = intprec; k-- > kmin;) {
+#pragma omp parallel for
+	for (k = kmin; k < intprec; k++) {
 		bitters[(intprec - 1) - k].x = 0;
 		bitters[(intprec - 1) - k].y = 0;
 
 		sbits[(intprec - 1) - k] = 0;
 		/* encode bit k for first n values */
-		unsigned long long y = x[k];
-		y = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(y, 0), n_cnt[k], sbits[(intprec - 1) - k]);
+		x[k] = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(x[k], 0), n_cnt[k], sbits[(intprec - 1) - k]);
+	}
 
+#pragma omp parallel for
+	for (k = kmin; k < intprec; k++) {
 		/* perform series of group tests */
 		while (h[k]++ < g[k]) {
 			/* output a one bit for a positive group test */
@@ -355,14 +360,7 @@ void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, ulonglo
 			cnt[k] >>= 4;
 			n_cnt[k] += m;
 			/* encode next group of m values */
-			y = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(y, 0), m, sbits[(intprec - 1) - k]);
-			//if (m < bits) {
-			//	bits -= m;
-			//}
-			//else {
-			//	bits = 0;
-			//	return;
-			//}
+			x[k] = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(x[k], 0), m, sbits[(intprec - 1) - k]);
 		}
 		/* if there are more groups, output a zero bit for a negative group test */
 		if (cnt[k]) {
