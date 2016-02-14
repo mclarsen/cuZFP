@@ -313,8 +313,6 @@ void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, ulonglo
 	uint bits = maxbits;
 
 
-	uint tot_sbits = 0;// sbits[0];
-	uint offset = 0;
 		
 	/* serial: output one bit plane at a time from MSB to LSB */
 	for (k = intprec, n = 0; k-- > kmin;) {
@@ -359,19 +357,20 @@ void encode_bit_plane_thrust(const unsigned long long *x, const uint *g, ulonglo
 			write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(0,0), sbits[(intprec - 1) - k]);
 			bits--;
 		}
-		if (sbits[(intprec - 1) - k] <= 64){
-			write_out(out, tot_sbits, offset, bitters[(intprec - 1) - k].x, sbits[(intprec - 1) - k]);
-		}
-		else{
-			write_out(out, tot_sbits, offset, bitters[(intprec - 1) - k].x, 64);
-			write_out(out, tot_sbits, offset, bitters[(intprec - 1) - k].y, sbits[(intprec - 1) - k] - 64);
-		}
 	}
 
-	//uint sbits_cnt = 0;
-	//for (int i = 0; i < CHAR_BIT *sizeof(UInt); i++){
-	//	sbits_cnt += sbits[i];
-	//}
+	uint tot_sbits = 0;// sbits[0];
+	uint offset = 0;
+
+	for (int k = 0; k < CHAR_BIT *sizeof(UInt); k++){
+		if (sbits[k] <= 64){
+			write_out(out, tot_sbits, offset, bitters[k].x, sbits[k]);
+		}
+		else{
+			write_out(out, tot_sbits, offset, bitters[k].x, 64);
+			write_out(out, tot_sbits, offset, bitters[k].y, sbits[k] - 64);
+		}
+	}
 
 #ifndef __CUDA_ARCH__
 	 for (int i = 0; i < CHAR_BIT*sizeof(UInt); i++){
