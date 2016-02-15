@@ -313,41 +313,41 @@ encodeBitplane
 	const uint kmin,
 	unsigned long long count,
 
-	unsigned long long *x,
+	unsigned long long &x,
 	const uint *g,
 	const uint *g_cnt,
 
-	uint *h, uint *n_cnt, unsigned long long *cnt,
-	ulonglong2 *bitters,
-	uint *sbits
+	uint &h, uint &n_cnt, unsigned long long &cnt,
+	ulonglong2 &bitters,
+	uint &sbits
 
 )
 {
-	h[k] = g[min(k + 1, intprec - 1)];
-	cnt[k] = count;
-	cnt[k] >>= h[k] * 4;
-	n_cnt[k] = g_cnt[h[k]];
+	h = g[min(k + 1, intprec - 1)];
+	cnt = count;
+	cnt >>= h * 4;
+	n_cnt = g_cnt[h];
 
 	/* serial: output one bit plane at a time from MSB to LSB */
-	bitters[(intprec - 1) - k].x = 0;
-	bitters[(intprec - 1) - k].y = 0;
+	bitters.x = 0;
+	bitters.y = 0;
 
-	sbits[(intprec - 1) - k] = 0;
+	sbits = 0;
 	/* encode bit k for first n values */
-	x[k] = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(x[k], 0), n_cnt[k], sbits[(intprec - 1) - k]);
-	while (h[k]++ < g[k]) {
+	x = write_bitters(bitters, make_ulonglong2(x, 0), n_cnt, sbits);
+	while (h++ < g[k]) {
 		/* output a one bit for a positive group test */
-		write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(1, 0), sbits[(intprec - 1) - k]);
+		write_bitter(bitters, make_ulonglong2(1, 0), sbits);
 		/* add next group of m values to significant set */
-		uint m = cnt[k] & 0xfu;
-		cnt[k] >>= 4;
-		n_cnt[k] += m;
+		uint m = cnt & 0xfu;
+		cnt >>= 4;
+		n_cnt += m;
 		/* encode next group of m values */
-		x[k] = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(x[k], 0), m, sbits[(intprec - 1) - k]);
+		x = write_bitters(bitters, make_ulonglong2(x, 0), m, sbits);
 	}
 	/* if there are more groups, output a zero bit for a negative group test */
-	if (cnt[k]) {
-		write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(0, 0), sbits[(intprec - 1) - k]);
+	if (cnt) {
+		write_bitter(bitters, make_ulonglong2(0, 0), sbits);
 	}
 }
 __global__
@@ -367,8 +367,14 @@ cudaEncodeBitplane
 )
 {
 	uint k = threadIdx.x + blockDim.x * blockIdx.x;
-	encodeBitplane(k, kmin, count, x, g, g_cnt, h, n_cnt, cnt, bitters, sbits);
+	extern __shared__ unsigned long long sh_x[];
+	extern __shared__ uint sh_n_cnt[];
 
+	sh_x[threadIdx.x ] = x[k];
+	__syncthreads();
+	encodeBitplane(k, kmin, count, sh_x[threadIdx.x], g, g_cnt, h[k], n_cnt[k], cnt[k], bitters[(intprec - 1) - k], sbits[(intprec - 1) - k]);
+
+	n_cnt[k] = sh_n_cnt[threadIdx.x];
 }
 
 template<class UInt, uint bsize>
@@ -405,7 +411,7 @@ void encode_bit_plane_thrust
 	device_vector<unsigned long long> cnt(64);
 
 	ec.chk("pre encodeBitplane");
-	cudaEncodeBitplane << <  1, 64 >> >
+	cudaEncodeBitplane << <  1, 64, (sizeof(uint) + sizeof(unsigned long long))*64 >> >
 		(
 		kmin, orig_count,
 		thrust::raw_pointer_cast(d_x.data()),
