@@ -303,105 +303,182 @@ write_out(unsigned long long *out, uint &tot_sbits, uint &offset, unsigned long 
 			out[offset] = value >> (sbits - tot_sbits);
 	}
 }
-template<class UInt, uint bsize>
+
+
 __device__ __host__
-void encode_bit_plane_thrust(unsigned long long *x, const uint *g, ulonglong2 *bitters, Word *out, uint *sbits, Bit<bsize> & stream, uint minbits, uint maxbits, uint maxprec, unsigned long long count)
+void
+encodeBitplane
+(
+	const uint k,
+	const uint kmin,
+	unsigned long long count,
+
+	unsigned long long *x,
+	const uint *g,
+	const uint *g_cnt,
+
+	uint *h, uint *n_cnt, unsigned long long *cnt,
+	ulonglong2 *bitters,
+	uint *sbits
+
+)
 {
-	int k = 0;
-	uint kmin = intprec > maxprec ? intprec - maxprec : 0;
-
-	uint h[64], j[64], n_cnt[64];
-
-	unsigned long long cnt[64];
-
-#pragma omp parallel for
-	for (k = kmin; k < intprec; k++) {
-		h[k] = g[min(k + 1, intprec - 1)];
-	}
-
-#pragma omp parallel for
-	for (k = kmin; k < intprec; k++) {
-		cnt[k] = count;
-		cnt[k] >>= h[k] * 4;
-	}
-	uint g_cnt[10];
-	uint sum = 0;
-	g_cnt[0] = 0;
-	for (int i = 1; i < 10; i++){
-		sum += count & 0xf;
-		g_cnt[i] = sum;
-		count >>= 4;
-	}
-
-#pragma omp parallel for
-	for (k = kmin; k < intprec; k++) {
-		n_cnt[k] = g_cnt[h[k]];
-	}
+	h[k] = g[min(k + 1, intprec - 1)];
+	cnt[k] = count;
+	cnt[k] >>= h[k] * 4;
+	n_cnt[k] = g_cnt[h[k]];
 
 	/* serial: output one bit plane at a time from MSB to LSB */
-#pragma omp parallel for
-	for (k = kmin; k < intprec; k++) {
-		bitters[(intprec - 1) - k].x = 0;
-		bitters[(intprec - 1) - k].y = 0;
+	bitters[(intprec - 1) - k].x = 0;
+	bitters[(intprec - 1) - k].y = 0;
 
-		sbits[(intprec - 1) - k] = 0;
-		/* encode bit k for first n values */
-		x[k] = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(x[k], 0), n_cnt[k], sbits[(intprec - 1) - k]);
+	sbits[(intprec - 1) - k] = 0;
+	/* encode bit k for first n values */
+	x[k] = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(x[k], 0), n_cnt[k], sbits[(intprec - 1) - k]);
+	while (h[k]++ < g[k]) {
+		/* output a one bit for a positive group test */
+		write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(1, 0), sbits[(intprec - 1) - k]);
+		/* add next group of m values to significant set */
+		uint m = cnt[k] & 0xfu;
+		cnt[k] >>= 4;
+		n_cnt[k] += m;
+		/* encode next group of m values */
+		x[k] = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(x[k], 0), m, sbits[(intprec - 1) - k]);
 	}
-
-#pragma omp parallel for
-	for (k = kmin; k < intprec; k++) {
-		/* perform series of group tests */
-		while (h[k]++ < g[k]) {
-			/* output a one bit for a positive group test */
-			write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(1, 0), sbits[(intprec - 1) - k]);
-			/* add next group of m values to significant set */
-			uint m = cnt[k] & 0xfu;
-			cnt[k] >>= 4;
-			n_cnt[k] += m;
-			/* encode next group of m values */
-			x[k] = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(x[k], 0), m, sbits[(intprec - 1) - k]);
-		}
-		/* if there are more groups, output a zero bit for a negative group test */
-		if (cnt[k]) {
-			write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(0, 0), sbits[(intprec - 1) - k]);
-		}
+	/* if there are more groups, output a zero bit for a negative group test */
+	if (cnt[k]) {
+		write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(0, 0), sbits[(intprec - 1) - k]);
 	}
+}
+__global__
+void
+cudaEncodeBitplane
+(
+	const uint kmin, 
+	unsigned long long count,
 
+	unsigned long long *x,
+	const uint *g,
+	const uint *g_cnt,
+
+	uint *h, uint *n_cnt, unsigned long long *cnt,
+	ulonglong2 *bitters,
+	uint *sbits
+)
+{
+	uint k = threadIdx.x + blockDim.x * blockIdx.x;
+	encodeBitplane(k, kmin, count, x, g, g_cnt, h, n_cnt, cnt, bitters, sbits);
+
+}
+
+template<class UInt, uint bsize>
+__host__
+void encode_bit_plane_thrust
+(
+	host_vector<unsigned long long> &x, 
+	host_vector<uint> &g, 
+	host_vector<ulonglong2> &bitters, 
+	host_vector<Word> &out, 
+	host_vector<uint> &sbits,
+	uint minbits, uint maxbits, uint maxprec, unsigned long long orig_count, host_vector<uint> &g_cnt)
+{
+	ErrorCheck ec;
+	ec.chk("start encode_bit_plane_thrust");
+
+	device_vector<unsigned long long> d_x(CHAR_BIT * sizeof(UInt));
+	device_vector<uint> d_g(CHAR_BIT * sizeof(UInt));
+	device_vector<uint> d_g_cnt;
+	device_vector<ulonglong2> d_bitters;
+	device_vector<Word> d_out;
+	device_vector<uint> d_sbits;
+
+	d_x = x;
+	d_g = g;
+	d_g_cnt = g_cnt;
+	d_bitters = bitters;
+	d_out = out;
+	d_sbits = sbits;
+
+	const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+
+	device_vector<uint> h(64), n_cnt(64);
+	device_vector<unsigned long long> cnt(64);
+
+	ec.chk("pre encodeBitplane");
+	cudaEncodeBitplane << <  1, 64 >> >
+		(
+		kmin, orig_count,
+		thrust::raw_pointer_cast(d_x.data()),
+		thrust::raw_pointer_cast(d_g.data()),
+		thrust::raw_pointer_cast(d_g_cnt.data()),
+		thrust::raw_pointer_cast(h.data()), 
+		thrust::raw_pointer_cast(n_cnt.data()), 
+		thrust::raw_pointer_cast(cnt.data()),
+		thrust::raw_pointer_cast(d_bitters.data()),
+		thrust::raw_pointer_cast(d_sbits.data())
+		);
+	cudaStreamSynchronize(0);
+
+	ec.chk("encodeBitplane");
+
+	//unsigned long long count = orig_count;
+	//for (int k = kmin; k < intprec; k++) {
+	//	h[k] = g[min(k + 1, intprec - 1)];
+	//	cnt[k] = count;
+	//	cnt[k] >>= h[k] * 4;
+	//	n_cnt[k] = g_cnt[h[k]];
+
+	//	/* serial: output one bit plane at a time from MSB to LSB */
+	//	bitters[(intprec - 1) - k].x = 0;
+	//	bitters[(intprec - 1) - k].y = 0;
+
+	//	sbits[(intprec - 1) - k] = 0;
+	//	/* encode bit k for first n values */
+	//	x[k] = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(x[k], 0), n_cnt[k], sbits[(intprec - 1) - k]);
+	//	while (h[k]++ < g[k]) {
+	//		/* output a one bit for a positive group test */
+	//		write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(1, 0), sbits[(intprec - 1) - k]);
+	//		/* add next group of m values to significant set */
+	//		uint m = cnt[k] & 0xfu;
+	//		cnt[k] >>= 4;
+	//		n_cnt[k] += m;
+	//		/* encode next group of m values */
+	//		x[k] = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(x[k], 0), m, sbits[(intprec - 1) - k]);
+	//	}
+	//	/* if there are more groups, output a zero bit for a negative group test */
+	//	if (cnt[k]) {
+	//		write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(0, 0), sbits[(intprec - 1) - k]);
+	//	}
+	//}
+
+
+	bitters = d_bitters;
+	sbits = d_sbits;
 	uint tot_sbits = 0;// sbits[0];
 	uint offset = 0;
 
 	for (int k = 0; k < CHAR_BIT *sizeof(UInt); k++){
 		if (sbits[k] <= 64){
-			write_out(out, tot_sbits, offset, bitters[k].x, sbits[k]);
+			write_out(thrust::raw_pointer_cast(out.data()), tot_sbits, offset, bitters[k].x, sbits[k]);
 		}
 		else{
-			write_out(out, tot_sbits, offset, bitters[k].x, 64);
-			write_out(out, tot_sbits, offset, bitters[k].y, sbits[k] - 64);
+			write_out(thrust::raw_pointer_cast(out.data()), tot_sbits, offset, bitters[k].x, 64);
+			write_out(thrust::raw_pointer_cast(out.data()), tot_sbits, offset, bitters[k].y, sbits[k] - 64);
 		}
 	}
-
-#ifndef __CUDA_ARCH__
-	for (int i = 0; i < CHAR_BIT*sizeof(UInt); i++){
-		if (out[i] != stream.begin[i]){
-			cout << "failed: " << i << " " << out[i] << " " << stream.begin[i] << endl;
-			exit(-1);
-		}
-	}
-
-#endif
 }
+
 template<class UInt, uint bsize>
 static void
-encode_ints_par(Bit<bsize> & stream, const UInt* data, uint prec)
+verify_encode_ints(Bit<bsize> & stream, const UInt* data, uint prec, host_vector<uint> &g_cnt)
 {
   uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 
-  unsigned long long x[CHAR_BIT * sizeof(UInt)];
-  uint g[CHAR_BIT * sizeof(UInt)];
 
+	host_vector<unsigned long long> x(CHAR_BIT * sizeof(UInt));
+	host_vector<uint> g(CHAR_BIT * sizeof(UInt));
 
-  encode_group_test<UInt, bsize>(x, g, data, minbits, maxbits, prec, group_count, size);
+	encode_group_test<UInt, bsize>(thrust::raw_pointer_cast(x.data()), thrust::raw_pointer_cast(g.data()), data, minbits, maxbits, prec, group_count, size);
   uint cur = g[CHAR_BIT * sizeof(UInt)-1];
   uint k = intprec-1;
   for (k = intprec-1; k-- > kmin;) {
@@ -410,18 +487,31 @@ encode_ints_par(Bit<bsize> & stream, const UInt* data, uint prec)
       else if (cur > g[k])
           g[k] = cur;
   }
-  encode_bit_plane_par<UInt, bsize>(x, g, stream, minbits, maxbits, prec, group_count);
+  encode_bit_plane_par<UInt, bsize>(thrust::raw_pointer_cast(x.data()), thrust::raw_pointer_cast(g.data()), stream, minbits, maxbits, prec, group_count);
 
-	ulonglong2 bitters[CHAR_BIT * sizeof(UInt)];
-	Word out[CHAR_BIT * sizeof(UInt)];
-	uint sbits[CHAR_BIT *sizeof(UInt)];
+	host_vector<ulonglong2> bitters(CHAR_BIT * sizeof(UInt));
+	host_vector<Word> out(CHAR_BIT * sizeof(UInt));
+	host_vector<uint> sbits(CHAR_BIT *sizeof(UInt));
 
 	for (int i = 0; i < CHAR_BIT *sizeof(UInt); i++){
 		out[i] = 0;
 	}
 
-	encode_bit_plane_thrust<UInt, bsize>(x, g, bitters, out, sbits, stream, minbits, maxbits, prec, group_count);
+	encode_bit_plane_thrust<UInt, bsize>(
+		x,g,
+		bitters,
+		out,
+		sbits, 
+		minbits, maxbits, prec, group_count, g_cnt);
 
+
+	//verify that encode_bit_plane_par and encode_bit_plane do the same thing
+	for (int i = 0; i < CHAR_BIT*sizeof(UInt); i++){
+		if (out[i] != stream.begin[i]){
+			cout << "failed: " << i << " " << out[i] << " " << stream.begin[i] << endl;
+			exit(-1);
+		}
+	}
 }
 
 template<class Int, class UInt, class Scalar, uint bsize>
@@ -456,8 +546,19 @@ void cpuTestBitStream
             }
         }
     }
+
+		unsigned long long count = group_count;
+		host_vector<uint> g_cnt(10);
+		uint sum = 0;
+		g_cnt[0] = 0;
     double start_time = omp_get_wtime();
-    for (int z=0; z<nz; z+=4){
+		for (int i = 1; i < 10; i++){
+			sum += count & 0xf;
+			g_cnt[i] = sum;
+			count >>= 4;
+		}
+
+		for (int z = 0; z<nz; z += 4){
         for (int y=0; y<ny; y+=4){
             for (int x=0; x<nx; x+=4){
                 int idx = z*nx*ny + y*nx + x;
@@ -468,7 +569,7 @@ void cpuTestBitStream
                 fixed_point(q2,raw_pointer_cast(p.data()), emax2, x,y,z, 1,nx,nx*ny);
                 fwd_xform<Int>(q2);
                 reorder<Int, UInt>(q2, buf);
-                encode_ints_par<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, precision(emax2, maxprec, minexp));
+                verify_encode_ints<UInt>(stream[z/4 * mx*my + y/4 *mx + x/4], buf, precision(emax2, maxprec, minexp), g_cnt);
             }
         }
     }
