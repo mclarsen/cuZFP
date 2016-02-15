@@ -317,16 +317,16 @@ encodeBitplane
 	const uint *g,
 	const uint *g_cnt,
 
-	uint &h, uint &n_cnt, unsigned long long &cnt,
+  //uint &h, uint &n_cnt, unsigned long long &cnt,
 	ulonglong2 &bitters,
 	uint &sbits
 
 )
 {
-	h = g[min(k + 1, intprec - 1)];
-	cnt = count;
-	cnt >>= h * 4;
-	n_cnt = g_cnt[h];
+  uint h = g[min(k%64 + 1, intprec - 1)];
+  unsigned long long cnt = count;
+  cnt >>= h* 4;
+  uint n_cnt = g_cnt[h];
 
 	/* serial: output one bit plane at a time from MSB to LSB */
 	bitters.x = 0;
@@ -361,17 +361,17 @@ cudaEncodeBitplane
 	const uint *g,
 	const uint *g_cnt,
 
-	uint *h, uint *n_cnt, unsigned long long *cnt,
+  //uint *h, uint *n_cnt, unsigned long long *cnt,
 	ulonglong2 *bitters,
 	uint *sbits
 )
 {
 	uint k = threadIdx.x + blockDim.x * blockIdx.x;
-	extern __shared__ unsigned long long sh_x[];
+  extern __shared__ unsigned long long sh_x[];
 
-	sh_x[threadIdx.x ] = x[k];
+  sh_x[threadIdx.x ] = x[k];
 	__syncthreads();
-	encodeBitplane(k, kmin, count, sh_x[threadIdx.x], g, g_cnt, h[k], n_cnt[k], cnt[k], bitters[(intprec - 1) - k], sbits[(intprec - 1) - k]);
+  encodeBitplane(k, kmin, count, sh_x[threadIdx.x], g, g_cnt, bitters[(intprec - 1) - k%64], sbits[(intprec - 1) - k%64]);
 }
 
 template<class UInt, uint bsize>
@@ -404,19 +404,14 @@ void encode_bit_plane_thrust
 
 	const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 
-	device_vector<uint> h(64), n_cnt(64);
-	device_vector<unsigned long long> cnt(64);
 
 	ec.chk("pre encodeBitplane");
-	cudaEncodeBitplane << <  1, 64, (sizeof(uint) + sizeof(unsigned long long))*64 >> >
+  cudaEncodeBitplane << <  2, 32, (sizeof(uint) + sizeof(unsigned long long))*32 >> >
 		(
 		kmin, orig_count,
 		thrust::raw_pointer_cast(d_x.data()),
 		thrust::raw_pointer_cast(d_g.data()),
 		thrust::raw_pointer_cast(d_g_cnt.data()),
-		thrust::raw_pointer_cast(h.data()), 
-		thrust::raw_pointer_cast(n_cnt.data()), 
-		thrust::raw_pointer_cast(cnt.data()),
 		thrust::raw_pointer_cast(d_bitters.data()),
 		thrust::raw_pointer_cast(d_sbits.data())
 		);
