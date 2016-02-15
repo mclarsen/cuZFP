@@ -368,13 +368,10 @@ cudaEncodeBitplane
 {
 	uint k = threadIdx.x + blockDim.x * blockIdx.x;
 	extern __shared__ unsigned long long sh_x[];
-	extern __shared__ uint sh_n_cnt[];
 
 	sh_x[threadIdx.x ] = x[k];
 	__syncthreads();
 	encodeBitplane(k, kmin, count, sh_x[threadIdx.x], g, g_cnt, h[k], n_cnt[k], cnt[k], bitters[(intprec - 1) - k], sbits[(intprec - 1) - k]);
-
-	n_cnt[k] = sh_n_cnt[threadIdx.x];
 }
 
 template<class UInt, uint bsize>
