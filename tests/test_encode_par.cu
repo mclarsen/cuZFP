@@ -378,29 +378,29 @@ template<class UInt, uint bsize>
 __host__
 void encode_bit_plane_thrust
 (
-	host_vector<unsigned long long> &x, 
-	host_vector<uint> &g, 
-	host_vector<ulonglong2> &bitters, 
-	host_vector<Word> &out, 
-	host_vector<uint> &sbits,
-	uint minbits, uint maxbits, uint maxprec, unsigned long long orig_count, host_vector<uint> &g_cnt)
+  host_vector<unsigned long long> &x,
+  host_vector<uint> &g,
+  host_vector<ulonglong2> &bitters,
+  host_vector<Word> &out,
+  host_vector<uint> &sbits,
+  uint minbits, uint maxbits, uint maxprec, unsigned long long orig_count, host_vector<uint> &g_cnt)
 {
 	ErrorCheck ec;
 	ec.chk("start encode_bit_plane_thrust");
 
-	device_vector<unsigned long long> d_x(CHAR_BIT * sizeof(UInt));
-	device_vector<uint> d_g(CHAR_BIT * sizeof(UInt));
-	device_vector<uint> d_g_cnt;
-	device_vector<ulonglong2> d_bitters;
-	device_vector<Word> d_out;
-	device_vector<uint> d_sbits;
+  device_vector<unsigned long long> d_x(CHAR_BIT * sizeof(UInt));
+  device_vector<uint> d_g(CHAR_BIT * sizeof(UInt));
+  device_vector<uint> d_g_cnt;
+  device_vector<ulonglong2> d_bitters;
+  device_vector<Word> d_out;
+  device_vector<uint> d_sbits;
 
-	d_x = x;
-	d_g = g;
-	d_g_cnt = g_cnt;
-	d_bitters = bitters;
-	d_out = out;
-	d_sbits = sbits;
+  d_x = x;
+  d_g = g;
+  d_g_cnt = g_cnt;
+  d_bitters = bitters;
+  d_out = out;
+  d_sbits = sbits;
 
 	const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 
@@ -419,35 +419,35 @@ void encode_bit_plane_thrust
 
 	ec.chk("encodeBitplane");
 
-	//unsigned long long count = orig_count;
-	//for (int k = kmin; k < intprec; k++) {
-	//	h[k] = g[min(k + 1, intprec - 1)];
-	//	cnt[k] = count;
-	//	cnt[k] >>= h[k] * 4;
-	//	n_cnt[k] = g_cnt[h[k]];
+  //unsigned long long count = orig_count;
+  //for (int k = kmin; k < intprec; k++) {
+  //	h[k] = g[min(k + 1, intprec - 1)];
+  //	cnt[k] = count;
+  //	cnt[k] >>= h[k] * 4;
+  //	n_cnt[k] = g_cnt[h[k]];
 
-	//	/* serial: output one bit plane at a time from MSB to LSB */
-	//	bitters[(intprec - 1) - k].x = 0;
-	//	bitters[(intprec - 1) - k].y = 0;
+  //	/* serial: output one bit plane at a time from MSB to LSB */
+  //	bitters[(intprec - 1) - k].x = 0;
+  //	bitters[(intprec - 1) - k].y = 0;
 
-	//	sbits[(intprec - 1) - k] = 0;
-	//	/* encode bit k for first n values */
-	//	x[k] = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(x[k], 0), n_cnt[k], sbits[(intprec - 1) - k]);
-	//	while (h[k]++ < g[k]) {
-	//		/* output a one bit for a positive group test */
-	//		write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(1, 0), sbits[(intprec - 1) - k]);
-	//		/* add next group of m values to significant set */
-	//		uint m = cnt[k] & 0xfu;
-	//		cnt[k] >>= 4;
-	//		n_cnt[k] += m;
-	//		/* encode next group of m values */
-	//		x[k] = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(x[k], 0), m, sbits[(intprec - 1) - k]);
-	//	}
-	//	/* if there are more groups, output a zero bit for a negative group test */
-	//	if (cnt[k]) {
-	//		write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(0, 0), sbits[(intprec - 1) - k]);
-	//	}
-	//}
+  //	sbits[(intprec - 1) - k] = 0;
+  //	/* encode bit k for first n values */
+  //	x[k] = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(x[k], 0), n_cnt[k], sbits[(intprec - 1) - k]);
+  //	while (h[k]++ < g[k]) {
+  //		/* output a one bit for a positive group test */
+  //		write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(1, 0), sbits[(intprec - 1) - k]);
+  //		/* add next group of m values to significant set */
+  //		uint m = cnt[k] & 0xfu;
+  //		cnt[k] >>= 4;
+  //		n_cnt[k] += m;
+  //		/* encode next group of m values */
+  //		x[k] = write_bitters(bitters[(intprec - 1) - k], make_ulonglong2(x[k], 0), m, sbits[(intprec - 1) - k]);
+  //	}
+  //	/* if there are more groups, output a zero bit for a negative group test */
+  //	if (cnt[k]) {
+  //		write_bitter(bitters[(intprec - 1) - k], make_ulonglong2(0, 0), sbits[(intprec - 1) - k]);
+  //	}
+  //}
 
 
 	bitters = d_bitters;
@@ -466,6 +466,7 @@ void encode_bit_plane_thrust
 	}
 }
 
+
 template<class UInt, uint bsize>
 static void
 verify_encode_ints(Bit<bsize> & stream, const UInt* data, uint prec, host_vector<uint> &g_cnt)
@@ -476,7 +477,7 @@ verify_encode_ints(Bit<bsize> & stream, const UInt* data, uint prec, host_vector
 	host_vector<unsigned long long> x(CHAR_BIT * sizeof(UInt));
 	host_vector<uint> g(CHAR_BIT * sizeof(UInt));
 
-	encode_group_test<UInt, bsize>(thrust::raw_pointer_cast(x.data()), thrust::raw_pointer_cast(g.data()), data, minbits, maxbits, prec, group_count, size);
+  encode_group_test<UInt, bsize>(thrust::raw_pointer_cast(x.data()), thrust::raw_pointer_cast(g.data()), data, minbits, maxbits, prec, group_count, size);
   uint cur = g[CHAR_BIT * sizeof(UInt)-1];
   uint k = intprec-1;
   for (k = intprec-1; k-- > kmin;) {
@@ -485,31 +486,32 @@ verify_encode_ints(Bit<bsize> & stream, const UInt* data, uint prec, host_vector
       else if (cur > g[k])
           g[k] = cur;
   }
-  encode_bit_plane_par<UInt, bsize>(thrust::raw_pointer_cast(x.data()), thrust::raw_pointer_cast(g.data()), stream, minbits, maxbits, prec, group_count);
+  //encode_bit_plane_par<UInt, bsize>(thrust::raw_pointer_cast(x.data()), thrust::raw_pointer_cast(g.data()), stream, minbits, maxbits, prec, group_count);
 
-	host_vector<ulonglong2> bitters(CHAR_BIT * sizeof(UInt));
-	host_vector<Word> out(CHAR_BIT * sizeof(UInt));
-	host_vector<uint> sbits(CHAR_BIT *sizeof(UInt));
+  host_vector<ulonglong2> bitters(CHAR_BIT * sizeof(UInt));
+  host_vector<Word> out(CHAR_BIT * sizeof(UInt));
+  host_vector<uint> sbits(CHAR_BIT *sizeof(UInt));
 
-	for (int i = 0; i < CHAR_BIT *sizeof(UInt); i++){
-		out[i] = 0;
-	}
+  for (int i = 0; i < CHAR_BIT *sizeof(UInt); i++){
+    out[i] = 0;
+  }
 
-	encode_bit_plane_thrust<UInt, bsize>(
-		x,g,
-		bitters,
-		out,
-		sbits, 
-		minbits, maxbits, prec, group_count, g_cnt);
+  encode_bit_plane_thrust<UInt, bsize>(
+    x,g,
+    bitters,
+    out,
+    sbits,
+    minbits, maxbits, prec, group_count, g_cnt);
 
 
-	//verify that encode_bit_plane_par and encode_bit_plane do the same thing
-	for (int i = 0; i < CHAR_BIT*sizeof(UInt); i++){
-		if (out[i] != stream.begin[i]){
-			cout << "failed: " << i << " " << out[i] << " " << stream.begin[i] << endl;
-			exit(-1);
-		}
-	}
+  //verify that encode_bit_plane_par and encode_bit_plane do the same thing
+  for (int i = 0; i < CHAR_BIT*sizeof(UInt); i++){
+//    if (out[i] != stream.begin[i]){
+//      cout << "failed: " << i << " " << out[i] << " " << stream.begin[i] << endl;
+//      exit(-1);
+//    }
+    stream.begin[i] = out[i];
+  }
 }
 
 template<class Int, class UInt, class Scalar, uint bsize>
@@ -601,8 +603,10 @@ void gpuValidate
                 host_vector<Int> q2(64);
                 host_vector<UInt> buf(64);
                 Bit<bsize> loc_stream;
-                int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), idx, 1,nx,nx*ny);
-                fixed_point(raw_pointer_cast(q2.data()),raw_pointer_cast(h_p.data()), emax2, idx, 1,nx,nx*ny);
+                int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), x,y,z, 1,nx,nx*ny);
+                //fixed_point(raw_pointer_cast(q2.data()),raw_pointer_cast(h_p.data()), emax2, idx, 1,nx,nx*ny);
+                fixed_point(raw_pointer_cast(q2.data()),raw_pointer_cast(h_p.data()), emax2, x,y,z, 1,nx,nx*ny);
+
                 fwd_xform(raw_pointer_cast(q2.data()));
                 reorder<Int, UInt>(raw_pointer_cast(q2.data()), raw_pointer_cast(buf.data()));
                 encode_ints<UInt>(loc_stream,  raw_pointer_cast(buf.data()), minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
@@ -632,6 +636,7 @@ void gpuTestBitStream
     host_vector<Int> h_q;
     host_vector<UInt> h_buf;
     host_vector<Bit<bsize> > h_bits;
+
 
     dim3 emax_size(nx/4, ny/4, nz/4 );
 
@@ -694,13 +699,124 @@ void gpuTestBitStream
     block_size = dim3(8,8,8);
     grid_size = emax_size;
     grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-    cudaencode<UInt, bsize><<< emax_size.x*emax_size.y*emax_size.z/16, 16, 16*(sizeof(Bit<bsize>) + sizeof(int))>>>
-            (
-                raw_pointer_cast(buffer.data()),
-                raw_pointer_cast(stream.data()),
-                raw_pointer_cast(emax.data()),
-                minbits, maxbits, maxprec, minexp, group_count, size
-                );
+
+
+    const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+    unsigned long long count = group_count;
+    host_vector<uint> g_cnt(10);
+    uint sum = 0;
+    g_cnt[0] = 0;
+    double start_time = omp_get_wtime();
+    for (int i = 1; i < 10; i++){
+      sum += count & 0xf;
+      g_cnt[i] = sum;
+      count >>= 4;
+    }
+
+    h_p = data;
+
+    host_vector<unsigned long long> xg(nx*ny*nz);
+    host_vector<uint> g(nx*ny*nz);
+
+
+    host_vector<UInt> buf(nx*ny*nz);
+    for (int z = 0; z<nz; z += 4){
+        for (int y=0; y<ny; y+=4){
+            for (int x=0; x<nx; x+=4){
+                int idx = z*nx*ny + y*nx + x;
+                Int q2[64];
+
+                int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), x,y,z, 1,nx,nx*ny);
+                fixed_point(q2,raw_pointer_cast(h_p.data()), emax2, x,y,z, 1,nx,nx*ny);
+                fwd_xform<Int>(q2);
+                reorder<Int, UInt>(q2, thrust::raw_pointer_cast(buf.data()) + idx);
+
+                encode_group_test<UInt, bsize>(thrust::raw_pointer_cast(xg.data()) + idx, thrust::raw_pointer_cast(g.data()) + idx, thrust::raw_pointer_cast(buf.data()) + idx, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+
+                uint cur = g[idx + CHAR_BIT * sizeof(UInt)-1];
+                uint k = intprec-1;
+                for (k = intprec-1; k-- > kmin;) {
+                    if (cur < g[k + idx])
+                        cur = g[k + idx];
+                    else if (cur > g[k + idx])
+                        g[k + idx] = cur;
+                }
+
+                Bit<bsize> h_stream = stream[z/4 * emax_size.x*emax_size.y + y/4 *emax_size.x + x/4];
+
+                host_vector<ulonglong2> bitters(CHAR_BIT * sizeof(UInt));
+                host_vector<Word> out(CHAR_BIT * sizeof(UInt));
+                host_vector<uint> sbits(CHAR_BIT *sizeof(UInt));
+
+                for (int i = 0; i < CHAR_BIT *sizeof(UInt); i++){
+                  out[i] = 0;
+                }
+
+                host_vector<unsigned long long> tmp_xg(64);
+                thrust::copy(xg.begin()+idx, xg.begin()+idx+64, tmp_xg.begin());
+
+                host_vector<uint> tmp_g(64);
+                thrust::copy(g.begin() + idx, g.begin()+idx+64, tmp_g.begin());
+
+                encode_bit_plane_thrust<UInt, bsize>(
+                  tmp_xg,tmp_g,
+                  bitters,
+                  out,
+                  sbits,
+                  minbits, maxbits, precision(emax2, maxprec, minexp), group_count, g_cnt);
+
+
+                for (int i = 0; i < CHAR_BIT*sizeof(UInt); i++){
+                  h_stream.begin[i] = out[i];
+                }
+                stream[z/4 * emax_size.x*emax_size.y + y/4 *emax_size.x + x/4] = h_stream;
+            }
+        }
+    }
+
+//    device_vector<ulonglong2> d_bitters(nx*ny*nz);
+//    device_vector<unsigned long long> d_x;
+//    device_vector<uint> d_g, d_g_cnt, d_sbits(nx*ny*nz);
+
+//    d_x = xg;
+//    d_g = g;
+//    d_g_cnt = g_cnt;
+
+
+//    ec.chk("pre encodeBitplane");
+//    cudaEncodeBitplane << <  nx*ny*nz/32, 32, (sizeof(uint) + sizeof(unsigned long long))*32 >> >
+//      (
+//      kmin, group_count,
+//      thrust::raw_pointer_cast(d_x.data()),
+//      thrust::raw_pointer_cast(d_g.data()),
+//      thrust::raw_pointer_cast(d_g_cnt.data()),
+//      thrust::raw_pointer_cast(d_bitters.data()),
+//      thrust::raw_pointer_cast(d_sbits.data())
+//      );
+//    cudaStreamSynchronize(0);
+//    ec.chk("cudaEncodeBitplane");
+//    host_vector<ulonglong2> bitters = d_bitters;
+//    host_vector<uint> sbits = d_sbits;
+//    uint tot_sbits = 0;// sbits[0];
+//    uint offset = 0;
+//    for (int z = 0; z<nz; z += 4){
+//        for (int y=0; y<ny; y+=4){
+//            for (int x=0; x<nx; x+=4){
+//              Bit<bsize> h_stream = stream[z/4 * emax_size.x*emax_size.y + y/4 *emax_size.x + x/4];
+//              int idx = z*nx*ny + y*nx + x;
+//              for (int k = 0; k < CHAR_BIT *sizeof(UInt); k++){
+//                if (sbits[idx + k] <= 64){
+//                  write_out(h_stream.begin, tot_sbits, offset, bitters[idx+k].x, sbits[idx+k]);
+//                }
+//                else{
+//                  write_out(h_stream.begin, tot_sbits, offset, bitters[idx+k].x, 64);
+//                  write_out(h_stream.begin, tot_sbits, offset, bitters[idx+k].y, sbits[idx+k] - 64);
+//                }
+//              }
+//              stream[z/4 * emax_size.x*emax_size.y + y/4 *emax_size.x + x/4] = h_stream;
+//            }
+//        }
+//    }
 
     cudaEventRecord( stop, 0 );
     cudaEventSynchronize(stop);
@@ -732,9 +848,9 @@ int main()
 //    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
     setupConst(perm);
     cout << "Begin gpuTestBitStream" << endl;
-    //gpuTestBitStream<long long, unsigned long long, double, 64>(d_vec_in, d_vec_out, d_vec_buffer);
+    gpuTestBitStream<long long, unsigned long long, double, 64>(d_vec_in, d_vec_out, d_vec_buffer);
     cout << "Finish gpuTestBitStream" << endl;
     cout << "Begin cpuTestBitStream" << endl;
-    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
+    //cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
     cout << "End cpuTestBitStream" << endl;
 }
