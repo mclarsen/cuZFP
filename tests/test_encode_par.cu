@@ -309,12 +309,12 @@ __device__ __host__
 void
 encodeBitplane
 (
-	const uint k,
 	const uint kmin,
 	unsigned long long count,
 
 	unsigned long long &x,
-	const uint *g,
+  const uint g,
+  uint h,
 	const uint *g_cnt,
 
   //uint &h, uint &n_cnt, unsigned long long &cnt,
@@ -323,7 +323,6 @@ encodeBitplane
 
 )
 {
-  uint h = g[min(k%64 + 1, intprec - 1)];
   unsigned long long cnt = count;
   cnt >>= h* 4;
   uint n_cnt = g_cnt[h];
@@ -335,7 +334,7 @@ encodeBitplane
 	sbits = 0;
 	/* encode bit k for first n values */
 	x = write_bitters(bitters, make_ulonglong2(x, 0), n_cnt, sbits);
-	while (h++ < g[k]) {
+  while (h++ < g) {
 		/* output a one bit for a positive group test */
 		write_bitter(bitters, make_ulonglong2(1, 0), sbits);
 		/* add next group of m values to significant set */
@@ -371,7 +370,7 @@ cudaEncodeBitplane
 
   sh_x[threadIdx.x ] = x[k];
 	__syncthreads();
-  encodeBitplane(k, kmin, count, x[k], g, g_cnt, bitters[blockDim.x *(blockIdx.x + 1) - threadIdx.x-1], sbits[blockDim.x*(blockIdx.x+1) - threadIdx.x-1]);
+  encodeBitplane(kmin, count, x[k], g[k], g[blockDim.x*blockIdx.x + min(threadIdx.x + 1, intprec - 1)], g_cnt, bitters[blockDim.x *(blockIdx.x + 1) - threadIdx.x-1], sbits[blockDim.x*(blockIdx.x+1) - threadIdx.x-1]);
 }
 
 template<class UInt, uint bsize>
@@ -766,35 +765,35 @@ void gpuTestBitStream
 //                  minbits, maxbits, precision(emax2, maxprec, minexp), group_count, g_cnt);
 
 
-                device_vector<unsigned long long> d_x(CHAR_BIT * sizeof(UInt));
-                device_vector<uint> d_g(CHAR_BIT * sizeof(UInt));
-                device_vector<uint> d_g_cnt;
-                device_vector<ulonglong2> d_bitters(64);
-                device_vector<uint> d_sbits(64);
+//                device_vector<unsigned long long> d_x(CHAR_BIT * sizeof(UInt));
+//                device_vector<uint> d_g(CHAR_BIT * sizeof(UInt));
+//                device_vector<uint> d_g_cnt;
+//                device_vector<ulonglong2> d_bitters(64);
+//                device_vector<uint> d_sbits(64);
 
-               thrust::copy(xg.begin()+idx, xg.begin()+idx+64, d_x.begin());
-                thrust::copy(g.begin() + idx, g.begin()+idx+64, d_g.begin());
-                d_g_cnt = g_cnt;
+//               thrust::copy(xg.begin()+idx, xg.begin()+idx+64, d_x.begin());
+//                thrust::copy(g.begin() + idx, g.begin()+idx+64, d_g.begin());
+//                d_g_cnt = g_cnt;
 
-                const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+//                const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 
 
-                ec.chk("pre encodeBitplane");
-                cudaEncodeBitplane << <  1, 64, (sizeof(uint) + sizeof(unsigned long long))*64 >> >
-                  (
-                  kmin, group_count,
-                  thrust::raw_pointer_cast(d_x.data()),
-                  thrust::raw_pointer_cast(d_g.data()),
-                  thrust::raw_pointer_cast(d_g_cnt.data()),
-                  thrust::raw_pointer_cast(d_bitters.data()),
-                  thrust::raw_pointer_cast(d_sbits.data())
-                  );
-                cudaStreamSynchronize(0);
+//                ec.chk("pre encodeBitplane");
+//                cudaEncodeBitplane << <  1, 64, (sizeof(uint) + sizeof(unsigned long long))*64 >> >
+//                  (
+//                  kmin, group_count,
+//                  thrust::raw_pointer_cast(d_x.data()),
+//                  thrust::raw_pointer_cast(d_g.data()),
+//                  thrust::raw_pointer_cast(d_g_cnt.data()),
+//                  thrust::raw_pointer_cast(d_bitters.data()),
+//                  thrust::raw_pointer_cast(d_sbits.data())
+//                  );
+//                cudaStreamSynchronize(0);
 
-                ec.chk("encodeBitplane");
+//                ec.chk("encodeBitplane");
 
-                thrust::copy(d_bitters.begin(), d_bitters.end(), bitters.begin() + idx);
-                thrust::copy(d_sbits.begin(), d_sbits.end(), sbits.begin() + idx);
+//                thrust::copy(d_bitters.begin(), d_bitters.end(), bitters.begin() + idx);
+//                thrust::copy(d_sbits.begin(), d_sbits.end(), sbits.begin() + idx);
 //                bitters = d_bitters;
 //                sbits = d_sbits;
 //                uint tot_sbits = 0;// sbits[0];
@@ -820,36 +819,36 @@ void gpuTestBitStream
         }
     }
 
-//    device_vector<ulonglong2> d_bitters(nx*ny*nz);
-//    device_vector<unsigned long long> d_x;
-//    device_vector<uint> d_g, d_g_cnt, d_sbits(nx*ny*nz);
+    device_vector<ulonglong2> d_bitters(nx*ny*nz);
+    device_vector<unsigned long long> d_x;
+    device_vector<uint> d_g, d_g_cnt, d_sbits(nx*ny*nz);
 
-//    d_x = xg;
-//    d_g = g;
-//    d_g_cnt = g_cnt;
+    d_x = xg;
+    d_g = g;
+    d_g_cnt = g_cnt;
 
 
-//    ec.chk("pre encodeBitplane");
-//    cudaEncodeBitplane << <  1, 64, (sizeof(uint) + sizeof(unsigned long long))*64 >> >
-//      (
-//      kmin, group_count,
-//      thrust::raw_pointer_cast(d_x.data()),
-//      thrust::raw_pointer_cast(d_g.data()),
-//      thrust::raw_pointer_cast(d_g_cnt.data()),
-//      thrust::raw_pointer_cast(d_bitters.data()),
-//      thrust::raw_pointer_cast(d_sbits.data())
-//      );
-//    cudaStreamSynchronize(0);
-//    ec.chk("cudaEncodeBitplane");
-//    bitters = d_bitters;
-//    sbits = d_sbits;
+    ec.chk("pre encodeBitplane");
+    cudaEncodeBitplane << <  nx*ny*nz/64, 64, (sizeof(uint) + sizeof(unsigned long long))*64 >> >
+      (
+      kmin, group_count,
+      thrust::raw_pointer_cast(d_x.data()),
+      thrust::raw_pointer_cast(d_g.data()),
+      thrust::raw_pointer_cast(d_g_cnt.data()),
+      thrust::raw_pointer_cast(d_bitters.data()),
+      thrust::raw_pointer_cast(d_sbits.data())
+      );
+    cudaStreamSynchronize(0);
+    ec.chk("cudaEncodeBitplane");
+    bitters = d_bitters;
+    sbits = d_sbits;
     idx = 0;
     for (int z = 0; z<nz; z += 4){
         for (int y=0; y<ny; y+=4){
             for (int x=0; x<nx; x+=4, idx+=64){
               uint tot_sbits = 0;// sbits[0];
               uint offset = 0;
-              Bit<bsize> h_stream = stream[z/4 * emax_size.x*emax_size.y + y/4 *emax_size.x + x/4];
+              Bit<bsize> h_stream;
 
               for (int k = 0; k < CHAR_BIT *sizeof(UInt); k++){
                 if (sbits[idx + k] <= 64){
