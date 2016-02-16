@@ -371,7 +371,7 @@ cudaEncodeBitplane
 
   sh_x[threadIdx.x ] = x[k];
 	__syncthreads();
-  encodeBitplane(k, kmin, count, sh_x[threadIdx.x], g, g_cnt, bitters[(intprec - 1) - k%64], sbits[(intprec - 1) - k%64]);
+  encodeBitplane(k, kmin, count, x[k], g, g_cnt, bitters[blockDim.x *(blockIdx.x + 1) - threadIdx.x-1], sbits[blockDim.x*(blockIdx.x+1) - threadIdx.x-1]);
 }
 
 template<class UInt, uint bsize>
@@ -406,7 +406,7 @@ void encode_bit_plane_thrust
 
 
 	ec.chk("pre encodeBitplane");
-  cudaEncodeBitplane << <  2, 32, (sizeof(uint) + sizeof(unsigned long long))*32 >> >
+  cudaEncodeBitplane << <  1, 64, (sizeof(uint) + sizeof(unsigned long long))*64 >> >
 		(
 		kmin, orig_count,
 		thrust::raw_pointer_cast(d_x.data()),
@@ -717,13 +717,16 @@ void gpuTestBitStream
 
     host_vector<unsigned long long> xg(nx*ny*nz);
     host_vector<uint> g(nx*ny*nz);
+    host_vector<ulonglong2> bitters(nx*ny*nz);
+    host_vector<uint> sbits(nx*ny*nz);
 
 
     host_vector<UInt> buf(nx*ny*nz);
+
+    uint idx = 0;
     for (int z = 0; z<nz; z += 4){
         for (int y=0; y<ny; y+=4){
-            for (int x=0; x<nx; x+=4){
-                int idx = z*nx*ny + y*nx + x;
+            for (int x=0; x<nx; x+=4, idx+=64){
                 Int q2[64];
 
                 int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), x,y,z, 1,nx,nx*ny);
@@ -744,32 +747,75 @@ void gpuTestBitStream
 
                 Bit<bsize> h_stream = stream[z/4 * emax_size.x*emax_size.y + y/4 *emax_size.x + x/4];
 
-                host_vector<ulonglong2> bitters(CHAR_BIT * sizeof(UInt));
                 host_vector<Word> out(CHAR_BIT * sizeof(UInt));
-                host_vector<uint> sbits(CHAR_BIT *sizeof(UInt));
 
                 for (int i = 0; i < CHAR_BIT *sizeof(UInt); i++){
                   out[i] = 0;
                 }
 
-                host_vector<unsigned long long> tmp_xg(64);
-                thrust::copy(xg.begin()+idx, xg.begin()+idx+64, tmp_xg.begin());
+//                host_vector<unsigned long long> tmp_xg(64);
+//                thrust::copy(xg.begin()+idx, xg.begin()+idx+64, tmp_xg.begin());
 
-                host_vector<uint> tmp_g(64);
-                thrust::copy(g.begin() + idx, g.begin()+idx+64, tmp_g.begin());
+//                host_vector<uint> tmp_g(64);
+//                thrust::copy(g.begin() + idx, g.begin()+idx+64, tmp_g.begin());
+//                encode_bit_plane_thrust<UInt, bsize>(
+//                  tmp_xg,tmp_g,
+//                  bitters,
+//                  out,
+//                  sbits,
+//                  minbits, maxbits, precision(emax2, maxprec, minexp), group_count, g_cnt);
 
-                encode_bit_plane_thrust<UInt, bsize>(
-                  tmp_xg,tmp_g,
-                  bitters,
-                  out,
-                  sbits,
-                  minbits, maxbits, precision(emax2, maxprec, minexp), group_count, g_cnt);
+
+                device_vector<unsigned long long> d_x(CHAR_BIT * sizeof(UInt));
+                device_vector<uint> d_g(CHAR_BIT * sizeof(UInt));
+                device_vector<uint> d_g_cnt;
+                device_vector<ulonglong2> d_bitters(64);
+                device_vector<uint> d_sbits(64);
+
+               thrust::copy(xg.begin()+idx, xg.begin()+idx+64, d_x.begin());
+                thrust::copy(g.begin() + idx, g.begin()+idx+64, d_g.begin());
+                d_g_cnt = g_cnt;
+
+                const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 
 
-                for (int i = 0; i < CHAR_BIT*sizeof(UInt); i++){
-                  h_stream.begin[i] = out[i];
-                }
-                stream[z/4 * emax_size.x*emax_size.y + y/4 *emax_size.x + x/4] = h_stream;
+                ec.chk("pre encodeBitplane");
+                cudaEncodeBitplane << <  1, 64, (sizeof(uint) + sizeof(unsigned long long))*64 >> >
+                  (
+                  kmin, group_count,
+                  thrust::raw_pointer_cast(d_x.data()),
+                  thrust::raw_pointer_cast(d_g.data()),
+                  thrust::raw_pointer_cast(d_g_cnt.data()),
+                  thrust::raw_pointer_cast(d_bitters.data()),
+                  thrust::raw_pointer_cast(d_sbits.data())
+                  );
+                cudaStreamSynchronize(0);
+
+                ec.chk("encodeBitplane");
+
+                thrust::copy(d_bitters.begin(), d_bitters.end(), bitters.begin() + idx);
+                thrust::copy(d_sbits.begin(), d_sbits.end(), sbits.begin() + idx);
+//                bitters = d_bitters;
+//                sbits = d_sbits;
+//                uint tot_sbits = 0;// sbits[0];
+//                uint offset = 0;
+
+//                for (int k = 0; k < CHAR_BIT *sizeof(UInt); k++){
+//                  if (sbits[k] <= 64){
+//                    write_out(thrust::raw_pointer_cast(out.data()), tot_sbits, offset, bitters[k].x, sbits[k]);
+//                  }
+//                  else{
+//                    write_out(thrust::raw_pointer_cast(out.data()), tot_sbits, offset, bitters[k].x, 64);
+//                    write_out(thrust::raw_pointer_cast(out.data()), tot_sbits, offset, bitters[k].y, sbits[k] - 64);
+//                  }
+//                }
+
+
+
+//                for (int i = 0; i < CHAR_BIT*sizeof(UInt); i++){
+//                  h_stream.begin[i] = out[i];
+//                }
+//                stream[z/4 * emax_size.x*emax_size.y + y/4 *emax_size.x + x/4] = h_stream;
             }
         }
     }
@@ -784,7 +830,7 @@ void gpuTestBitStream
 
 
 //    ec.chk("pre encodeBitplane");
-//    cudaEncodeBitplane << <  nx*ny*nz/32, 32, (sizeof(uint) + sizeof(unsigned long long))*32 >> >
+//    cudaEncodeBitplane << <  1, 64, (sizeof(uint) + sizeof(unsigned long long))*64 >> >
 //      (
 //      kmin, group_count,
 //      thrust::raw_pointer_cast(d_x.data()),
@@ -795,28 +841,29 @@ void gpuTestBitStream
 //      );
 //    cudaStreamSynchronize(0);
 //    ec.chk("cudaEncodeBitplane");
-//    host_vector<ulonglong2> bitters = d_bitters;
-//    host_vector<uint> sbits = d_sbits;
-//    uint tot_sbits = 0;// sbits[0];
-//    uint offset = 0;
-//    for (int z = 0; z<nz; z += 4){
-//        for (int y=0; y<ny; y+=4){
-//            for (int x=0; x<nx; x+=4){
-//              Bit<bsize> h_stream = stream[z/4 * emax_size.x*emax_size.y + y/4 *emax_size.x + x/4];
-//              int idx = z*nx*ny + y*nx + x;
-//              for (int k = 0; k < CHAR_BIT *sizeof(UInt); k++){
-//                if (sbits[idx + k] <= 64){
-//                  write_out(h_stream.begin, tot_sbits, offset, bitters[idx+k].x, sbits[idx+k]);
-//                }
-//                else{
-//                  write_out(h_stream.begin, tot_sbits, offset, bitters[idx+k].x, 64);
-//                  write_out(h_stream.begin, tot_sbits, offset, bitters[idx+k].y, sbits[idx+k] - 64);
-//                }
-//              }
-//              stream[z/4 * emax_size.x*emax_size.y + y/4 *emax_size.x + x/4] = h_stream;
-//            }
-//        }
-//    }
+//    bitters = d_bitters;
+//    sbits = d_sbits;
+    idx = 0;
+    for (int z = 0; z<nz; z += 4){
+        for (int y=0; y<ny; y+=4){
+            for (int x=0; x<nx; x+=4, idx+=64){
+              uint tot_sbits = 0;// sbits[0];
+              uint offset = 0;
+              Bit<bsize> h_stream = stream[z/4 * emax_size.x*emax_size.y + y/4 *emax_size.x + x/4];
+
+              for (int k = 0; k < CHAR_BIT *sizeof(UInt); k++){
+                if (sbits[idx + k] <= 64){
+                  write_out(h_stream.begin, tot_sbits, offset, bitters[idx+k].x, sbits[idx+k]);
+                }
+                else{
+                  write_out(h_stream.begin, tot_sbits, offset, bitters[idx+k].x, 64);
+                  write_out(h_stream.begin, tot_sbits, offset, bitters[idx+k].y, sbits[idx+k] - 64);
+                }
+              }
+              stream[z/4 * emax_size.x*emax_size.y + y/4 *emax_size.x + x/4] = h_stream;
+            }
+        }
+    }
 
     cudaEventRecord( stop, 0 );
     cudaEventSynchronize(stop);
