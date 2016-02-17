@@ -696,12 +696,9 @@ void gpuTestBitStream
         device_vector<UInt> &buffer
         )
 {
-    host_vector<int> h_emax;
-    host_vector<Scalar> h_p;
-    host_vector<Int> h_q;
-    host_vector<UInt> h_buf;
-    host_vector<Bit<bsize> > h_bits;
-
+    device_vector<ulonglong2> d_bitters(nx*ny*nz);
+    device_vector<unsigned long long> d_x(nx*ny*nz);
+    device_vector<uint> d_g(nx*ny*nz), d_g_cnt, d_sbits(nx*ny*nz);
 
     dim3 emax_size(nx/4, ny/4, nz/4 );
 
@@ -771,27 +768,13 @@ void gpuTestBitStream
     host_vector<uint> g_cnt(10);
     uint sum = 0;
     g_cnt[0] = 0;
-    double start_time = omp_get_wtime();
     for (int i = 1; i < 10; i++){
       sum += count & 0xf;
       g_cnt[i] = sum;
       count >>= 4;
     }
+    d_g_cnt = g_cnt;
 
-    h_p = data;
-
-    host_vector<unsigned long long> xg(nx*ny*nz);
-    host_vector<uint> g(nx*ny*nz);
-    host_vector<ulonglong2> bitters(nx*ny*nz);
-    host_vector<uint> sbits(nx*ny*nz);
-
-
-    host_vector<UInt> buf(nx*ny*nz);
-
-
-    device_vector<ulonglong2> d_bitters(nx*ny*nz);
-    device_vector<unsigned long long> d_x(nx*ny*nz);
-    device_vector<uint> d_g(nx*ny*nz), d_g_cnt, d_sbits(nx*ny*nz);
 
 
     cudaEncodeGroup<UInt><<<nx*ny*nz/64,64>>>(thrust::raw_pointer_cast(d_x.data()), thrust::raw_pointer_cast(d_g.data()),thrust::raw_pointer_cast(buffer.data()), group_count, size);
@@ -800,7 +783,6 @@ void gpuTestBitStream
     cudaGroupScan<UInt><<<nx*ny*nz/(64*64),64, sizeof(uint)*64*64>>>(thrust::raw_pointer_cast(d_g.data()), intprec, kmin);
     ec.chk("cudaGroupScan");
 
-    d_g_cnt = g_cnt;
 
 
     ec.chk("pre encodeBitplane");
