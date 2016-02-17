@@ -389,7 +389,6 @@ void cudaEncodeGroup
   extract_bit(threadIdx.x, x[k], g[blockDim.x*blockIdx.x + 64-threadIdx.x-1], data + blockDim.x*blockIdx.x, count, size);
 }
 
-
 template<class UInt>
 __global__
 void cudaGroupScan
@@ -414,6 +413,32 @@ void cudaGroupScan
   }
 
 }
+
+template<uint bsize>
+__global__
+void cudaCompact
+(
+  const uint intprec,
+  Bit<bsize> *stream,
+  const uint *sbits,
+  const ulonglong2 *bitters
+)
+{
+  uint idx = threadIdx.x + blockDim.x * blockIdx.x;
+  uint tot_sbits = 0;// sbits[0];
+  uint offset = 0;
+
+  for (int k = 0; k < intprec; k++){
+    if (sbits[idx*64 + k] <= 64){
+      write_out(stream[idx].begin, tot_sbits, offset, bitters[idx*64+k].x, sbits[idx*64+k]);
+    }
+    else{
+      write_out(stream[idx].begin, tot_sbits, offset, bitters[idx*64+k].x, 64);
+      write_out(stream[idx].begin, tot_sbits, offset, bitters[idx*64+k].y, sbits[idx*64+k] - 64);
+    }
+  }
+}
+
 template<class UInt, uint bsize>
 __host__
 void encode_bit_plane_thrust
@@ -790,29 +815,10 @@ void gpuTestBitStream
       );
     cudaStreamSynchronize(0);
     ec.chk("cudaEncodeBitplane");
-    bitters = d_bitters;
-    sbits = d_sbits;
-    uint idx = 0;
-    for (int z = 0; z<nz; z += 4){
-        for (int y=0; y<ny; y+=4){
-            for (int x=0; x<nx; x+=4, idx+=64){
-              uint tot_sbits = 0;// sbits[0];
-              uint offset = 0;
-              Bit<bsize> h_stream;
 
-              for (int k = 0; k < CHAR_BIT *sizeof(UInt); k++){
-                if (sbits[idx + k] <= 64){
-                  write_out(h_stream.begin, tot_sbits, offset, bitters[idx+k].x, sbits[idx+k]);
-                }
-                else{
-                  write_out(h_stream.begin, tot_sbits, offset, bitters[idx+k].x, 64);
-                  write_out(h_stream.begin, tot_sbits, offset, bitters[idx+k].y, sbits[idx+k] - 64);
-                }
-              }
-              stream[z/4 * emax_size.x*emax_size.y + y/4 *emax_size.x + x/4] = h_stream;
-            }
-        }
-    }
+    cudaCompact<bsize><<<nx*nz*nz/(64*64),64>>>(intprec, thrust::raw_pointer_cast(stream.data()), thrust::raw_pointer_cast(d_sbits.data()), thrust::raw_pointer_cast(d_bitters.data()));
+    cudaStreamSynchronize(0);
+    ec.chk("cudaCompact");
 
     cudaEventRecord( stop, 0 );
     cudaEventSynchronize(stop);
