@@ -386,9 +386,34 @@ void cudaEncodeGroup
     )
 {
   uint k = threadIdx.x + blockDim.x * blockIdx.x;
-  extract_bit(threadIdx.x, x[k], g[k], data + blockDim.x*blockIdx.x, count, size);
+  extract_bit(threadIdx.x, x[k], g[blockDim.x*blockIdx.x + 64-threadIdx.x-1], data + blockDim.x*blockIdx.x, count, size);
 }
 
+
+template<class UInt>
+__global__
+void cudaGroupScan
+(
+  uint *g,
+  uint intprec,
+  uint kmin
+    )
+{
+  extern __shared__ uint sh_g[];
+  uint k = (blockDim.x * blockIdx.x + threadIdx.x)*64;
+  thrust::inclusive_scan(thrust::device, g + k, g+k+64, g+k, thrust::maximum<uint>());
+  __syncthreads();
+
+  for (int i=0; i<64; i++){
+    sh_g[64*threadIdx.x + 64-i-1] = g[k+i];
+  }
+
+  __syncthreads();
+  for (int i=0; i<64; i++){
+    g[k+i] = sh_g[64*threadIdx.x + i];
+  }
+
+}
 template<class UInt, uint bsize>
 __host__
 void encode_bit_plane_thrust
@@ -742,31 +767,14 @@ void gpuTestBitStream
     device_vector<ulonglong2> d_bitters(nx*ny*nz);
     device_vector<unsigned long long> d_x(nx*ny*nz);
     device_vector<uint> d_g(nx*ny*nz), d_g_cnt, d_sbits(nx*ny*nz);
+
+
     cudaEncodeGroup<UInt><<<nx*ny*nz/64,64>>>(thrust::raw_pointer_cast(d_x.data()), thrust::raw_pointer_cast(d_g.data()),thrust::raw_pointer_cast(buffer.data()), group_count, size);
     ec.chk("cudaEncodeGroup");
-    g = d_g;
 
-    uint idx = 0;
-    for (int z = 0; z<nz; z += 4){
-        for (int y=0; y<ny; y+=4){
-            for (int x=0; x<nx; x+=4, idx+=64){
+    cudaGroupScan<UInt><<<nx*ny*nz/(64*64),64, sizeof(uint)*64*64>>>(thrust::raw_pointer_cast(d_g.data()), intprec, kmin);
+    ec.chk("cudaGroupScan");
 
-                uint cur = g[idx + CHAR_BIT * sizeof(UInt)-1];
-                uint k = intprec-1;
-                for (k = intprec-1; k-- > kmin;) {
-                  if (cur < g[k + idx])
-                      cur = g[k + idx];
-                  else if (cur > g[k + idx])
-                      g[k + idx] = cur;
-                }
-            }
-        }
-    }
-
-
-
-//    d_x = xg;
-    d_g = g;
     d_g_cnt = g_cnt;
 
 
@@ -784,7 +792,7 @@ void gpuTestBitStream
     ec.chk("cudaEncodeBitplane");
     bitters = d_bitters;
     sbits = d_sbits;
-    idx = 0;
+    uint idx = 0;
     for (int z = 0; z<nz; z += 4){
         for (int y=0; y<ny; y+=4){
             for (int x=0; x<nx; x+=4, idx+=64){
