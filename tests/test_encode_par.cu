@@ -22,9 +22,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 512;
-const size_t ny = 512;
-const size_t nz = 512;
+const size_t nx = 256;
+const size_t ny = 256;
+const size_t nz = 256;
 
 uint minbits = 4096;
 uint maxbits = 4096;
@@ -178,7 +178,7 @@ ulonglong2 subull2(ulonglong2 in1, ulonglong2 in2)
 
 unsigned long long
 __device__ __host__
-write_bitters(ulonglong2 &bitters, ulonglong2 value, uint n, uint &sbits)
+write_bitters(ulonglong2 &bitters, ulonglong2 value, uint n, unsigned char &sbits)
 {
 	if (n == bitsize(value.x)){
 		bitters.x = value.x;
@@ -203,7 +203,7 @@ write_bitters(ulonglong2 &bitters, ulonglong2 value, uint n, uint &sbits)
 
 __device__ __host__
 void
-write_bitter(ulonglong2 &bitters, ulonglong2 bit, uint &sbits)
+write_bitter(ulonglong2 &bitters, ulonglong2 bit, unsigned char &sbits)
 {
 	ulonglong2 val = lshiftull2(bit, sbits++);
 	bitters.x += val.x;
@@ -234,13 +234,13 @@ encodeBitplane
 	unsigned long long count,
 
 	unsigned long long &x,
-  const uint g,
-  uint h,
-	const uint *g_cnt,
+	const unsigned char g,
+	unsigned char h,
+	const unsigned char *g_cnt,
 
   //uint &h, uint &n_cnt, unsigned long long &cnt,
 	ulonglong2 &bitters,
-	uint &sbits
+	unsigned char &sbits
 
 )
 {
@@ -278,12 +278,12 @@ cudaEncodeBitplane
 	unsigned long long count,
 
 	unsigned long long *x,
-	const uint *g,
-	const uint *g_cnt,
+	const unsigned char *g,
+	const unsigned char *g_cnt,
 
   //uint *h, uint *n_cnt, unsigned long long *cnt,
 	ulonglong2 *bitters,
-	uint *sbits
+	unsigned char *sbits
 )
 {
 	uint k = threadIdx.x + blockDim.x * blockIdx.x;
@@ -300,7 +300,7 @@ __global__
 void cudaEncodeGroup
 (
   unsigned long long *x,
-  uint *g,
+  unsigned char *g,
   const UInt* data,
   unsigned long long count,
   uint size
@@ -314,12 +314,12 @@ template<class UInt>
 __global__
 void cudaGroupScan
 (
-  uint *g,
+unsigned char *g,
   uint intprec,
   uint kmin
     )
 {
-  extern __shared__ uint sh_g[];
+	extern __shared__ unsigned char sh_g[];
   uint k = (blockDim.x * blockIdx.x + threadIdx.x)*64;
   thrust::inclusive_scan(thrust::device, g + k, g+k+64, g+k, thrust::maximum<uint>());
   __syncthreads();
@@ -341,7 +341,7 @@ void cudaCompact
 (
   const uint intprec,
   Bit<bsize> *stream,
-  const uint *sbits,
+	const unsigned char *sbits,
   const ulonglong2 *bitters
 )
 {
@@ -414,7 +414,7 @@ void gpuTestBitStream
 {
     device_vector<ulonglong2> d_bitters(nx*ny*nz);
     device_vector<unsigned long long> d_x(nx*ny*nz);
-    device_vector<uint> d_g(nx*ny*nz), d_g_cnt, d_sbits(nx*ny*nz);
+    device_vector<unsigned char> d_g(nx*ny*nz), d_g_cnt, d_sbits(nx*ny*nz);
 
     dim3 emax_size(nx/4, ny/4, nz/4 );
 
@@ -481,7 +481,7 @@ void gpuTestBitStream
 
     const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
     unsigned long long count = group_count;
-    host_vector<uint> g_cnt(10);
+    host_vector<unsigned char> g_cnt(10);
     uint sum = 0;
     g_cnt[0] = 0;
     for (int i = 1; i < 10; i++){
