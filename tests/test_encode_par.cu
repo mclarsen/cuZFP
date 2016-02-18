@@ -36,6 +36,8 @@ unsigned long long group_count = 0x46acca631ull;
 uint size = 64;
 
 
+
+
 static const unsigned char
 perm[64] = {
   index(0, 0, 0), //  0 : 0
@@ -165,9 +167,9 @@ void reorder
 }
 
 __device__ __host__
-ulonglong2 subull2(ulonglong2 in1, ulonglong2 in2)
+Bitter subull2(Bitter in1, Bitter in2)
 {
-	ulonglong2 difference;
+	Bitter difference;
 	difference.y = in1.y - in2.y;
 	difference.x = in1.x - in2.x;
 	// check for underflow of low 64 bits, subtract carry to high
@@ -178,7 +180,7 @@ ulonglong2 subull2(ulonglong2 in1, ulonglong2 in2)
 
 unsigned long long
 __device__ __host__
-write_bitters(ulonglong2 &bitters, ulonglong2 value, uint n, unsigned char &sbits)
+write_bitters(Bitter &bitters, Bitter value, uint n, unsigned char &sbits)
 {
 	if (n == bitsize(value.x)){
 		bitters.x = value.x;
@@ -187,8 +189,8 @@ write_bitters(ulonglong2 &bitters, ulonglong2 value, uint n, unsigned char &sbit
 		return 0;
 	}
 	else{
-		ulonglong2 v = rshiftull2(value, n);
-		ulonglong2 ret = rshiftull2(value, n);
+		Bitter v = rshiftull2(value, n);
+		Bitter ret = rshiftull2(value, n);
 		v = lshiftull2(v, n);
 		value = subull2(value, v);
 
@@ -203,9 +205,9 @@ write_bitters(ulonglong2 &bitters, ulonglong2 value, uint n, unsigned char &sbit
 
 __device__ __host__
 void
-write_bitter(ulonglong2 &bitters, ulonglong2 bit, unsigned char &sbits)
+write_bitter(Bitter &bitters, Bitter bit, unsigned char &sbits)
 {
-	ulonglong2 val = lshiftull2(bit, sbits++);
+	Bitter val = lshiftull2(bit, sbits++);
 	bitters.x += val.x;
 	bitters.y += val.y;
 }
@@ -239,7 +241,7 @@ encodeBitplane
 	const unsigned char *g_cnt,
 
   //uint &h, uint &n_cnt, unsigned long long &cnt,
-	ulonglong2 &bitters,
+	Bitter &bitters,
 	unsigned char &sbits
 
 )
@@ -254,20 +256,20 @@ encodeBitplane
 
 	sbits = 0;
 	/* encode bit k for first n values */
-	x = write_bitters(bitters, make_ulonglong2(x, 0), n_cnt, sbits);
+	x = write_bitters(bitters, make_bitter(x, 0), n_cnt, sbits);
   while (h++ < g) {
 		/* output a one bit for a positive group test */
-		write_bitter(bitters, make_ulonglong2(1, 0), sbits);
+		write_bitter(bitters, make_bitter(1, 0), sbits);
 		/* add next group of m values to significant set */
 		uint m = cnt & 0xfu;
 		cnt >>= 4;
 		n_cnt += m;
 		/* encode next group of m values */
-		x = write_bitters(bitters, make_ulonglong2(x, 0), m, sbits);
+		x = write_bitters(bitters, make_bitter(x, 0), m, sbits);
 	}
 	/* if there are more groups, output a zero bit for a negative group test */
 	if (cnt) {
-		write_bitter(bitters, make_ulonglong2(0, 0), sbits);
+		write_bitter(bitters, make_bitter(0, 0), sbits);
 	}
 }
 __global__
@@ -282,7 +284,7 @@ cudaEncodeBitplane
 	const unsigned char *g_cnt,
 
   //uint *h, uint *n_cnt, unsigned long long *cnt,
-	ulonglong2 *bitters,
+	Bitter *bitters,
 	unsigned char *sbits
 )
 {
@@ -342,7 +344,7 @@ void cudaCompact
   const uint intprec,
   Bit<bsize> *stream,
 	const unsigned char *sbits,
-  const ulonglong2 *bitters
+  const Bitter *bitters
 )
 {
   uint idx = threadIdx.x + blockDim.x * blockIdx.x;
@@ -412,7 +414,7 @@ void gpuTestBitStream
         device_vector<UInt> &buffer
         )
 {
-    device_vector<ulonglong2> d_bitters(nx*ny*nz);
+    device_vector<Bitter> d_bitters(nx*ny*nz);
     device_vector<unsigned long long> d_x(nx*ny*nz);
     device_vector<unsigned char> d_g(nx*ny*nz), d_g_cnt, d_sbits(nx*ny*nz);
 
