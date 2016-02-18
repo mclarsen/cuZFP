@@ -1,8 +1,26 @@
+
+struct Bitter
+{
+	unsigned long long int x;
+	unsigned int y;
+};
+
+//typedef  ulonglong2 Bitter;
+
+__host__ __device__
+Bitter make_bitter(unsigned long long int in0, unsigned int in1){
+	Bitter ret;
+	ret.x = in0;
+	ret.y = in1;
+	return ret;
+	//return make_ulonglong2(in0, in1);
+}
+
 __device__ __host__
-ulonglong2 lshiftull2(const ulonglong2 &in, size_t len)
+Bitter lshiftull2(const Bitter &in, size_t len)
 {
 
-	ulonglong2 a = in;
+	Bitter a = in;
 	if (len > 0){
 		unsigned long long value = a.x;
 		if (len < 64){
@@ -23,9 +41,9 @@ ulonglong2 lshiftull2(const ulonglong2 &in, size_t len)
 	return a;
 }
 __device__ __host__
-ulonglong2 rshiftull2(const ulonglong2 &in, size_t len)
+Bitter rshiftull2(const Bitter &in, size_t len)
 {
-	ulonglong2 a = in;
+	Bitter a = in;
 	unsigned long long value = a.y;
 	if (len < 64){
 		a.x >>= len;
