@@ -22,9 +22,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 256;
-const size_t ny = 256;
-const size_t nz = 256;
+const size_t nx = 512;
+const size_t ny = 512;
+const size_t nz = 512;
 
 uint minbits = 4096;
 uint maxbits = 4096;
@@ -337,9 +337,7 @@ const unsigned long long count,
 uint size,
 const UInt* data,
 const unsigned char *g_cnt,
-Bit<bsize> *stream,
-
-Bitter *bitters
+Bit<bsize> *stream
 )
 {
 
@@ -528,8 +526,7 @@ host_vector<Scalar> &h_data
 	device_vector<Int> q(nx*ny*nz);
 	device_vector<UInt> buffer(nx*ny*nz);
 	device_vector<Scalar> data = h_data;
-	device_vector<Bitter> d_bitters(nx*ny*nz);
-	device_vector<unsigned char> d_g_cnt, d_sbits(nx*ny*nz);
+  device_vector<unsigned char> d_g_cnt;
 
 	dim3 emax_size(nx / 4, ny / 4, nz / 4);
 
@@ -614,9 +611,7 @@ host_vector<Scalar> &h_data
 		kmin, group_count, size,
 		thrust::raw_pointer_cast(buffer.data()),
 		thrust::raw_pointer_cast(d_g_cnt.data()),
-		thrust::raw_pointer_cast(stream.data()),
-
-		thrust::raw_pointer_cast(d_bitters.data())
+    thrust::raw_pointer_cast(stream.data())
 		);
 	cudaStreamSynchronize(0);
 	ec.chk("cudaEncode");
