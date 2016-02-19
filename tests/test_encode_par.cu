@@ -228,6 +228,7 @@ write_out(unsigned long long *out, uint &tot_sbits, uint &offset, unsigned long 
 }
 
 
+inline
 __device__ __host__
 void
 encodeBitplane
@@ -235,7 +236,7 @@ encodeBitplane
 const uint kmin,
 unsigned long long count,
 
-unsigned long long &x,
+unsigned long long x,
 const unsigned char g,
 unsigned char h,
 const unsigned char *g_cnt,
@@ -296,6 +297,60 @@ unsigned char *sbits
 	encodeBitplane(kmin, count, x[k], g[k], g[blockDim.x*blockIdx.x + min(threadIdx.x + 1, intprec - 1)], g_cnt, bitters[blockDim.x *(blockIdx.x + 1) - threadIdx.x - 1], sbits[blockDim.x*(blockIdx.x + 1) - threadIdx.x - 1]);
 }
 
+template<class UInt>
+__global__
+void cudaEncode
+(
+uint kmin,
+const unsigned long long count,
+uint size,
+const UInt* data,
+const unsigned char *g_cnt,
+
+
+Bitter *bitters,
+unsigned char *sbits
+)
+{
+
+	extern __shared__ unsigned char sh_g[];
+	unsigned long long x;
+
+	uint k = threadIdx.x + blockDim.x * blockIdx.x;
+
+	/* extract bit plane k to x[k] */
+	unsigned long long y = 0;
+	for (uint i = 0; i < size; i++)
+		y += ((data[blockDim.x*blockIdx.x+i] >> threadIdx.x) & (unsigned long long)1) << i;
+	x = y;
+
+	__syncthreads();
+	/* count number of positive group tests g[k] among 3*d in d dimensions */
+	sh_g[threadIdx.x] = 0;
+	for (unsigned long long c = count; y; y >>= c & 0xfu, c >>= 4)
+		sh_g[threadIdx.x]++;
+
+	__syncthreads();
+	if (threadIdx.x == 0){
+		unsigned char cur = sh_g[intprec-1];
+
+		for (int i = intprec - 1; i-- > kmin;) {
+			if (cur < sh_g[i])
+				cur = sh_g[i];
+			else if (cur > sh_g[i])
+				sh_g[i] = cur;
+		}
+	}
+
+	__syncthreads();
+//	g[k] = sh_g[threadIdx.x];
+
+
+	bitters[blockDim.x *(blockIdx.x + 1) - threadIdx.x - 1] = make_bitter(0, 0);
+	sbits[blockDim.x*(blockIdx.x + 1) - threadIdx.x - 1] = 0;
+	encodeBitplane(kmin, count, x, sh_g[threadIdx.x], sh_g[min(threadIdx.x + 1, intprec - 1)], g_cnt, bitters[blockDim.x *(blockIdx.x + 1) - threadIdx.x - 1], sbits[blockDim.x*(blockIdx.x + 1) - threadIdx.x - 1]);
+
+}
 
 template<class UInt>
 __global__
@@ -321,20 +376,26 @@ uint intprec,
 uint kmin
 )
 {
-	extern __shared__ unsigned char sh_g[];
-	uint k = (blockDim.x * blockIdx.x + threadIdx.x) * 64;
-	thrust::inclusive_scan(thrust::device, g + k, g + k + 64, g + k, thrust::maximum<uint>());
-	__syncthreads();
+	extern __shared__ unsigned char sh_g[], sh_gout[];
+	uint idx = (blockDim.x * blockIdx.x + threadIdx.x);
+	//thrust::inclusive_scan(thrust::device, g + k, g + k + 64, g + k, thrust::maximum<uint>());
 
-	for (int i = 0; i < 64; i++){
-		sh_g[64 * threadIdx.x + 64 - i - 1] = g[k + i];
+	sh_g[threadIdx.x] = g[idx];
+	__syncthreads();
+	if (threadIdx.x == 0){
+		unsigned char cur = sh_g[0];
+		sh_gout[63] = cur;
+
+		for (int i = 0; i < 64; i++) {
+			if (cur < sh_g[i])
+				cur = sh_g[i];
+			else if (cur > sh_g[i])
+				sh_g[i] = cur;
+		}
 	}
 
 	__syncthreads();
-	for (int i = 0; i < 64; i++){
-		g[k + i] = sh_g[64 * threadIdx.x + i];
-	}
-
+	g[idx] = sh_g[63-threadIdx.x];
 }
 
 template<uint bsize>
@@ -350,6 +411,7 @@ const Bitter *bitters
 	uint idx = threadIdx.x + blockDim.x * blockIdx.x;
 	uint tot_sbits = 0;// sbits[0];
 	uint offset = 0;
+
 
 	for (int k = 0; k < intprec; k++){
 		if (sbits[idx * 64 + k] <= 64){
@@ -393,7 +455,10 @@ device_vector<Bit<bsize> > &stream
 				encode_ints<UInt>(loc_stream, raw_pointer_cast(buf.data()), minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
 
 				for (int j = 0; j < 64; j++){
-					assert(h_bits[i].begin[j] == loc_stream.begin[j]);
+					if (h_bits[i].begin[j] != loc_stream.begin[j]){
+						cout << x << " " << y << " " << z << " " << j << " " << h_bits[i].begin[j] << " " << loc_stream.begin[j] << endl;
+						exit(-1);
+					}
 				}
 
 				i++;
@@ -495,31 +560,43 @@ host_vector<Scalar> &h_data
 	d_g_cnt = g_cnt;
 
 
-
-	cudaEncodeGroup<UInt> << <nx*ny*nz / 64, 64 >> >(thrust::raw_pointer_cast(d_x.data()), thrust::raw_pointer_cast(d_g.data()), thrust::raw_pointer_cast(buffer.data()), group_count, size);
-	ec.chk("cudaEncodeGroup");
-
-	cudaGroupScan<UInt> << <nx*ny*nz / (64 * 64), 64, sizeof(uint) * 64 * 64 >> >(thrust::raw_pointer_cast(d_g.data()), intprec, kmin);
-	ec.chk("cudaGroupScan");
-
-
-
-	ec.chk("pre encodeBitplane");
-	cudaEncodeBitplane << <  nx*ny*nz / 64, 64, (sizeof(uint) + sizeof(unsigned long long)) * 64 >> >
+	cudaEncode<UInt> << <nx*ny*nz / 64, 64, (sizeof(unsigned char) + sizeof(unsigned long long)) * 64 >> >
 		(
-		kmin, group_count,
-		thrust::raw_pointer_cast(d_x.data()),
-		thrust::raw_pointer_cast(d_g.data()),
+		kmin, group_count, size,
+		thrust::raw_pointer_cast(buffer.data()),
 		thrust::raw_pointer_cast(d_g_cnt.data()),
 		thrust::raw_pointer_cast(d_bitters.data()),
 		thrust::raw_pointer_cast(d_sbits.data())
 		);
 	cudaStreamSynchronize(0);
-	ec.chk("cudaEncodeBitplane");
+	ec.chk("cudaEncode");
+
+	//cudaEncodeGroup<UInt> << <nx*ny*nz / 64, 64 >> >(thrust::raw_pointer_cast(d_x.data()), thrust::raw_pointer_cast(d_g.data()), thrust::raw_pointer_cast(buffer.data()), group_count, size);
+	//ec.chk("cudaEncodeGroup");
+
+	//cudaGroupScan<UInt> << <nx*ny*nz / (64), 64, sizeof(unsigned char) * 2 * 64 >> >(thrust::raw_pointer_cast(d_g.data()), intprec, kmin);
+	//ec.chk("cudaGroupScan");
+
+	//host_vector<unsigned char> h_g = d_g;
+	//
+	//ec.chk("pre encodeBitplane");
+	//cudaEncodeBitplane << <  nx*ny*nz / 64, 64, (sizeof(uint) + sizeof(unsigned long long)) * 64 >> >
+	//	(
+	//	kmin, group_count,
+	//	thrust::raw_pointer_cast(d_x.data()),
+	//	thrust::raw_pointer_cast(d_g.data()),
+	//	thrust::raw_pointer_cast(d_g_cnt.data()),
+	//	thrust::raw_pointer_cast(d_bitters.data()),
+	//	thrust::raw_pointer_cast(d_sbits.data())
+	//	);
+	//cudaStreamSynchronize(0);
+	//ec.chk("cudaEncodeBitplane");
 
 	cudaCompact<bsize> << <nx*nz*nz / (64 * 64), 64 >> >(intprec, thrust::raw_pointer_cast(stream.data()), thrust::raw_pointer_cast(d_sbits.data()), thrust::raw_pointer_cast(d_bitters.data()));
 	cudaStreamSynchronize(0);
 	ec.chk("cudaCompact");
+	host_vector<Bitter> h_bitters = d_bitters;
+	host_vector<unsigned char> h_sbits = d_sbits;
 
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
