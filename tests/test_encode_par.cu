@@ -228,6 +228,37 @@ write_out(unsigned long long *out, uint &tot_sbits, uint &offset, unsigned long 
 }
 
 
+__shared__ Bitter sh_bitters[64];
+__device__ __host__
+void
+write_outx(unsigned long long *out, uint &tot_sbits, uint &offset, unsigned long idx, uint sbits)
+{
+
+  out[offset] += sh_bitters[idx].x << tot_sbits;
+  tot_sbits += sbits;
+  if (tot_sbits >= wsize) {
+    tot_sbits -= wsize;
+    offset++;
+    if (tot_sbits > 0)
+      out[offset] = sh_bitters[idx].x >> (sbits - tot_sbits);
+  }
+}
+__device__ __host__
+void
+write_outy(unsigned long long *out, uint &tot_sbits, uint &offset, unsigned long idx, uint sbits)
+{
+
+  out[offset] += sh_bitters[idx].y << tot_sbits;
+  tot_sbits += sbits;
+  if (tot_sbits >= wsize) {
+    tot_sbits -= wsize;
+    offset++;
+    if (tot_sbits > 0)
+      out[offset] = sh_bitters[idx].y >> (sbits - tot_sbits);
+  }
+}
+
+
 inline
 __device__ __host__
 void
@@ -315,7 +346,8 @@ Bitter *bitters
 	extern __shared__ unsigned char sh_g[], sh_sbits[];
 	unsigned long long x;
 
-	uint k = threadIdx.x + blockDim.x * blockIdx.x;
+
+  uint k = threadIdx.x + blockDim.x * blockIdx.x;
 
 	/* extract bit plane k to x[k] */
 	unsigned long long y = 0;
@@ -350,7 +382,7 @@ Bitter *bitters
 	Bitter bitter = make_bitter(0, 0);
 	unsigned char sbit = 0;
 	encodeBitplane(kmin, count, x, g, h, g_cnt,bitter, sbit);
-	bitters[blockDim.x *(blockIdx.x + 1) - threadIdx.x - 1] = bitter;
+  sh_bitters[63-threadIdx.x] = bitter;
 	sh_sbits[63 - threadIdx.x] = sbit;
 
 	__syncthreads();
@@ -360,27 +392,14 @@ Bitter *bitters
 		uint offset = 0;
 		for (int i = 0; i < intprec; i++){
 			if (sh_sbits[i] <= 64){
-				write_out(stream[idx / 64].begin, tot_sbits, offset, bitters[idx + i].x, sh_sbits[i]);
+        write_outx(stream[idx / 64].begin, tot_sbits, offset, i, sh_sbits[i]);
 			}
 			else{
-				write_out(stream[idx / 64].begin, tot_sbits, offset, bitters[idx + i].x, 64);
-				write_out(stream[idx / 64].begin, tot_sbits, offset, bitters[idx + i].y, sh_sbits[i] - 64);
+        write_outx(stream[idx / 64].begin, tot_sbits, offset, i, 64);
+        write_outy(stream[idx / 64].begin, tot_sbits, offset, i, sh_sbits[i] - 64);
 			}
 		}
 	}
-	//if (threadIdx.x == 0){
-	//	uint tot_sbits = 0;// sbits[0];
-	//	uint offset = 0;
-	//	for (int i = 0; i < intprec; i++){
-	//		if (sbits[blockDim.x*blockIdx.x + i] <= 64){
-	//			write_out(stream[blockDim.x*blockIdx.x/64].begin, tot_sbits, offset, bitters[blockDim.x*blockIdx.x + i].x, sbits[blockDim.x*blockIdx.x + i]);
-	//		}
-	//		else{
-	//			write_out(stream[blockDim.x*blockIdx.x/64].begin, tot_sbits, offset, bitters[blockDim.x*blockIdx.x + i].x, 64);
-	//			write_out(stream[blockDim.x*blockIdx.x/64].begin, tot_sbits, offset, bitters[blockDim.x*blockIdx.x + i].y, sbits[blockDim.x*blockIdx.x + i] - 64);
-	//		}
-	//	}
-	//}
 }
 
 template<class UInt>
@@ -590,7 +609,7 @@ host_vector<Scalar> &h_data
 	d_g_cnt = g_cnt;
 
 
-	cudaEncode<UInt, bsize> << <nx*ny*nz / 64, 64, (sizeof(unsigned char) + sizeof(unsigned long long)) * 64 >> >
+  cudaEncode<UInt, bsize> << <nx*ny*nz / 64, 64, 2*(sizeof(unsigned char) + sizeof(unsigned long long)) * 64 >> >
 		(
 		kmin, group_count, size,
 		thrust::raw_pointer_cast(buffer.data()),
