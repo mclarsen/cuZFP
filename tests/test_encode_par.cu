@@ -308,12 +308,11 @@ const UInt* data,
 const unsigned char *g_cnt,
 Bit<bsize> *stream,
 
-Bitter *bitters,
-unsigned char *sbits
+Bitter *bitters
 )
 {
 
-	extern __shared__ unsigned char sh_g[];
+	extern __shared__ unsigned char sh_g[], sh_sbits[];
 	unsigned long long x;
 
 	uint k = threadIdx.x + blockDim.x * blockIdx.x;
@@ -348,9 +347,11 @@ unsigned char *sbits
 	unsigned char g = sh_g[threadIdx.x];
 	unsigned char h = sh_g[min(threadIdx.x + 1, intprec - 1)];
 
-	bitters[blockDim.x *(blockIdx.x + 1) - threadIdx.x - 1] = make_bitter(0, 0);
-	sbits[blockDim.x*(blockIdx.x + 1) - threadIdx.x - 1] = 0;
-	encodeBitplane(kmin, count, x, g, h, g_cnt, bitters[blockDim.x *(blockIdx.x + 1) - threadIdx.x - 1], sbits[blockDim.x*(blockIdx.x + 1) - threadIdx.x - 1]);
+	Bitter bitter = make_bitter(0, 0);
+	unsigned char sbit = 0;
+	encodeBitplane(kmin, count, x, g, h, g_cnt,bitter, sbit);
+	bitters[blockDim.x *(blockIdx.x + 1) - threadIdx.x - 1] = bitter;
+	sh_sbits[63 - threadIdx.x] = sbit;
 
 	__syncthreads();
 	uint idx = blockDim.x * blockIdx.x;
@@ -358,12 +359,12 @@ unsigned char *sbits
 		uint tot_sbits = 0;// sbits[0];
 		uint offset = 0;
 		for (int i = 0; i < intprec; i++){
-			if (sbits[idx + i] <= 64){
-				write_out(stream[idx / 64].begin, tot_sbits, offset, bitters[idx + i].x, sbits[idx + i]);
+			if (sh_sbits[i] <= 64){
+				write_out(stream[idx / 64].begin, tot_sbits, offset, bitters[idx + i].x, sh_sbits[i]);
 			}
 			else{
 				write_out(stream[idx / 64].begin, tot_sbits, offset, bitters[idx + i].x, 64);
-				write_out(stream[idx / 64].begin, tot_sbits, offset, bitters[idx + i].y, sbits[idx + i] - 64);
+				write_out(stream[idx / 64].begin, tot_sbits, offset, bitters[idx + i].y, sh_sbits[i] - 64);
 			}
 		}
 	}
@@ -596,8 +597,7 @@ host_vector<Scalar> &h_data
 		thrust::raw_pointer_cast(d_g_cnt.data()),
 		thrust::raw_pointer_cast(stream.data()),
 
-		thrust::raw_pointer_cast(d_bitters.data()),
-		thrust::raw_pointer_cast(d_sbits.data())
+		thrust::raw_pointer_cast(d_bitters.data())
 		);
 	cudaStreamSynchronize(0);
 	ec.chk("cudaEncode");
