@@ -22,9 +22,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 512;
-const size_t ny = 512;
-const size_t nz = 512;
+const size_t nx = 256;
+const size_t ny = 256;
+const size_t nz = 256;
 
 uint minbits = 4096;
 uint maxbits = 4096;
@@ -523,18 +523,15 @@ void gpuTestBitStream
 host_vector<Scalar> &h_data
 )
 {
-	device_vector<Int> q(nx*ny*nz);
 	device_vector<UInt> buffer(nx*ny*nz);
 	device_vector<Scalar> data = h_data;
   device_vector<unsigned char> d_g_cnt;
 
 	dim3 emax_size(nx / 4, ny / 4, nz / 4);
 
-	dim3 block_size(8, 8, 8);
+	dim3 block_size(4, 4, 4);
 	dim3 grid_size = emax_size;
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
-
-	device_vector<int> emax(emax_size.x * emax_size.y * emax_size.z);
 
 	ErrorCheck ec;
 
@@ -545,45 +542,71 @@ host_vector<Scalar> &h_data
 	cudaEventCreate(&stop);
 	cudaEventRecord(start, 0);
 
+	//////device_vector<Int> q(nx*ny*nz);
 
-	ec.chk("pre-cudaMaxExp");
-	cudaMaxExp << <grid_size, block_size >> >
-		(
-		raw_pointer_cast(emax.data()),
-		raw_pointer_cast(data.data())
-		);
-	ec.chk("cudaMaxExp");
+	//////ec.chk("pre-cudaMaxExp");
+	//////cudaMaxExp << <grid_size, block_size >> >
+	//////	(
+	//////	raw_pointer_cast(emax.data()),
+	//////	raw_pointer_cast(data.data())
+	//////	);
+	//////ec.chk("cudaMaxExp");
 
-	ec.chk("pre-cudaFixedPoint");
-	cudaFixedPoint << <grid_size, block_size >> >
-		(
-		raw_pointer_cast(emax.data()),
-		raw_pointer_cast(data.data()),
-		raw_pointer_cast(q.data())
-		);
-	ec.chk("cudaFixedPoint");
+	//////ec.chk("pre-cudaFixedPoint");
+	//////cudaFixedPoint << <grid_size, block_size >> >
+	//////	(
+	//////	raw_pointer_cast(emax.data()),
+	//////	raw_pointer_cast(data.data()),
+	//////	raw_pointer_cast(q.data())
+	//////	);
+	//////ec.chk("cudaFixedPoint");
+
+	////ec.chk("pre-EFPTransform");
+	////cudaEFPTransform << < grid_size, block_size, sizeof(Int)*4*4*4* 4*4*4 >> >
+	////	(
+	////	thrust::raw_pointer_cast(data.data()),
+	////	thrust::raw_pointer_cast(q.data())
+	////	);
+	////cudaStreamSynchronize(0);
+	////ec.chk("post-EFPTransform");
 
 
-	data.clear();
-	data.shrink_to_fit();
-	cudaDecorrelate<Int> << <grid_size, block_size >> >
-		(
-		raw_pointer_cast(q.data())
-		);
-	ec.chk("cudaDecorrelate");
+	//////data.clear();
+	//////data.shrink_to_fit();
+	////cudaDecorrelate<Int> << <grid_size, block_size >> >
+	////	(
+	////	raw_pointer_cast(q.data())
+	////	);
+	////cudaStreamSynchronize(0);
+	////ec.chk("cudaDecorrelate");
 
-	block_size = dim3(8, 8, 8);
-	grid_size = dim3(nx, ny, nz);
-	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-	cudaint2uint << < grid_size, block_size >> >
-		(
-		raw_pointer_cast(q.data()),
-		raw_pointer_cast(buffer.data())
-		);
-	ec.chk("cudaint2uint");
+	//ec.chk("pre-EFPTransform");
+	//cudaEFPDTransform << < grid_size, block_size, sizeof(Int)*4*4*4* 4*4*4>> >
+	//	(
+	//	thrust::raw_pointer_cast(data.data()),
+	//	thrust::raw_pointer_cast(q.data())
+	//	);
+	//ec.chk("post-EFPTransform");
 
+	//block_size = dim3(8, 8, 8);
+	//grid_size = dim3(nx, ny, nz);
+	//grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+	//cudaint2uint << < grid_size, block_size >> >
+	//	(
+	//	raw_pointer_cast(q.data()),
+	//	raw_pointer_cast(buffer.data())
+	//	);
+	//ec.chk("cudaint2uint");
 	//q.clear();
 	//q.shrink_to_fit();
+
+	ec.chk("pre-cudaEFPDI2UTransform");
+	cudaEFPDI2UTransform <Int, UInt, Scalar> << < grid_size, block_size, sizeof(Int)*4*4*4* 4*4*4 >> >
+		(
+		raw_pointer_cast(data.data()),
+		raw_pointer_cast(buffer.data())
+		);
+	ec.chk("post-cudaEFPDI2UTransform");
 
 	device_vector<Bit<bsize> > stream(emax_size.x * emax_size.y * emax_size.z);
 
@@ -672,7 +695,7 @@ int main()
 	h_vec_in = d_vec_in;
 	d_vec_in.clear();
 	d_vec_in.shrink_to_fit();
-	//    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
+	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 	setupConst(perm);
 	cout << "Begin gpuTestBitStream" << endl;
 	gpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
