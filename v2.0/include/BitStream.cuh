@@ -1,14 +1,9 @@
+#ifndef BITSTREAM_H
+#define BITSTREAM_H
+
 #include <limits.h>
 #include <stdlib.h>
-
-#define MIN(x, y) ((x) < (y) ? (x) : (y))
-#define bitsize(x) (CHAR_BIT * (uint)sizeof(x))
-
-typedef unsigned long long Word;
-
-
-static const uint wsize = bitsize(Word);
-
+#include "shared.h"
 
 template<uint bsize>
 class Bit
@@ -681,3 +676,4 @@ void cudaencode
 //    encode_ints<UInt, bsize>(stream[idx], q + idx * bsize, minbits, maxbits, precision(emax[idx], maxprec, minexp), group_count, size);
 
 }
+#endif

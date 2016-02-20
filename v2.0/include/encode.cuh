@@ -1,5 +1,8 @@
 #include <helper_math.h>
-
+#include "shared.h"
+#include "ull128.h"
+#include "BitStream.cuh"
+#include "WriteBitter.cuh"
 
 __constant__ unsigned char c_perm[64];
 __constant__ uint c_sizeof_scalar;
@@ -8,7 +11,6 @@ __constant__ uint c_sizeof_scalar;
 #define FREXP(x, e) frexp(x, e)
 #define FABS(x) fabs(x)
 
-const int intprec = 64;
 const int ebias = 1023;
 
 
@@ -418,5 +420,123 @@ UInt *p
 	for (int i = 0; i < 64; i++){
 		uint idx = eidx * 64 + i;
 		p[idx] = int2uint<Int, UInt>(sh_q[(threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64 + c_perm[i]]);
+	}
+}
+
+inline
+__device__ __host__
+void
+encodeBitplane
+(
+const uint kmin,
+unsigned long long count,
+
+unsigned long long x,
+const unsigned char g,
+unsigned char h,
+const unsigned char *g_cnt,
+
+//uint &h, uint &n_cnt, unsigned long long &cnt,
+Bitter &bitters,
+unsigned char &sbits
+
+)
+{
+	unsigned long long cnt = count;
+	cnt >>= h * 4;
+	uint n_cnt = g_cnt[h];
+
+	/* serial: output one bit plane at a time from MSB to LSB */
+	bitters.x = 0;
+	bitters.y = 0;
+
+	sbits = 0;
+	/* encode bit k for first n values */
+	x = write_bitters(bitters, make_bitter(x, 0), n_cnt, sbits);
+	while (h++ < g) {
+		/* output a one bit for a positive group test */
+		write_bitter(bitters, make_bitter(1, 0), sbits);
+		/* add next group of m values to significant set */
+		uint m = cnt & 0xfu;
+		cnt >>= 4;
+		n_cnt += m;
+		/* encode next group of m values */
+		x = write_bitters(bitters, make_bitter(x, 0), m, sbits);
+	}
+	/* if there are more groups, output a zero bit for a negative group test */
+	if (cnt) {
+		write_bitter(bitters, make_bitter(0, 0), sbits);
+	}
+}
+
+template<class UInt, uint bsize>
+__global__
+void cudaEncode
+(
+uint kmin,
+const unsigned long long count,
+uint size,
+const UInt* data,
+const unsigned char *g_cnt,
+Bit<bsize> *stream
+)
+{
+
+	extern __shared__ unsigned char sh_g[], sh_sbits[];
+	unsigned long long x;
+
+
+	uint k = threadIdx.x + blockDim.x * blockIdx.x;
+
+	/* extract bit plane k to x[k] */
+	unsigned long long y = 0;
+	for (uint i = 0; i < size; i++)
+		y += ((data[blockDim.x*blockIdx.x + i] >> threadIdx.x) & (unsigned long long)1) << i;
+	x = y;
+
+	__syncthreads();
+	/* count number of positive group tests g[k] among 3*d in d dimensions */
+	sh_g[threadIdx.x] = 0;
+	for (unsigned long long c = count; y; y >>= c & 0xfu, c >>= 4)
+		sh_g[threadIdx.x]++;
+
+	__syncthreads();
+	if (threadIdx.x == 0){
+		unsigned char cur = sh_g[intprec - 1];
+
+		for (int i = intprec - 1; i-- > kmin;) {
+			if (cur < sh_g[i])
+				cur = sh_g[i];
+			else if (cur > sh_g[i])
+				sh_g[i] = cur;
+		}
+	}
+
+	__syncthreads();
+	//	g[k] = sh_g[threadIdx.x];
+
+	unsigned char g = sh_g[threadIdx.x];
+	unsigned char h = sh_g[min(threadIdx.x + 1, intprec - 1)];
+
+	Bitter bitter = make_bitter(0, 0);
+	unsigned char sbit = 0;
+	encodeBitplane(kmin, count, x, g, h, g_cnt, bitter, sbit);
+	sh_bitters[63 - threadIdx.x] = bitter;
+	sh_sbits[63 - threadIdx.x] = sbit;
+
+	__syncthreads();
+	uint idx = blockDim.x * blockIdx.x;
+	if (threadIdx.x == 0){
+		uint tot_sbits = 0;// sbits[0];
+		uint offset = 0;
+		for (int i = 0; i < intprec; i++){
+			if (sh_sbits[i] <= 64){
+				write_outx(stream[idx / 64].begin, tot_sbits, offset, i, sh_sbits[i]);
+			}
+			else{
+				write_outx(stream[idx / 64].begin, tot_sbits, offset, i, 64);
+				write_outy(stream[idx / 64].begin, tot_sbits, offset, i, sh_sbits[i] - 64);
+			}
+		}
 	}
 }

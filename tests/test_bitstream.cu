@@ -214,7 +214,7 @@ void cpuTestBitStream
         }
     }
     double start_time = omp_get_wtime();
-//#pragma omp parallel for
+#pragma omp parallel for
     for (int z=0; z<nz; z+=4){
         for (int y=0; y<ny; y+=4){
             for (int x=0; x<nx; x+=4){

@@ -1,19 +1,21 @@
+#ifndef ULL128_H
+#define ULL128_H
+//
+//struct Bitter
+//{
+//	unsigned long long int x;
+//	unsigned int y;
+//};
 
-struct Bitter
-{
-	unsigned long long int x;
-	unsigned int y;
-};
-
-//typedef  ulonglong2 Bitter;
+typedef  ulonglong2 Bitter;
 
 __host__ __device__
 Bitter make_bitter(unsigned long long int in0, unsigned int in1){
-	Bitter ret;
-	ret.x = in0;
-	ret.y = in1;
-	return ret;
-	//return make_ulonglong2(in0, in1);
+	//Bitter ret;
+	//ret.x = in0;
+	//ret.y = in1;
+	//return ret;
+	return make_ulonglong2(in0, in1);
 }
 
 __device__ __host__
@@ -62,3 +64,19 @@ Bitter rshiftull2(const Bitter &in, size_t len)
 
 	return a;
 }
+
+__device__ __host__
+Bitter subull2(Bitter in1, Bitter in2)
+{
+	Bitter difference;
+	difference.y = in1.y - in2.y;
+	difference.x = in1.x - in2.x;
+	// check for underflow of low 64 bits, subtract carry to high
+	if (difference.y > in1.x)
+		--difference.y;
+	return difference;
+}
+
+
+
+#endif
