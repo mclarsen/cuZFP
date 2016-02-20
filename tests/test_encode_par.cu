@@ -564,8 +564,8 @@ host_vector<Scalar> &h_data
 	ec.chk("cudaFixedPoint");
 
 
-	//data.clear();
-	//data.shrink_to_fit();
+	data.clear();
+	data.shrink_to_fit();
 	cudaDecorrelate<Int> << <grid_size, block_size >> >
 		(
 		raw_pointer_cast(q.data())
