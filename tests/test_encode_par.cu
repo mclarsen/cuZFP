@@ -416,8 +416,11 @@ host_vector<Scalar> &h_data
 	}
 	d_g_cnt = g_cnt;
 
+	block_size = dim3(4, 4, 4);
+	grid_size = dim3(nx, ny, nz);
+	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
 
-  cudaEncode<UInt, bsize> << <nx*ny*nz / 64, 64, 2*(sizeof(unsigned char) + sizeof(unsigned long long)) * 64 >> >
+  cudaEncodeUInt<UInt, bsize> << <grid_size, block_size, 2*(sizeof(unsigned char) + sizeof(unsigned long long)) * 64 >> >
 		(
 		kmin, group_count, size,
 		thrust::raw_pointer_cast(buffer.data()),

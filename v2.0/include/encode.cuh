@@ -23,7 +23,14 @@ UInt int2uint(const Int x)
     return (x + (UInt)0xaaaaaaaaaaaaaaaaull) ^ (UInt)0xaaaaaaaaaaaaaaaaull;
 }
 
-
+template<typename Int, typename UInt>
+struct int_2_uint : public thrust::unary_function<Int, UInt>
+{
+	__host__ __device__ Int operator()(const UInt &x) const
+	{
+		return (x + (UInt)0xaaaaaaaaaaaaaaaaull) ^ (UInt)0xaaaaaaaaaaaaaaaaull;
+	}
+};
 // return normalized floating-point exponent for x >= 0
 template<class Scalar>
 __host__ __device__
@@ -471,7 +478,7 @@ unsigned char &sbits
 
 template<class UInt, uint bsize>
 __global__
-void cudaEncode
+void cudaEncodeUInt
 (
 uint kmin,
 const unsigned long long count,
@@ -481,27 +488,34 @@ const unsigned char *g_cnt,
 Bit<bsize> *stream
 )
 {
+	int mx = threadIdx.x + blockDim.x*blockIdx.x;
+	int my = threadIdx.y + blockDim.y*blockIdx.y;
+	int mz = threadIdx.z + blockDim.z*blockIdx.z;
+	int eidx = mz*gridDim.x*blockDim.x*gridDim.y*blockDim.y + my*gridDim.x*blockDim.x + mx;
 
 	extern __shared__ unsigned char sh_g[], sh_sbits[];
 	unsigned long long x;
 
+	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 
-	uint k = threadIdx.x + blockDim.x * blockIdx.x;
+	uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
+
+//	uint k = threadIdx.x + blockDim.x * blockIdx.x;
 
 	/* extract bit plane k to x[k] */
 	unsigned long long y = 0;
 	for (uint i = 0; i < size; i++)
-		y += ((data[blockDim.x*blockIdx.x + i] >> threadIdx.x) & (unsigned long long)1) << i;
+		y += ((data[bidx + i] >> tid) & (unsigned long long)1) << i;
 	x = y;
 
 	__syncthreads();
 	/* count number of positive group tests g[k] among 3*d in d dimensions */
-	sh_g[threadIdx.x] = 0;
+	sh_g[tid] = 0;
 	for (unsigned long long c = count; y; y >>= c & 0xfu, c >>= 4)
-		sh_g[threadIdx.x]++;
+		sh_g[tid]++;
 
 	__syncthreads();
-	if (threadIdx.x == 0){
+	if (tid == 0){
 		unsigned char cur = sh_g[intprec - 1];
 
 		for (int i = intprec - 1; i-- > kmin;) {
@@ -515,28 +529,29 @@ Bit<bsize> *stream
 	__syncthreads();
 	//	g[k] = sh_g[threadIdx.x];
 
-	unsigned char g = sh_g[threadIdx.x];
-	unsigned char h = sh_g[min(threadIdx.x + 1, intprec - 1)];
+	unsigned char g = sh_g[tid];
+	unsigned char h = sh_g[min(tid + 1, intprec - 1)];
 
 	Bitter bitter = make_bitter(0, 0);
 	unsigned char sbit = 0;
 	encodeBitplane(kmin, count, x, g, h, g_cnt, bitter, sbit);
-	sh_bitters[63 - threadIdx.x] = bitter;
-	sh_sbits[63 - threadIdx.x] = sbit;
+	sh_bitters[63 - tid] = bitter;
+	sh_sbits[63 - tid] = sbit;
 
 	__syncthreads();
-	uint idx = blockDim.x * blockIdx.x;
-	if (threadIdx.x == 0){
+	if (tid == 0){
 		uint tot_sbits = 0;// sbits[0];
 		uint offset = 0;
 		for (int i = 0; i < intprec; i++){
 			if (sh_sbits[i] <= 64){
-				write_outx(stream[idx / 64].begin, tot_sbits, offset, i, sh_sbits[i]);
+				write_outx(stream[bidx / 64].begin, tot_sbits, offset, i, sh_sbits[i]);
 			}
 			else{
-				write_outx(stream[idx / 64].begin, tot_sbits, offset, i, 64);
-				write_outy(stream[idx / 64].begin, tot_sbits, offset, i, sh_sbits[i] - 64);
+				write_outx(stream[bidx / 64].begin, tot_sbits, offset, i, 64);
+				write_outy(stream[bidx / 64].begin, tot_sbits, offset, i, sh_sbits[i] - 64);
 			}
 		}
 	}
 }
+
+
