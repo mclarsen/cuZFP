@@ -222,7 +222,7 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
     for (i = 0; i < size; i++)
       data[i] = 0;
 
-    uint tmp_g[64], tmp_n[64], cnt_sft[64];
+    uint tmp_g[64], tmp_n[64], cnt_sft[64], bit_idx[64];
 
     for (int i=0; i<64; i++) tmp_g[i] = tmp_n[i] = cnt_sft[i] = 0;
 
@@ -231,26 +231,27 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
       /* decode bit plane k */
       UInt* p = data;
       tmp_n[k] = n;
+      bit_idx[k] = bits;
       for (m = n;;tmp_g[k]++) {
+
         if (bits){
-            /* decode bit k for the next set of m values */
-            m = MIN(m, bits);
-            bits -= m;
-            for (x = stream.read_bits(m); m; m--, x >>= 1)
-              *p++ += (UInt)(x & 1u) << k;
-            /* continue with next bit plane if there are no more groups */
-            if (!count || !bits)
-              break;
-            /* perform group test */
-            bits--;
-            test = stream.read_bit();
-            /* continue with next bit plane if there are no more significant bits */
-            if (!test || !bits)
-              break;
-            /* decode next group of m values */
-            m = count & 0xfu;
-            count >>= 4;
-            n += m;
+          /* decode bit k for the next set of m values */
+          m = MIN(m, bits);
+          bits -= m;
+          x = stream.read_bits(m);
+          /* continue with next bit plane if there are no more groups */
+          if (!count || !bits)
+            break;
+          /* perform group test */
+          bits--;
+          test = stream.read_bit();
+          /* continue with next bit plane if there are no more significant bits */
+          if (!test || !bits)
+            break;
+          /* decode next group of m values */
+          m = count & 0xfu;
+          count >>= 4;
+          n += m;
         }
       }
     }
@@ -262,7 +263,6 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
     }
 
     count = orig_count;
-    UInt new_data[64];
     for (i = 0; i < size; i++)
       data[i] = 0;
 
