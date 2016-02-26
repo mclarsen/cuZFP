@@ -113,6 +113,15 @@ public:
       buffer = 0u;
     }
 
+
+    __device__ __host__
+    void
+    seek( char _offset, uint _bits, Word _buffer)
+    {
+      offset = _offset;
+      bits = _bits;
+      buffer = _buffer;
+    }
     /*****************************************************************************************/
     /* read single bit (0 or 1) */
     __host__ __device__

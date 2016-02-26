@@ -211,6 +211,12 @@ __device__ __host__
 uint
 decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long orig_count, uint size)
 {
+  Bit<bsize> cache[64];
+  for (int i=0; i<64; i++){
+    cache[i] = stream;
+  }
+
+
   unsigned long long count = orig_count;
     uint intprec = CHAR_BIT * (uint)sizeof(UInt);
     uint kmin = intprec > maxprec ? intprec - maxprec : 0;
@@ -222,16 +228,24 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
     for (i = 0; i < size; i++)
       data[i] = 0;
 
-    uint tmp_g[64], tmp_n[64], cnt_sft[64], bit_idx[64];
+    uint tmp_g[64], tmp_n[64], cnt_sft[64], bit_bits[64];
+    char bit_offset[64];
+    Word bit_buffer[64];
 
-    for (int i=0; i<64; i++) tmp_g[i] = tmp_n[i] = cnt_sft[i] = 0;
+    for (int i=0; i<64; i++){
+      bit_offset[i] = 0;
+      bit_buffer[i] = 0;
+      tmp_g[i] = tmp_n[i] = cnt_sft[i] = 0;
+    }
 
     /* input one bit plane at a time from MSB to LSB */
     for (k = intprec, n = 0; k-- > kmin;) {
       /* decode bit plane k */
       UInt* p = data;
       tmp_n[k] = n;
-      bit_idx[k] = bits;
+      bit_bits[k] = stream.bits;
+      bit_offset[k] = stream.offset;
+      bit_buffer[k] = stream.buffer;
       for (m = n;;tmp_g[k]++) {
 
         if (bits){
@@ -240,14 +254,17 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
           bits -= m;
           x = stream.read_bits(m);
           /* continue with next bit plane if there are no more groups */
-          if (!count || !bits)
+          if (!count || !bits){
+
             break;
+          }
           /* perform group test */
           bits--;
           test = stream.read_bit();
           /* continue with next bit plane if there are no more significant bits */
-          if (!test || !bits)
+          if (!test || !bits){
             break;
+          }
           /* decode next group of m values */
           m = count & 0xfu;
           count >>= 4;
@@ -268,23 +285,25 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
 
     stream.rewind();
     uint new_bits = maxbits;
+
+    unsigned long long mask = 0xffffffffffffffff;
     for (k=intprec, n=0; k-- > kmin;){
       UInt* p = data;
-
+      cache[k].seek(bit_offset[k], bit_bits[k], bit_buffer[k]);
       for (int i=0, m = tmp_n[k]; i<tmp_g[k]+1; i++){
         if (new_bits){
           /* decode bit k for the next set of m values */
           m = MIN(m, new_bits);
           new_bits -= m;
-          for (x = stream.read_bits(m); m; m--, x >>= 1)
+          for (x = cache[k].read_bits(m); m; m--, x >>= 1)
             *p++ += (UInt)(x & 1u) << k;
           /* continue with next bit plane if there are no more groups */
           if (!count || !new_bits)
             break;
           /* perform group test */
           new_bits--;
-          test = stream.read_bit();
-          /* continue with next bit plane if there are no more significant bits */
+          test = cache[k].read_bit();
+          /* cache[k] with next bit plane if there are no more significant bits */
           if (!test || !new_bits)
             break;
           /* decode next group of m values */
