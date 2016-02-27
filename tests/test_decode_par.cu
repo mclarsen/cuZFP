@@ -285,7 +285,8 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
     stream.rewind();
     uint new_bits = maxbits;
     bool first = true;
-//    for (int q = 0; q<64; q++){
+
+    for (int q = 0; q<64; q++){
       count = orig_count;
       new_bits = maxbits;
       for (k=intprec; k-- > kmin;){
@@ -299,15 +300,13 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
             n += m;
             new_bits -= m;
 
-            if (first)
-              for (x = cache[k].read_bits(m); m; m--, x >>= 1)
-                data[n - m] += (UInt)(x & 1u) << k;
+//            if (first)
+//              for (x = cache[k].read_bits(m); m; m--, x >>= 1)
+//                data[n - m] += (UInt)(x & 1u) << k;
 
-//            x = cache[k].read_bits(m);
-//            if (q <= m){
-//              x >>= q;
-//              data[q] += (UInt)(x &1u) << k;
-//            }
+            x = cache[k].read_bits(m);
+            x >>= q - (n-m);
+            data[q] += (UInt)(x &1u) << k;
 
             /* continue with next bit plane if there are no more groups */
             if (!count || !new_bits)
@@ -325,7 +324,7 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
         }
       }
       first = false;
-//    }
+    }
     /* read at least minbits bits */
     while (new_bits > maxbits - minbits) {
       new_bits--;
