@@ -279,40 +279,53 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
       stream.read_bit();
     }
 
-    count = orig_count;
     for (i = 0; i < size; i++)
       data[i] = 0;
 
     stream.rewind();
     uint new_bits = maxbits;
+    bool first = true;
+//    for (int q = 0; q<64; q++){
+      count = orig_count;
+      new_bits = maxbits;
+      for (k=intprec; k-- > kmin;){
+        uint tmp = 0;
 
-    unsigned long long mask = 0xffffffffffffffff;
-    for (k=intprec, n=0; k-- > kmin;){
-      UInt* p = data;
-      cache[k].seek(bit_offset[k], bit_bits[k], bit_buffer[k]);
-      for (int i=0, m = tmp_n[k]; i<tmp_g[k]+1; i++){
-        if (new_bits){
-          /* decode bit k for the next set of m values */
-          m = MIN(m, new_bits);
-          new_bits -= m;
-          for (x = cache[k].read_bits(m); m; m--, x >>= 1)
-            *p++ += (UInt)(x & 1u) << k;
-          /* continue with next bit plane if there are no more groups */
-          if (!count || !new_bits)
-            break;
-          /* perform group test */
-          new_bits--;
-          test = cache[k].read_bit();
-          /* cache[k] with next bit plane if there are no more significant bits */
-          if (!test || !new_bits)
-            break;
-          /* decode next group of m values */
-          m = count & 0xfu;
-          count >>= 4;
-          n += m;
+        cache[k].seek(bit_offset[k], bit_bits[k], bit_buffer[k]);
+        for (int i=0, m = tmp_n[k], n = 0; i<tmp_g[k]+1; i++){
+          if (new_bits){
+            /* decode bit k for the next set of m values */
+            m = MIN(m, new_bits);
+            n += m;
+            new_bits -= m;
+
+            if (first)
+              for (x = cache[k].read_bits(m); m; m--, x >>= 1)
+                data[n - m] += (UInt)(x & 1u) << k;
+
+//            x = cache[k].read_bits(m);
+//            if (q <= m){
+//              x >>= q;
+//              data[q] += (UInt)(x &1u) << k;
+//            }
+
+            /* continue with next bit plane if there are no more groups */
+            if (!count || !new_bits)
+              break;
+            /* perform group test */
+            new_bits--;
+            test = cache[k].read_bit();
+            /* cache[k] with next bit plane if there are no more significant bits */
+            if (!test || !new_bits)
+              break;
+            /* decode next group of m values */
+            m = count & 0xfu;
+            count >>= 4;
+          }
         }
       }
-    }
+      first = false;
+//    }
     /* read at least minbits bits */
     while (new_bits > maxbits - minbits) {
       new_bits--;
@@ -482,7 +495,7 @@ device_vector<Scalar> &data
   for (int j = 0; j < 64; j++){
     if(dec1[j] != dec2[j]){
       cout << "parallel failed: " << j << " " << dec1[j] << " " << dec2[j] << endl;
-      exit(-1);
+      //exit(-1);
     }
   }
 
