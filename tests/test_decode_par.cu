@@ -211,21 +211,15 @@ __device__ __host__
 uint
 decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long orig_count, uint size)
 {
-  Bit<bsize> cache[64];
-  for (int i=0; i<64; i++){
-    cache[i] = stream;
-  }
 
 
   unsigned long long count = orig_count;
-    uint intprec = CHAR_BIT * (uint)sizeof(UInt);
-    uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+    const uint intprec = CHAR_BIT * (uint)sizeof(UInt);
+    const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
     uint bits = maxbits;
-    uint i, k, m, n, test;
-    unsigned long long x;
 
     /* initialize data array to all zeros */
-    for (i = 0; i < size; i++)
+    for (uint i = 0; i < size; i++)
       data[i] = 0;
 
     uint tmp_g[64], tmp_n[64], cnt_sft[64], bit_bits[64];
@@ -239,20 +233,19 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
     }
 
     /* input one bit plane at a time from MSB to LSB */
-    for (k = intprec, n = 0; k-- > kmin;) {
+    for (uint k = intprec, n = 0; k-- > kmin;) {
       /* decode bit plane k */
-      UInt* p = data;
       tmp_n[k] = n;
       bit_bits[k] = stream.bits;
       bit_offset[k] = stream.offset;
       bit_buffer[k] = stream.buffer;
-      for (m = n;;tmp_g[k]++) {
+      for (uint m = n;;tmp_g[k]++) {
 
         if (bits){
           /* decode bit k for the next set of m values */
           m = MIN(m, bits);
           bits -= m;
-          x = stream.read_bits(m);
+          unsigned long long x = stream.read_bits(m);
           /* continue with next bit plane if there are no more groups */
           if (!count || !bits){
 
@@ -260,7 +253,7 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
           }
           /* perform group test */
           bits--;
-          test = stream.read_bit();
+          uint test = stream.read_bit();
           /* continue with next bit plane if there are no more significant bits */
           if (!test || !bits){
             break;
@@ -279,21 +272,23 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
       stream.read_bit();
     }
 
-    for (i = 0; i < size; i++)
+    for (uint i = 0; i < size; i++)
       data[i] = 0;
 
     stream.rewind();
-    uint new_bits = maxbits;
     bool first = true;
 
+#pragma omp parallel for
     for (int q = 0; q<64; q++){
-      count = orig_count;
-      new_bits = maxbits;
-      for (k=intprec; k-- > kmin;){
-        uint tmp = 0;
-
+      Bit<bsize> cache[64];
+      for (int i=0; i<64; i++){
+        cache[i] = stream;
+      }
+      unsigned long long count = orig_count;
+      uint new_bits = maxbits;
+      for (uint k=intprec; k-- > kmin;){
         cache[k].seek(bit_offset[k], bit_bits[k], bit_buffer[k]);
-        for (int i=0, m = tmp_n[k], n = 0; i<tmp_g[k]+1; i++){
+        for (uint i=0, m = tmp_n[k], n = 0; i<tmp_g[k]+1; i++){
           if (new_bits){
             /* decode bit k for the next set of m values */
             m = MIN(m, new_bits);
@@ -304,7 +299,7 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
 //              for (x = cache[k].read_bits(m); m; m--, x >>= 1)
 //                data[n - m] += (UInt)(x & 1u) << k;
 
-            x = cache[k].read_bits(m);
+            unsigned long long x = cache[k].read_bits(m);
             x >>= q - (n-m);
             data[q] += (UInt)(x &1u) << k;
 
@@ -313,7 +308,7 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
               break;
             /* perform group test */
             new_bits--;
-            test = cache[k].read_bit();
+            uint test = cache[k].read_bit();
             /* cache[k] with next bit plane if there are no more significant bits */
             if (!test || !new_bits)
               break;
@@ -325,11 +320,11 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
       }
       first = false;
     }
-    /* read at least minbits bits */
-    while (new_bits > maxbits - minbits) {
-      new_bits--;
-      stream.read_bit();
-    }
+//    /* read at least minbits bits */
+//    while (new_bits > maxbits - minbits) {
+//      new_bits--;
+//      stream.read_bit();
+//    }
 
     return maxbits - bits;
 }
