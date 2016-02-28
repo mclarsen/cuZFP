@@ -292,7 +292,6 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
           if (new_bits){
             /* decode bit k for the next set of m values */
             m = MIN(m, new_bits);
-            n += m;
             new_bits -= m;
 
 //            if (first)
@@ -300,8 +299,9 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
 //                data[n - m] += (UInt)(x & 1u) << k;
 
             unsigned long long x = cache[k].read_bits(m);
-            x >>= q - (n-m);
-            data[q] += (UInt)(x &1u) << k;
+            x >>= q - n;
+						n += m;
+						data[q] += (UInt)(x & 1u) << k;
 
             /* continue with next bit plane if there are no more groups */
             if (!count || !new_bits)
