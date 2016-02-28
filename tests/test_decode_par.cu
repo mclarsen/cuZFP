@@ -20,9 +20,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 128;
-const size_t ny = 128;
-const size_t nz = 128;
+const size_t nx = 64;
+const size_t ny = 64;
+const size_t nz = 64;
 
 uint minbits = 4096;
 uint maxbits = 4096;
@@ -206,51 +206,114 @@ BitStream *stream
 
 }
 
+__host__ __device__
+int
+read_bit(char &offset, uint &bits, Word &buffer, const Word *begin)
+{
+	uint bit;
+	if (!bits) {
+		buffer = begin[offset++];
+		bits = wsize;
+	}
+	bits--;
+	bit = (uint)buffer & 1u;
+	buffer >>= 1;
+	return bit;
+}
+/* read 0 <= n <= 64 bits */
+__host__ __device__
+unsigned long long
+read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
+{
+#if 0
+	/* read bits in LSB to MSB order */
+	uint64 value = 0;
+	for (uint i = 0; i < n; i++)
+		value += (uint64)stream_read_bit(stream) << i;
+	return value;
+#elif 1
+	unsigned long long value;
+	/* because shifts by 64 are not possible, treat n = 64 specially */
+	if (n == bitsize(value)) {
+		if (!bits)
+			value = begin[offset++];//*ptr++;
+		else {
+			value = buffer;
+			buffer = begin[offset++];//*ptr++;
+			value += buffer << bits;
+			buffer >>= n - bits;
+		}
+	}
+	else {
+		value = buffer;
+		if (bits < n) {
+			/* not enough bits buffered; fetch wsize more */
+			buffer = begin[offset++];//*ptr++;
+			value += buffer << bits;
+			buffer >>= n - bits;
+			bits += wsize;
+		}
+		else
+			buffer >>= n;
+		value -= buffer << n;
+		bits -= n;
+	}
+	return value;
+#endif
+}
 template<class UInt, uint bsize>
-__host__
-void decode_bitstream
+__global__
+void cudaDecodeBitstream
 (
-uint *idx_g,
-uint *idx_n,
+Bit<bsize> *stream,
+const uint *idx_g,
+const uint *idx_n,
 uint *bit_bits,
 char *bit_offset,
 Word *bit_buffer,
-Bit<bsize> *cache,
 
 UInt *data,
 
-const uint q,
 const uint maxbits,
 const uint intprec,
 const uint kmin,
 const unsigned long long orig_count
 )
 {
+	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
+
+	uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
+	extern __shared__ uint s_bits[];
+	extern __shared__ Word s_buffer[];
+
+	char l_offset[64];
+	for (int i = 0; i < 64; i++){
+		s_bits[tid * 64 + i] = bit_bits[i];
+		s_buffer[tid * 64 + i] = bit_buffer[i];
+		l_offset[i] = bit_offset[i];
+	}
+
+	__syncthreads();
 	unsigned long long count = orig_count;
 	uint new_bits = maxbits;
 	for (uint k = intprec; k-- > kmin;){
-		cache[k].seek(bit_offset[k], bit_bits[k], bit_buffer[k]);
 		for (uint i = 0, m = idx_n[k], n = 0; i<idx_g[k] + 1; i++){
 			if (new_bits){
 				/* decode bit k for the next set of m values */
 				m = MIN(m, new_bits);
 				new_bits -= m;
 
-				//            if (first)
-				//              for (x = cache[k].read_bits(m); m; m--, x >>= 1)
-				//                data[n - m] += (UInt)(x & 1u) << k;
-
-				unsigned long long x = cache[k].read_bits(m);
-				x >>= q - n;
+				unsigned long long x = read_bits(m, l_offset[k], s_bits[tid * 64 + k], s_buffer[tid * 64 + k], stream[0].begin);
+				x >>= tid - n;
 				n += m;
-				data[q] += (UInt)(x & 1u) << k;
+				data[tid] += (UInt)(x & 1u) << k;
 
 				/* continue with next bit plane if there are no more groups */
 				if (!count || !new_bits)
 					break;
 				/* perform group test */
 				new_bits--;
-				uint test = cache[k].read_bit();
+				uint test = read_bit(l_offset[k], s_bits[tid * 64 + k], s_buffer[tid * 64 + k], stream[0].begin);
 				/* cache[k] with next bit plane if there are no more significant bits */
 				if (!test || !new_bits)
 					break;
@@ -267,8 +330,8 @@ template<uint bsize>
 __device__ __host__
 void insert_bit
 (
-Bit<bsize> &stream, 
-uint *idx_g, 
+Bit<bsize> &stream,
+uint *idx_g,
 uint *idx_n,
 uint *bit_bits,
 char *bit_offset,
@@ -350,80 +413,99 @@ uint
 decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long orig_count, uint size)
 {
 
+	ErrorCheck ec;
+	const uint intprec = CHAR_BIT * (uint)sizeof(UInt);
+	const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+	uint bits = maxbits;
 
-    const uint intprec = CHAR_BIT * (uint)sizeof(UInt);
-    const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
-    uint bits = maxbits;
-
-    /* initialize data array to all zeros */
-    for (uint i = 0; i < size; i++)
-      data[i] = 0;
+	/* initialize data array to all zeros */
+	for (uint i = 0; i < size; i++)
+		data[i] = 0;
 
 
-		uint *idx_g, *idx_n, *bit_bits;
-		char *bit_offset;
-		Word *bit_buffer;
-		cudaMallocManaged((void**)&idx_g, sizeof(uint) * 64);
-		cudaMallocManaged((void**)&idx_n, sizeof(uint) * 64);
-		cudaMallocManaged((void**)&bit_bits, sizeof(uint) * 64);
-		cudaMallocManaged((void**)&bit_offset, sizeof(char) * 64);
-		cudaMallocManaged((void**)&bit_buffer, sizeof(Word) * 64);
+	uint *idx_g, *idx_n, *bit_bits;
+	char *bit_offset;
+	Word *bit_buffer;
+	UInt *m_data;
+	cudaMallocManaged((void**)&idx_g, sizeof(uint) * 64);
+	cudaMallocManaged((void**)&idx_n, sizeof(uint) * 64);
+	cudaMallocManaged((void**)&bit_bits, sizeof(uint) * 64);
+	cudaMallocManaged((void**)&bit_offset, sizeof(char) * 64);
+	cudaMallocManaged((void**)&bit_buffer, sizeof(Word) * 64);
+	cudaMallocManaged((void**)&m_data, sizeof(UInt) * 64);
 
-		Bit<bsize> *m_stream;
-		cudaMallocManaged((void**)&m_stream, sizeof(Bit<bsize>));
-		*m_stream = stream;
+	Bit<bsize> *m_stream;
+	cudaMallocManaged((void**)&m_stream, sizeof(Bit<bsize>));
+	*m_stream = stream;
 
-		for (int i = 0; i<64; i++){
-			bit_offset[i] = 0;
-			bit_buffer[i] = 0;
-			idx_g[i] = idx_n[i] = 0;
-		}
+	for (int i = 0; i < 64; i++){
+		bit_offset[i] = 0;
+		bit_buffer[i] = 0;
+		idx_g[i] = idx_n[i] = 0;
+	}
 
-		cudaDecodeGroup<bsize> << <1, 1 >> >(
-			m_stream,
-			idx_g,
-			idx_n,
-			bit_bits,
-			bit_offset,
-			bit_buffer,
-			maxbits, 
-			intprec, 
-			kmin, 
-			orig_count);
-		cudaStreamSynchronize(0);
+	cudaDecodeGroup<bsize> << <1, 1 >> >(
+		m_stream,
+		idx_g,
+		idx_n,
+		bit_bits,
+		bit_offset,
+		bit_buffer,
+		maxbits,
+		intprec,
+		kmin,
+		orig_count);
+	cudaStreamSynchronize(0);
+	ec.chk("cudaDecodeDecodeGroup");
 
-			///* read at least minbits bits */
-    //while (bits > maxbits - minbits) {
-    //  bits--;
-    //  stream.read_bit();
-    //}
+	///* read at least minbits bits */
+	//while (bits > maxbits - minbits) {
+	//  bits--;
+	//  stream.read_bit();
+	//}
 
-    for (uint i = 0; i < size; i++)
-      data[i] = 0;
+	for (uint i = 0; i < size; i++)
+		data[i] = 0;
 
-    stream.rewind();
+	stream.rewind();
 
-		Bit<bsize> cache[64];
-		for (int i = 0; i<64; i++){
-			cache[i] = stream;
-		}
+	dim3 block_size = dim3(8, 8, 1);
+	dim3 grid_size = dim3(8,8,1);
+	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
 
-		for (int i = 0; i < 64; i++){
-			decode_bitstream<UInt, bsize>(idx_g, idx_n, bit_bits, bit_offset, bit_buffer, cache, data, i, maxbits, intprec, kmin, orig_count);
-		}
-//    /* read at least minbits bits */
-//    while (new_bits > maxbits - minbits) {
-//      new_bits--;
-//      stream.read_bit();
-//    }
+	cudaDecodeBitstream<UInt, bsize> << < grid_size, block_size, ( sizeof(uint) + sizeof(Word)) * 64 * 64 >> >
+		(
+		m_stream,
+		idx_g,
+		idx_n,
+		bit_bits,
+		bit_offset,
+		bit_buffer,
+		m_data,
+		maxbits,
+		intprec,
+		kmin,
+		orig_count);
+	cudaStreamSynchronize(0);
+	ec.chk("cudaDecodeBitstream");
 
-    return maxbits - bits;
+	//    /* read at least minbits bits */
+	//    while (new_bits > maxbits - minbits) {
+	//      new_bits--;
+	//      stream.read_bit();
+	//    }
 
-		cudaFree(idx_g);
-		cudaFree(idx_n);
-		cudaFree(bit_bits);
-		cudaFree(bit_offset);
-		cudaFree(bit_buffer);
+	for (int i = 0; i < 64; i++){
+		data[i] = m_data[i];
+	}
+
+	cudaFree(idx_g);
+	cudaFree(idx_n);
+	cudaFree(bit_bits);
+	cudaFree(bit_offset);
+	cudaFree(bit_buffer);
+	cudaFree(m_data);
+	return maxbits - bits;
 }
 
 template<class Scalar>
@@ -564,89 +646,89 @@ device_vector<Scalar> &data
 
 	h_q = q;
 
-  uint x,y,z;
-  x=y=z=0;
+	uint x, y, z;
+	x = y = z = 0;
 
-  host_vector<Int> q2(64);
-  host_vector<UInt> buf(64);
-  Bit<bsize> loc_stream;
-  int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), x, y, z, 1, nx, nx*ny);
-  fixed_point(raw_pointer_cast(q2.data()), raw_pointer_cast(h_p.data()), emax2, x, y, z, 1, nx, nx*ny);
-  fwd_xform(raw_pointer_cast(q2.data()));
-  reorder<Int, UInt>(raw_pointer_cast(q2.data()), raw_pointer_cast(buf.data()));
-  encode_ints<UInt>(loc_stream, raw_pointer_cast(buf.data()), minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+	host_vector<Int> q2(64);
+	host_vector<UInt> buf(64);
+	Bit<bsize> loc_stream;
+	int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), x, y, z, 1, nx, nx*ny);
+	fixed_point(raw_pointer_cast(q2.data()), raw_pointer_cast(h_p.data()), emax2, x, y, z, 1, nx, nx*ny);
+	fwd_xform(raw_pointer_cast(q2.data()));
+	reorder<Int, UInt>(raw_pointer_cast(q2.data()), raw_pointer_cast(buf.data()));
+	encode_ints<UInt>(loc_stream, raw_pointer_cast(buf.data()), minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
 
-  loc_stream.rewind();
-  UInt dec1[64], dec2[64];
+	loc_stream.rewind();
+	UInt dec1[64], dec2[64];
 
-  decode_ints<UInt, bsize>(loc_stream, dec1, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+	decode_ints<UInt, bsize>(loc_stream, dec1, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
 
-  loc_stream.rewind();
-  decode_ints_par<UInt, bsize>(loc_stream, dec2, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
-  for (int j = 0; j < 64; j++){
-    if(dec1[j] != dec2[j]){
-      cout << "parallel failed: " << j << " " << dec1[j] << " " << dec2[j] << endl;
-      //exit(-1);
-    }
-  }
+	loc_stream.rewind();
+	decode_ints_par<UInt, bsize>(loc_stream, dec2, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+	for (int j = 0; j < 64; j++){
+		if (dec1[j] != dec2[j]){
+			cout << "parallel failed: " << j << " " << dec1[j] << " " << dec2[j] << endl;
+			//exit(-1);
+		}
+	}
 
 
-//	int i = 0;
-//	for (int z = 0; z < nz; z += 4){
-//		for (int y = 0; y < ny; y += 4){
-//			for (int x = 0; x < nx; x += 4){
-//				int idx = z*nx*ny + y*nx + x;
-//				host_vector<Int> q2(64);
-//				host_vector<UInt> buf(64);
-//				Bit<bsize> loc_stream;
-//				int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), x, y, z, 1, nx, nx*ny);
-//				fixed_point(raw_pointer_cast(q2.data()), raw_pointer_cast(h_p.data()), emax2, x, y, z, 1, nx, nx*ny);
-//				fwd_xform(raw_pointer_cast(q2.data()));
-//				reorder<Int, UInt>(raw_pointer_cast(q2.data()), raw_pointer_cast(buf.data()));
-//				encode_ints<UInt>(loc_stream, raw_pointer_cast(buf.data()), minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+	//	int i = 0;
+	//	for (int z = 0; z < nz; z += 4){
+	//		for (int y = 0; y < ny; y += 4){
+	//			for (int x = 0; x < nx; x += 4){
+	//				int idx = z*nx*ny + y*nx + x;
+	//				host_vector<Int> q2(64);
+	//				host_vector<UInt> buf(64);
+	//				Bit<bsize> loc_stream;
+	//				int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), x, y, z, 1, nx, nx*ny);
+	//				fixed_point(raw_pointer_cast(q2.data()), raw_pointer_cast(h_p.data()), emax2, x, y, z, 1, nx, nx*ny);
+	//				fwd_xform(raw_pointer_cast(q2.data()));
+	//				reorder<Int, UInt>(raw_pointer_cast(q2.data()), raw_pointer_cast(buf.data()));
+	//				encode_ints<UInt>(loc_stream, raw_pointer_cast(buf.data()), minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
 
-//				loc_stream.rewind();
-//        UInt dec1[64], dec2[64];
+	//				loc_stream.rewind();
+	//        UInt dec1[64], dec2[64];
 
-//        decode_ints<UInt, bsize>(loc_stream, dec1, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+	//        decode_ints<UInt, bsize>(loc_stream, dec1, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
 
-//        loc_stream.rewind();
-//        decode_ints_par<UInt, bsize>(loc_stream, dec2, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
-//				for (int j = 0; j < 64; j++){
-//          if(dec1[j] != dec2[j]){
-//            cout << "parallel failed: " << z << " " << y << " " << x << " " << j << " " << dec1[j] << " " << dec2[j] << endl;
-//            exit(-1);
-//          }
-//				}
+	//        loc_stream.rewind();
+	//        decode_ints_par<UInt, bsize>(loc_stream, dec2, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+	//				for (int j = 0; j < 64; j++){
+	//          if(dec1[j] != dec2[j]){
+	//            cout << "parallel failed: " << z << " " << y << " " << x << " " << j << " " << dec1[j] << " " << dec2[j] << endl;
+	//            exit(-1);
+	//          }
+	//				}
 
-////				Int iblock[64];
-////				inv_order(dec, iblock, perm, 64);
-////				inv_xform(iblock);
+	////				Int iblock[64];
+	////				inv_order(dec, iblock, perm, 64);
+	////				inv_xform(iblock);
 
-////				for (int j = 0; j < 64; j++){
-////					assert(h_q[i * 64 + j] == iblock[j]);
-////				}
+	////				for (int j = 0; j < 64; j++){
+	////					assert(h_q[i * 64 + j] == iblock[j]);
+	////				}
 
-////				Scalar fblock[64];
-////				inv_cast(iblock, fblock, emax2, 0, 0, 0, 1, 4, 16);
+	////				Scalar fblock[64];
+	////				inv_cast(iblock, fblock, emax2, 0, 0, 0, 1, 4, 16);
 
-////				int fidx = 0;
-////				for (int k = z; k < z+4; k++){
-////					for (int j = y; j < y + 4; j++){
-////						for (int i = x; i < x + 4; i++, fidx++){
-////              if (h_p[k*nz*ny + j*ny + i] != fblock[fidx]){
-////                cout << "inv_cast failed: " << k << " " << j << " " << i << " " << fidx << " " << h_p[k*nz*ny + j*ny + i] << " " << fblock[fidx] << endl;
-////								exit(-1);
-////							}
+	////				int fidx = 0;
+	////				for (int k = z; k < z+4; k++){
+	////					for (int j = y; j < y + 4; j++){
+	////						for (int i = x; i < x + 4; i++, fidx++){
+	////              if (h_p[k*nz*ny + j*ny + i] != fblock[fidx]){
+	////                cout << "inv_cast failed: " << k << " " << j << " " << i << " " << fidx << " " << h_p[k*nz*ny + j*ny + i] << " " << fblock[fidx] << endl;
+	////								exit(-1);
+	////							}
 
-////						}
-////					}
-////				}
-//				i++;
+	////						}
+	////					}
+	////				}
+	//				i++;
 
-//			}
-//		}
-//	}
+	//			}
+	//		}
+	//	}
 }
 
 
@@ -833,12 +915,12 @@ int main()
 	h_vec_in = d_vec_in;
 	//    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
 	setupConst<double>(perm);
-//	cout << "Begin gpuTestBitStream" << endl;
-//	gpuTestBitStream<long long, unsigned long long, double, 64>(d_vec_in, d_vec_out, d_vec_buffer);
-//	cout << "Finish gpuTestBitStream" << endl;
+	//	cout << "Begin gpuTestBitStream" << endl;
+	//	gpuTestBitStream<long long, unsigned long long, double, 64>(d_vec_in, d_vec_out, d_vec_buffer);
+	//	cout << "Finish gpuTestBitStream" << endl;
 	//    cout << "Begin cpuTestBitStream" << endl;
 	//    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
 	//    cout << "End cpuTestBitStream" << endl;
 
-  gpuValidate<long long, unsigned long long, double, 64>(h_vec_in, d_vec_out, d_vec_in);
+	gpuValidate<long long, unsigned long long, double, 64>(h_vec_in, d_vec_out, d_vec_in);
 }
