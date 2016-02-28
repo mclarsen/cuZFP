@@ -206,6 +206,63 @@ BitStream *stream
 
 }
 
+template<class UInt, uint bsize>
+__host__
+void decode_bitstream
+(
+uint *idx_g,
+uint *idx_n,
+uint *bit_bits,
+char *bit_offset,
+Word *bit_buffer,
+Bit<bsize> *cache,
+
+UInt *data,
+
+const uint q,
+const uint maxbits,
+const uint intprec,
+const uint kmin,
+const unsigned long long orig_count
+)
+{
+	unsigned long long count = orig_count;
+	uint new_bits = maxbits;
+	for (uint k = intprec; k-- > kmin;){
+		cache[k].seek(bit_offset[k], bit_bits[k], bit_buffer[k]);
+		for (uint i = 0, m = idx_n[k], n = 0; i<idx_g[k] + 1; i++){
+			if (new_bits){
+				/* decode bit k for the next set of m values */
+				m = MIN(m, new_bits);
+				new_bits -= m;
+
+				//            if (first)
+				//              for (x = cache[k].read_bits(m); m; m--, x >>= 1)
+				//                data[n - m] += (UInt)(x & 1u) << k;
+
+				unsigned long long x = cache[k].read_bits(m);
+				x >>= q - n;
+				n += m;
+				data[q] += (UInt)(x & 1u) << k;
+
+				/* continue with next bit plane if there are no more groups */
+				if (!count || !new_bits)
+					break;
+				/* perform group test */
+				new_bits--;
+				uint test = cache[k].read_bit();
+				/* cache[k] with next bit plane if there are no more significant bits */
+				if (!test || !new_bits)
+					break;
+				/* decode next group of m values */
+				m = count & 0xfu;
+				count >>= 4;
+			}
+		}
+	}
+}
+
+
 template<uint bsize>
 __device__ __host__
 void insert_bit
@@ -263,7 +320,7 @@ const unsigned long long orig_count
 
 template<uint bsize>
 __global__
-void decode_group_test
+void cudaDecodeGroup
 (
 Bit<bsize> *stream,
 uint *idx_g,
@@ -322,7 +379,7 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
 			idx_g[i] = idx_n[i] = 0;
 		}
 
-		decode_group_test<bsize> << <1, 1 >> >(
+		cudaDecodeGroup<bsize> << <1, 1 >> >(
 			m_stream,
 			idx_g,
 			idx_n,
@@ -345,50 +402,15 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
       data[i] = 0;
 
     stream.rewind();
-    bool first = true;
 
-#pragma omp parallel for
-    for (int q = 0; q<64; q++){
-      Bit<bsize> cache[64];
-      for (int i=0; i<64; i++){
-        cache[i] = stream;
-      }
-      unsigned long long count = orig_count;
-      uint new_bits = maxbits;
-      for (uint k=intprec; k-- > kmin;){
-        cache[k].seek(bit_offset[k], bit_bits[k], bit_buffer[k]);
-        for (uint i=0, m = idx_n[k], n = 0; i<idx_g[k]+1; i++){
-          if (new_bits){
-            /* decode bit k for the next set of m values */
-            m = MIN(m, new_bits);
-            new_bits -= m;
+		Bit<bsize> cache[64];
+		for (int i = 0; i<64; i++){
+			cache[i] = stream;
+		}
 
-//            if (first)
-//              for (x = cache[k].read_bits(m); m; m--, x >>= 1)
-//                data[n - m] += (UInt)(x & 1u) << k;
-
-            unsigned long long x = cache[k].read_bits(m);
-            x >>= q - n;
-						n += m;
-						data[q] += (UInt)(x & 1u) << k;
-
-            /* continue with next bit plane if there are no more groups */
-            if (!count || !new_bits)
-              break;
-            /* perform group test */
-            new_bits--;
-            uint test = cache[k].read_bit();
-            /* cache[k] with next bit plane if there are no more significant bits */
-            if (!test || !new_bits)
-              break;
-            /* decode next group of m values */
-            m = count & 0xfu;
-            count >>= 4;
-          }
-        }
-      }
-      first = false;
-    }
+		for (int i = 0; i < 64; i++){
+			decode_bitstream<UInt, bsize>(idx_g, idx_n, bit_bits, bit_offset, bit_buffer, cache, data, i, maxbits, intprec, kmin, orig_count);
+		}
 //    /* read at least minbits bits */
 //    while (new_bits > maxbits - minbits) {
 //      new_bits--;
