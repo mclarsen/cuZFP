@@ -208,22 +208,22 @@ BitStream *stream
 
 __host__ __device__
 int
-read_bit(char &offset, uint &bits, Word &buffer, const Word *begin)
+read_bit(char &offset, uint *bits, Word *buffer, uint idx, const Word *begin)
 {
 	uint bit;
-	if (!bits) {
-		buffer = begin[offset++];
-		bits = wsize;
+	if (!bits[idx]) {
+		buffer[idx] = begin[offset++];
+		bits[idx] = wsize;
 	}
-	bits--;
-	bit = (uint)buffer & 1u;
-	buffer >>= 1;
+	bits[idx]--;
+	bit = (uint)buffer[idx] & 1u;
+	buffer[idx] >>= 1;
 	return bit;
 }
 /* read 0 <= n <= 64 bits */
 __host__ __device__
 unsigned long long
-read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
+read_bits(uint n, char &offset, uint *bits, Word *buffer, uint idx, const Word *begin)
 {
 #if 0
 	/* read bits in LSB to MSB order */
@@ -235,28 +235,28 @@ read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
 	unsigned long long value;
 	/* because shifts by 64 are not possible, treat n = 64 specially */
 	if (n == bitsize(value)) {
-		if (!bits)
+		if (!bits[idx])
 			value = begin[offset++];//*ptr++;
 		else {
-			value = buffer;
-			buffer = begin[offset++];//*ptr++;
-			value += buffer << bits;
-			buffer >>= n - bits;
+			value = buffer[idx];
+			buffer[idx] = begin[offset++];//*ptr++;
+			value += buffer[idx] << bits[idx];
+			buffer[idx] >>= n - bits[idx];
 		}
 	}
 	else {
-		value = buffer;
-		if (bits < n) {
+		value = buffer[idx];
+		if (bits[idx] < n) {
 			/* not enough bits buffered; fetch wsize more */
-			buffer = begin[offset++];//*ptr++;
-			value += buffer << bits;
-			buffer >>= n - bits;
-			bits += wsize;
+			buffer[idx] = begin[offset++];//*ptr++;
+			value += buffer[idx] << bits[idx];
+			buffer[idx] >>= n - bits[idx];
+			bits[idx] += wsize;
 		}
 		else
-			buffer >>= n;
-		value -= buffer << n;
-		bits -= n;
+			buffer[idx] >>= n;
+		value -= buffer[idx] << n;
+		bits[idx] -= n;
 	}
 	return value;
 #endif
@@ -268,9 +268,9 @@ void cudaDecodeBitstream
 Bit<bsize> *stream,
 const uint *idx_g,
 const uint *idx_n,
-uint *bit_bits,
-char *bit_offset,
-Word *bit_buffer,
+const uint *bit_bits,
+const char *bit_offset,
+const Word *bit_buffer,
 
 UInt *data,
 
@@ -287,10 +287,10 @@ const unsigned long long orig_count
 	extern __shared__ Word s_buffer[];
 
 	char l_offset[64];
-	for (int i = 0; i < 64; i++){
-		s_bits[tid * 64 + i] = bit_bits[i];
-		s_buffer[tid * 64 + i] = bit_buffer[i];
-		l_offset[i] = bit_offset[i];
+	for (int k = 0; k < 64; k++){
+		s_bits[tid * 64 + k] = bit_bits[k];
+		s_buffer[tid * 64 + k] = bit_buffer[k];
+		l_offset[k] = bit_offset[k];
 	}
 
 	__syncthreads();
@@ -303,7 +303,7 @@ const unsigned long long orig_count
 				m = MIN(m, new_bits);
 				new_bits -= m;
 
-				unsigned long long x = read_bits(m, l_offset[k], s_bits[tid * 64 + k], s_buffer[tid * 64 + k], stream[0].begin);
+				unsigned long long x = read_bits(m, l_offset[k], s_bits, s_buffer, tid * 64 + k, stream[0].begin);
 				x >>= tid - n;
 				n += m;
 				data[tid] += (UInt)(x & 1u) << k;
@@ -313,7 +313,7 @@ const unsigned long long orig_count
 					break;
 				/* perform group test */
 				new_bits--;
-				uint test = read_bit(l_offset[k], s_bits[tid * 64 + k], s_buffer[tid * 64 + k], stream[0].begin);
+				uint test = read_bit(l_offset[k], s_bits, s_buffer, tid * 64 + k, stream[0].begin);
 				/* cache[k] with next bit plane if there are no more significant bits */
 				if (!test || !new_bits)
 					break;
@@ -442,6 +442,7 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
 		bit_offset[i] = 0;
 		bit_buffer[i] = 0;
 		idx_g[i] = idx_n[i] = 0;
+		m_stream->begin[i] = stream.begin[i];
 	}
 
 	cudaDecodeGroup<bsize> << <1, 1 >> >(
@@ -470,8 +471,8 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
 	stream.rewind();
 
 	dim3 block_size = dim3(8, 8, 1);
-	dim3 grid_size = dim3(8,8,1);
-	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+	dim3 grid_size = dim3(1,1,1);
+	//grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
 
 	cudaDecodeBitstream<UInt, bsize> << < grid_size, block_size, ( sizeof(uint) + sizeof(Word)) * 64 * 64 >> >
 		(
@@ -489,6 +490,48 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
 	cudaStreamSynchronize(0);
 	ec.chk("cudaDecodeBitstream");
 
+
+//#pragma omp parallel for
+//	for (int q = 0; q < 64; q++){
+//		char s_offset[64];
+//		uint s_bits[64];
+//		Word s_buffer[64];
+//		for (int i = 0; i < 64; i++){
+//			s_offset[i] = bit_offset[i];
+//			s_bits[i] = bit_bits[i];
+//			s_buffer[i] = bit_buffer[i];
+//		}
+//
+//		unsigned long long count = orig_count;
+//		uint new_bits = maxbits;
+//		for (uint k = intprec; k-- > kmin;){
+//			for (uint i = 0, m = idx_n[k], n = 0; i<idx_g[k] + 1; i++){
+//				if (new_bits){
+//					/* decode bit k for the next set of m values */
+//					m = MIN(m, new_bits);
+//					new_bits -= m;
+//
+//					unsigned long long x = read_bits(m, s_offset[k], s_bits[k], s_buffer[k], m_stream[0].begin);
+//					x >>= q - n;
+//					n += m;
+//					m_data[q] += (UInt)(x & 1u) << k;
+//
+//					/* continue with next bit plane if there are no more groups */
+//					if (!count || !new_bits)
+//						break;
+//					/* perform group test */
+//					new_bits--;
+//					uint test = read_bit(s_offset[k], s_bits[k], s_buffer[k], m_stream[0].begin);
+//					/* cache[k] with next bit plane if there are no more significant bits */
+//					if (!test || !new_bits)
+//						break;
+//					/* decode next group of m values */
+//					m = count & 0xfu;
+//					count >>= 4;
+//				}
+//			}
+//		}
+//	}
 	//    /* read at least minbits bits */
 	//    while (new_bits > maxbits - minbits) {
 	//      new_bits--;
