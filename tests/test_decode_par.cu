@@ -261,6 +261,10 @@ read_bits(uint n, char &offset, uint *bits, Word *buffer, uint idx, const Word *
 	return value;
 #endif
 }
+
+__shared__ uint s_bits[64*64];
+__shared__ Word s_buffer[64*64];
+
 template<class UInt, uint bsize>
 __global__
 void cudaDecodeBitstream
@@ -283,8 +287,6 @@ const unsigned long long orig_count
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 
 	uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
-	extern __shared__ uint s_bits[];
-	extern __shared__ Word s_buffer[];
 
 	char l_offset[64];
 	for (int k = 0; k < 64; k++){
@@ -474,7 +476,7 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
 	dim3 grid_size = dim3(1,1,1);
 	//grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
 
-	cudaDecodeBitstream<UInt, bsize> << < grid_size, block_size, ( sizeof(uint) + sizeof(Word)) * 64 * 64 >> >
+	cudaDecodeBitstream<UInt, bsize> << < grid_size, block_size >> >
 		(
 		m_stream,
 		idx_g,
