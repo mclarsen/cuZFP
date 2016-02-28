@@ -206,14 +206,94 @@ BitStream *stream
 
 }
 
-template<class UInt, uint bsize>
+template<uint bsize>
 __device__ __host__
+void insert_bit
+(
+Bit<bsize> &stream, 
+uint *idx_g, 
+uint *idx_n,
+uint *bit_bits,
+char *bit_offset,
+Word *bit_buffer,
+
+const uint maxbits,
+const uint intprec,
+const uint kmin,
+const unsigned long long orig_count
+)
+{
+	uint bits = maxbits;
+	unsigned long long count = orig_count;
+
+	/* input one bit plane at a time from MSB to LSB */
+	for (uint k = intprec, n = 0; k-- > kmin;) {
+		/* decode bit plane k */
+		idx_n[k] = n;
+		bit_bits[k] = stream.bits;
+		bit_offset[k] = stream.offset;
+		bit_buffer[k] = stream.buffer;
+		for (uint m = n;; idx_g[k]++) {
+
+			if (bits){
+				/* decode bit k for the next set of m values */
+				m = MIN(m, bits);
+				bits -= m;
+				unsigned long long x = stream.read_bits(m);
+				/* continue with next bit plane if there are no more groups */
+				if (!count || !bits){
+
+					break;
+				}
+				/* perform group test */
+				bits--;
+				uint test = stream.read_bit();
+				/* continue with next bit plane if there are no more significant bits */
+				if (!test || !bits){
+					break;
+				}
+				/* decode next group of m values */
+				m = count & 0xfu;
+				count >>= 4;
+				n += m;
+			}
+		}
+	}
+}
+
+template<uint bsize>
+__global__
+void decode_group_test
+(
+Bit<bsize> *stream,
+uint *idx_g,
+uint *idx_n,
+uint *bit_bits,
+char *bit_offset,
+Word *bit_buffer,
+
+const uint maxbits,
+const uint intprec,
+const uint kmin,
+const unsigned long long orig_count
+)
+{
+	int x = threadIdx.x + blockDim.x*blockIdx.x;
+	int y = threadIdx.y + blockDim.y*blockIdx.y;
+	int z = threadIdx.z + blockDim.z*blockIdx.z;
+	int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
+
+	insert_bit<bsize>(stream[idx], idx_g + idx * 64, idx_n + idx * 64, bit_bits + idx * 64, bit_offset + idx * 64, bit_buffer + idx * 64, maxbits, intprec, kmin, orig_count);
+
+}
+
+template<class UInt, uint bsize>
+__host__
 uint
 decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long orig_count, uint size)
 {
 
 
-  unsigned long long count = orig_count;
     const uint intprec = CHAR_BIT * (uint)sizeof(UInt);
     const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
     uint bits = maxbits;
@@ -222,55 +302,44 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
     for (uint i = 0; i < size; i++)
       data[i] = 0;
 
-    uint tmp_g[64], tmp_n[64], cnt_sft[64], bit_bits[64];
-    char bit_offset[64];
-    Word bit_buffer[64];
 
-    for (int i=0; i<64; i++){
-      bit_offset[i] = 0;
-      bit_buffer[i] = 0;
-      tmp_g[i] = tmp_n[i] = cnt_sft[i] = 0;
-    }
+		uint *idx_g, *idx_n, *bit_bits;
+		char *bit_offset;
+		Word *bit_buffer;
+		cudaMallocManaged((void**)&idx_g, sizeof(uint) * 64);
+		cudaMallocManaged((void**)&idx_n, sizeof(uint) * 64);
+		cudaMallocManaged((void**)&bit_bits, sizeof(uint) * 64);
+		cudaMallocManaged((void**)&bit_offset, sizeof(char) * 64);
+		cudaMallocManaged((void**)&bit_buffer, sizeof(Word) * 64);
 
-    /* input one bit plane at a time from MSB to LSB */
-    for (uint k = intprec, n = 0; k-- > kmin;) {
-      /* decode bit plane k */
-      tmp_n[k] = n;
-      bit_bits[k] = stream.bits;
-      bit_offset[k] = stream.offset;
-      bit_buffer[k] = stream.buffer;
-      for (uint m = n;;tmp_g[k]++) {
+		Bit<bsize> *m_stream;
+		cudaMallocManaged((void**)&m_stream, sizeof(Bit<bsize>));
+		*m_stream = stream;
 
-        if (bits){
-          /* decode bit k for the next set of m values */
-          m = MIN(m, bits);
-          bits -= m;
-          unsigned long long x = stream.read_bits(m);
-          /* continue with next bit plane if there are no more groups */
-          if (!count || !bits){
+		for (int i = 0; i<64; i++){
+			bit_offset[i] = 0;
+			bit_buffer[i] = 0;
+			idx_g[i] = idx_n[i] = 0;
+		}
 
-            break;
-          }
-          /* perform group test */
-          bits--;
-          uint test = stream.read_bit();
-          /* continue with next bit plane if there are no more significant bits */
-          if (!test || !bits){
-            break;
-          }
-          /* decode next group of m values */
-          m = count & 0xfu;
-          count >>= 4;
-          n += m;
-        }
-      }
-    }
+		decode_group_test<bsize> << <1, 1 >> >(
+			m_stream,
+			idx_g,
+			idx_n,
+			bit_bits,
+			bit_offset,
+			bit_buffer,
+			maxbits, 
+			intprec, 
+			kmin, 
+			orig_count);
+		cudaStreamSynchronize(0);
 
-    /* read at least minbits bits */
-    while (bits > maxbits - minbits) {
-      bits--;
-      stream.read_bit();
-    }
+			///* read at least minbits bits */
+    //while (bits > maxbits - minbits) {
+    //  bits--;
+    //  stream.read_bit();
+    //}
 
     for (uint i = 0; i < size; i++)
       data[i] = 0;
@@ -288,7 +357,7 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
       uint new_bits = maxbits;
       for (uint k=intprec; k-- > kmin;){
         cache[k].seek(bit_offset[k], bit_bits[k], bit_buffer[k]);
-        for (uint i=0, m = tmp_n[k], n = 0; i<tmp_g[k]+1; i++){
+        for (uint i=0, m = idx_n[k], n = 0; i<idx_g[k]+1; i++){
           if (new_bits){
             /* decode bit k for the next set of m values */
             m = MIN(m, new_bits);
@@ -327,6 +396,12 @@ decode_ints_par(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uin
 //    }
 
     return maxbits - bits;
+
+		cudaFree(idx_g);
+		cudaFree(idx_n);
+		cudaFree(bit_bits);
+		cudaFree(bit_offset);
+		cudaFree(bit_buffer);
 }
 
 template<class Scalar>
