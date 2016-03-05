@@ -274,12 +274,12 @@ void cudaDecode
         )
 {
     int idx = threadIdx.x + blockDim.x*blockIdx.x;
-    extern __shared__ Bit<bsize> s_bits[];
+    extern __shared__ Bit<bsize> sl_bits[];
 
-    s_bits[threadIdx.x] = stream[idx];
+		sl_bits[threadIdx.x] = stream[idx];
 
-    decode_ints<UInt, bsize>(s_bits[threadIdx.x], q + idx * bsize, minbits, maxbits, precision(emax[idx], maxprec, minexp), group_count, size);
-    stream[idx] = s_bits[threadIdx.x];
+		decode_ints<UInt, bsize>(sl_bits[threadIdx.x], q + idx * bsize, minbits, maxbits, precision(emax[idx], maxprec, minexp), group_count, size);
+		stream[idx] = sl_bits[threadIdx.x];
 //    encode_ints<UInt, bsize>(stream[idx], q + idx * bsize, minbits, maxbits, precision(emax[idx], maxprec, minexp), group_count, size);
 
 }
