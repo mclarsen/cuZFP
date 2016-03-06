@@ -418,9 +418,11 @@ read_bits(uint n, char &offset, uint *bits, Word *buffer, uint idx, const Word *
 }
 
 
-__shared__ uint s_bits[64 * 64];
-__shared__ Word s_buffer[64 * 64];
+//__shared__ uint s_bits[64 * 64];
+//__shared__ Word s_buffer[64 * 64];
 
+__shared__ uint s_idx_n[64];
+__shared__ uint s_idx_g[64];
 
 template<class UInt, uint bsize>
 __host__ __device__
@@ -453,7 +455,7 @@ const uint tid
 				m = MIN(m, new_bits);
 				new_bits -= m;
 
-				unsigned long long x = read_bits(m, offset[k], bits, buffer, tid * 64 + k, stream.begin);
+				unsigned long long x = read_bits(m, offset[k], bits, buffer, k, stream.begin);
 				x >>= tid - n;
 				n += m;
 				data[tid] += (UInt)(x & 1u) << k;
@@ -463,7 +465,7 @@ const uint tid
 					break;
 				/* perform group test */
 				new_bits--;
-				uint test = read_bit(offset[k], bits, buffer, tid * 64 + k, stream.begin);
+				uint test = read_bit(offset[k], bits, buffer, k, stream.begin);
 				/* cache[k] with next bit plane if there are no more significant bits */
 				if (!test || !new_bits)
 					break;
@@ -493,18 +495,26 @@ const uint kmin,
 const unsigned long long orig_count
 )
 {
+	extern __shared__ UInt s_data[];
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
 	uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
-
 	char l_offset[64];
+	uint l_bits[64];
+	Word l_buffer[64];
+
+	s_idx_n[tid] = idx_n[bidx + tid];
+	s_idx_g[tid] = idx_g[bidx + tid];
+	s_data[tid] = 0;
+	
 	for (int k = 0; k < 64; k++){
-		s_bits[tid * 64 + k] = bit_bits[bidx + k];
-		s_buffer[tid * 64 + k] = bit_buffer[bidx + k];
 		l_offset[k] = bit_offset[bidx + k];
+		l_bits[k] = bit_bits[bidx + k];
+		l_buffer[k] = bit_buffer[bidx + k];
 	}
 	__syncthreads();
-	decodeBitstream<UInt, bsize>(stream[idx], idx_g + bidx, idx_n + bidx, s_bits, l_offset, s_buffer, data + bidx, maxbits, intprec, kmin, orig_count, tid);
+	decodeBitstream<UInt, bsize>(stream[idx], s_idx_g, s_idx_n, l_bits, l_offset, l_buffer, s_data, maxbits, intprec, kmin, orig_count, tid);
+	data[bidx + tid] = s_data[tid];
 }
 
 
@@ -587,32 +597,32 @@ const unsigned long long orig_count
 	insert_bit<bsize>(stream[idx], idx_g + idx * 64, idx_n + idx * 64, bit_bits + idx * 64, bit_offset + idx * 64, bit_buffer + idx * 64, maxbits, intprec, kmin, orig_count);
 
 }
-template<class UInt, uint bsize>
-__global__
-void cudaDecodePar
-(
-Bit<bsize> *stream,
-
-UInt *data,
-
-const uint maxbits,
-const uint intprec,
-const uint kmin,
-const unsigned long long orig_count
-)
-{
-	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
-	uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
-	uint idx = tid + bidx;
-
-	char l_offset[64];
-	uint l_idx_g[64], l_idx_n[64];
-	insert_bit<bsize>(stream[idx], l_idx_g, l_idx_n, s_bits + tid * 64, l_offset, s_buffer + tid * 64, maxbits, intprec, kmin, orig_count);
-
-	decodeBitstream<UInt, bsize>(stream[bidx], l_idx_g, l_idx_n, s_bits, l_offset, s_buffer, data, maxbits, intprec, kmin, orig_count, tid);
-
-	
-}
+//template<class UInt, uint bsize>
+//__global__
+//void cudaDecodePar
+//(
+//Bit<bsize> *stream,
+//
+//UInt *data,
+//
+//const uint maxbits,
+//const uint intprec,
+//const uint kmin,
+//const unsigned long long orig_count
+//)
+//{
+//	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
+//	uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
+//	uint idx = tid + bidx;
+//
+//	char l_offset[64];
+//	uint l_idx_g[64], l_idx_n[64];
+//	insert_bit<bsize>(stream[idx], l_idx_g, l_idx_n, s_bits + tid * 64, l_offset, s_buffer + tid * 64, maxbits, intprec, kmin, orig_count);
+//
+//	decodeBitstream<UInt, bsize>(stream[bidx], l_idx_g, l_idx_n, s_bits, l_offset, s_buffer, data, maxbits, intprec, kmin, orig_count, tid);
+//
+//	
+//}
 template<class Int, class Scalar>
 __global__
 void cudaInvCast

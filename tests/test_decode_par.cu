@@ -761,7 +761,7 @@ device_vector<UInt> &buffer
 	block_size = dim3(4,4,4);
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-	cudaDecodeBitstream<UInt, bsize> << < grid_size, block_size >> >
+	cudaDecodeBitstream<UInt, bsize> << < grid_size, block_size, sizeof(UInt)*64 >> >
 		(
 		raw_pointer_cast(stream.data()),
 		idx_g,
@@ -783,6 +783,12 @@ device_vector<UInt> &buffer
 
 	cout << "decode bitstream GPU in time: " << millisecs << endl;
 
+	for (int i = 0; i < data.size(); i++){
+		if (m_data[i] != buffer[i]){
+			cout << "Failed: " << i << " " << m_data[i] << " " << buffer[i] << endl;
+			exit(-1);
+		}
+	}
 	block_size = dim3(8, 8, 8);
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
