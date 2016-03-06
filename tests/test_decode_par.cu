@@ -20,9 +20,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 64;
-const size_t ny = 64;
-const size_t nz = 64;
+const size_t nx = 128;
+const size_t ny = 128;
+const size_t nz = 128;
 
 uint minbits = 4096;
 uint maxbits = 4096;
@@ -751,6 +751,13 @@ device_vector<UInt> &buffer
 	cudaStreamSynchronize(0);
 	ec.chk("cudaDecodeDecodeGroup");	
 
+	cudaEventRecord(stop, 0);
+	cudaEventSynchronize(stop);
+	cudaEventElapsedTime(&millisecs, start, stop);
+	ec.chk("cudaencode");
+
+	cout << "decode group GPU in time: " << millisecs << endl;
+
 	block_size = dim3(4,4,4);
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
@@ -769,7 +776,12 @@ device_vector<UInt> &buffer
 		group_count);
 	cudaStreamSynchronize(0);
 	ec.chk("cudaDecodeBitstream");
+	cudaEventRecord(stop, 0);
+	cudaEventSynchronize(stop);
+	cudaEventElapsedTime(&millisecs, start, stop);
+	ec.chk("cudaencode");
 
+	cout << "decode bitstream GPU in time: " << millisecs << endl;
 
 	block_size = dim3(8, 8, 8);
 	grid_size = dim3(nx, ny, nz);
@@ -810,7 +822,7 @@ device_vector<UInt> &buffer
 	cudaEventElapsedTime(&millisecs, start, stop);
 	ec.chk("cudaencode");
 
-	cout << "encode GPU in time: " << millisecs << endl;
+	cout << "decode GPU in time: " << millisecs << endl;
 
 	gpuValidate<Int, UInt, Scalar, bsize>(h_data, q, data);
 
