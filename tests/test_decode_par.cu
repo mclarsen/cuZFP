@@ -20,9 +20,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 128;
-const size_t ny = 128;
-const size_t nz = 128;
+const size_t nx = 64;
+const size_t ny = 64;
+const size_t nz = 64;
 
 uint minbits = 4096;
 uint maxbits = 4096;
@@ -752,7 +752,7 @@ device_vector<UInt> &buffer
 	ec.chk("cudaDecodeDecodeGroup");	
 
 	block_size = dim3(4,4,4);
-	grid_size = emax_size;// dim3(nx, ny, nz);
+	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
 	cudaDecodeBitstream<UInt, bsize> << < grid_size, block_size >> >
 		(
@@ -769,6 +769,7 @@ device_vector<UInt> &buffer
 		group_count);
 	cudaStreamSynchronize(0);
 	ec.chk("cudaDecodeBitstream");
+
 
 	block_size = dim3(8, 8, 8);
 	grid_size = dim3(nx, ny, nz);

@@ -494,8 +494,8 @@ const unsigned long long orig_count
 )
 {
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
-
-	uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
+	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
+	uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
 
 	char l_offset[64];
 	for (int k = 0; k < 64; k++){
@@ -504,9 +504,7 @@ const unsigned long long orig_count
 		l_offset[k] = bit_offset[bidx + k];
 	}
 	__syncthreads();
-	decodeBitstream<UInt, bsize>(stream[bidx], idx_g, idx_n, s_bits, l_offset, s_buffer, data, maxbits, intprec, kmin, orig_count, tid);
-
-
+	decodeBitstream<UInt, bsize>(stream[idx], idx_g + bidx, idx_n + bidx, s_bits, l_offset, s_buffer, data + bidx, maxbits, intprec, kmin, orig_count, tid);
 }
 
 
@@ -582,10 +580,9 @@ const uint kmin,
 const unsigned long long orig_count
 )
 {
-	int x = threadIdx.x + blockDim.x*blockIdx.x;
-	int y = threadIdx.y + blockDim.y*blockIdx.y;
-	int z = threadIdx.z + blockDim.z*blockIdx.z;
-	int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
+	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
+	uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
+	uint idx = tid + bidx;
 
 	insert_bit<bsize>(stream[idx], idx_g + idx * 64, idx_n + idx * 64, bit_bits + idx * 64, bit_offset + idx * 64, bit_buffer + idx * 64, maxbits, intprec, kmin, orig_count);
 
@@ -595,11 +592,6 @@ __global__
 void cudaDecodePar
 (
 Bit<bsize> *stream,
-const uint *idx_g,
-const uint *idx_n,
-const uint *bit_bits,
-const char *bit_offset,
-const Word *bit_buffer,
 
 UInt *data,
 
@@ -609,17 +601,17 @@ const uint kmin,
 const unsigned long long orig_count
 )
 {
-	int x = threadIdx.x + blockDim.x*blockIdx.x;
-	int y = threadIdx.y + blockDim.y*blockIdx.y;
-	int z = threadIdx.z + blockDim.z*blockIdx.z;
-	int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
-
-	insert_bit<bsize>(stream[idx], idx_g + idx * 64, idx_n + idx * 64, bit_bits + idx * 64, bit_offset + idx * 64, bit_buffer + idx * 64, maxbits, intprec, kmin, orig_count);
-
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
-
 	uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
+	uint idx = tid + bidx;
 
+	char l_offset[64];
+	uint l_idx_g[64], l_idx_n[64];
+	insert_bit<bsize>(stream[idx], l_idx_g, l_idx_n, s_bits + tid * 64, l_offset, s_buffer + tid * 64, maxbits, intprec, kmin, orig_count);
+
+	decodeBitstream<UInt, bsize>(stream[bidx], l_idx_g, l_idx_n, s_bits, l_offset, s_buffer, data, maxbits, intprec, kmin, orig_count, tid);
+
+	
 }
 template<class Int, class Scalar>
 __global__
