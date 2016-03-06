@@ -294,7 +294,6 @@ const unsigned long long orig_count
 		s_buffer[tid * 64 + k] = bit_buffer[bidx + k];
 		l_offset[k] = bit_offset[bidx + k];
 	}
-
 	__syncthreads();
 	unsigned long long count = orig_count;
 	uint new_bits = maxbits;
@@ -305,7 +304,7 @@ const unsigned long long orig_count
 				m = MIN(m, new_bits);
 				new_bits -= m;
 
-				unsigned long long x = read_bits(m, l_offset[k], s_bits, s_buffer, tid * 64 + k, stream[0].begin);
+				unsigned long long x = read_bits(m, l_offset[k], s_bits, s_buffer, tid * 64 + k, stream[bidx].begin);
 				x >>= tid - n;
 				n += m;
 				data[tid] += (UInt)(x & 1u) << k;
@@ -315,7 +314,7 @@ const unsigned long long orig_count
 					break;
 				/* perform group test */
 				new_bits--;
-				uint test = read_bit(l_offset[k], s_bits, s_buffer, tid * 64 + k, stream[0].begin);
+				uint test = read_bit(l_offset[k], s_bits, s_buffer, tid * 64 + k, stream[bidx].begin);
 				/* cache[k] with next bit plane if there are no more significant bits */
 				if (!test || !new_bits)
 					break;
@@ -838,6 +837,7 @@ device_vector<UInt> &buffer
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
 
 	device_vector<int> emax(emax_size.x * emax_size.y * emax_size.z);
+	const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 
 	ErrorCheck ec;
 
@@ -908,6 +908,18 @@ device_vector<UInt> &buffer
 	cout << "encode GPU in time: " << millisecs << endl;
 
 
+
+	uint *idx_g, *idx_n, *bit_bits;
+	char *bit_offset;
+	Word *bit_buffer;
+	UInt *m_data;
+	cudaMallocManaged((void**)&idx_g, sizeof(uint) * data.size());
+	cudaMallocManaged((void**)&idx_n, sizeof(uint) * data.size());
+	cudaMallocManaged((void**)&bit_bits, sizeof(uint) * data.size());
+	cudaMallocManaged((void**)&bit_offset, sizeof(char) * data.size());
+	cudaMallocManaged((void**)&bit_buffer, sizeof(Word) * data.size());
+	cudaMallocManaged((void**)&m_data, sizeof(UInt) * data.size());
+
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
 	cudaEventRecord(start, 0);
@@ -921,18 +933,42 @@ device_vector<UInt> &buffer
 		);
 	ec.chk("cudaRewind");
 
-	block_size = dim3(8, 8, 8);
+	block_size = dim3(4, 4, 4);
 	grid_size = emax_size;
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-	cudaDecode<UInt, bsize> << < emax_size.x*emax_size.y*emax_size.z / 16, 16, 16 * (sizeof(Bit<bsize>) + sizeof(int)) >> >
-		(
-		raw_pointer_cast(buffer.data()),
+
+	cudaDecodeGroup<bsize> << <grid_size, block_size >> >(
 		raw_pointer_cast(stream.data()),
-		raw_pointer_cast(emax.data()),
-		minbits, maxbits, maxprec, minexp, group_count, size
-		);
+		idx_g,
+		idx_n,
+		bit_bits,
+		bit_offset,
+		bit_buffer,
+		maxbits,
+		intprec,
+		kmin,
+		group_count);
 	cudaStreamSynchronize(0);
-	ec.chk("cudaDecode");
+	ec.chk("cudaDecodeDecodeGroup");	
+
+	block_size = dim3(4,4,4);
+	grid_size = emax_size;// dim3(nx, ny, nz);
+	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+	cudaDecodeBitstream<UInt, bsize> << < grid_size, block_size >> >
+		(
+		raw_pointer_cast(stream.data()),
+		idx_g,
+		idx_n,
+		bit_bits,
+		bit_offset,
+		bit_buffer,
+		m_data,
+		maxbits,
+		intprec,
+		kmin,
+		group_count);
+	cudaStreamSynchronize(0);
+	ec.chk("cudaDecodeBitstream");
 
 	block_size = dim3(8, 8, 8);
 	grid_size = dim3(nx, ny, nz);
@@ -997,15 +1033,15 @@ int main()
 	h_vec_in = d_vec_in;
 	//    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
 	setupConst<double>(perm);
-	//cout << "Begin gpuTestBitStream" << endl;
-	//gpuTestBitStream<long long, unsigned long long, double, 64>(d_vec_in, d_vec_out, d_vec_buffer);
-	//cout << "Finish gpuTestBitStream" << endl;
+	cout << "Begin gpuTestBitStream" << endl;
+	gpuTestBitStream<long long, unsigned long long, double, 64>(d_vec_in, d_vec_out, d_vec_buffer);
+	cout << "Finish gpuTestBitStream" << endl;
 	//    cout << "Begin cpuTestBitStream" << endl;
 	//    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
 	//    cout << "End cpuTestBitStream" << endl;
 
 	//cout << "Begin gpuTestHarnessSingle" << endl;
 	//gpuTestharnessSingle<long long, unsigned long long, double, 64>(h_vec_in, d_vec_out, d_vec_in, 0,0,0);
-	cout << "Begin gpuTestHarnessMulti" << endl;
-	gpuTestharnessMulti<long long, unsigned long long, double, 64>(d_vec_in);
+	//cout << "Begin gpuTestHarnessMulti" << endl;
+	//gpuTestharnessMulti<long long, unsigned long long, double, 64>(d_vec_in);
 }
