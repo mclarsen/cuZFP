@@ -20,9 +20,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 64;
-const size_t ny = 64;
-const size_t nz = 64;
+const size_t nx = 128;
+const size_t ny = 128;
+const size_t nz = 128;
 
 uint minbits = 4096;
 uint maxbits = 4096;
@@ -723,6 +723,15 @@ device_vector<UInt> &buffer
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
 	cudaEventRecord(start, 0);
+
+	block_size = dim3(8, 8, 8);
+	grid_size = emax_size;
+	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+	cudaRewind<bsize> << < grid_size, block_size >> >
+		(
+		raw_pointer_cast(stream.data())
+		);
+	ec.chk("cudaRewind");
 
 	block_size = dim3(4, 4, 4);
 	grid_size = emax_size;
