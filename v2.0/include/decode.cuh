@@ -421,8 +421,8 @@ read_bits(uint n, char &offset, uint *bits, Word *buffer, uint idx, const Word *
 //__shared__ uint s_bits[64 * 64];
 //__shared__ Word s_buffer[64 * 64];
 
-__shared__ uint s_idx_n[64];
-__shared__ uint s_idx_g[64];
+//__shared__ uint s_idx_n[64];
+//__shared__ uint s_idx_g[64];
 
 template<class UInt, uint bsize>
 __host__ __device__
@@ -495,13 +495,20 @@ const uint kmin,
 const unsigned long long orig_count
 )
 {
-	extern __shared__ UInt s_data[];
+	extern __shared__ unsigned char smem[];
+
+	UInt *s_data = (UInt*)smem;
+	uint *s_idx_n = (uint*)&smem[64 * 8];
+	uint *s_idx_g = (uint*)&smem[64 * 8 + 64 * 4];
+
+
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
 	uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
 	char l_offset[64];
 	uint l_bits[64];
 	Word l_buffer[64];
+
 
 	s_idx_n[tid] = idx_n[bidx + tid];
 	s_idx_g[tid] = idx_g[bidx + tid];
