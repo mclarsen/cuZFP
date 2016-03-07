@@ -20,9 +20,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 64;
-const size_t ny = 64;
-const size_t nz = 64;
+const size_t nx = 128;
+const size_t ny = 128;
+const size_t nz = 128;
 
 uint minbits = 4096;
 uint maxbits = 4096;
@@ -708,26 +708,10 @@ device_vector<UInt> &buffer
 	cout << "encode GPU in time: " << millisecs << endl;
 
 
-	cudaMemset(raw_pointer_cast(buffer.data()), 0, sizeof(UInt)*buffer.size());
-
-	uint *idx_g, *idx_n, *bit_bits, *bit_rmn_bits;
-	char *bit_offset;
-	Word *bit_buffer;
-	UInt *m_data;
-	unsigned long long *bit_cnt;
-	cudaMallocManaged((void**)&idx_g, sizeof(uint) * data.size());
-	cudaMallocManaged((void**)&idx_n, sizeof(uint) * data.size());
-	cudaMallocManaged((void**)&bit_bits, sizeof(uint) * data.size());
-	cudaMallocManaged((void**)&bit_offset, sizeof(char) * data.size());
-	cudaMallocManaged((void**)&bit_buffer, sizeof(Word) * data.size());
-	cudaMallocManaged((void**)&bit_cnt, sizeof(unsigned long long) * data.size());
-	cudaMallocManaged((void**)&bit_rmn_bits, sizeof(uint) * data.size());
-	cudaMallocManaged((void**)&m_data, sizeof(UInt) * data.size());
-
+	//cudaMemset(raw_pointer_cast(buffer.data()), 0, sizeof(UInt)*buffer.size());
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
 	cudaEventRecord(start, 0);
-
 	block_size = dim3(8, 8, 8);
 	grid_size = emax_size;
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
@@ -737,11 +721,46 @@ device_vector<UInt> &buffer
 		);
 	ec.chk("cudaRewind");
 
+
+#ifndef DEBUG
+	cudaMemset(raw_pointer_cast(buffer.data()), 0, sizeof(UInt) * buffer.size());
+	block_size = dim3(4,4,4);
+	grid_size = dim3(nx, ny, nz);
+	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+	cudaDecodePar<UInt, bsize> << < grid_size, block_size, 64 * 8 + 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64 + 64 * 4 + sizeof(Word)*64>> >
+		(
+		raw_pointer_cast(stream.data()),
+		raw_pointer_cast(buffer.data()),
+		maxbits,
+		intprec,
+		kmin,
+		group_count);
+	cudaStreamSynchronize(0);
+	ec.chk("cudaDecodePar");
+	cudaEventRecord(stop, 0);
+	cudaEventSynchronize(stop);
+	cudaEventElapsedTime(&millisecs, start, stop);
+	ec.chk("cudadecode");
+
+	cout << "decode parallel GPU in time: " << millisecs << endl;
+#else
+	uint *idx_g, *idx_n, *bit_bits, *bit_rmn_bits;
+	char *bit_offset;
+	Word *bit_buffer;
+	unsigned long long *bit_cnt;
+	cudaMallocManaged((void**)&idx_g, sizeof(uint) * data.size());
+	cudaMallocManaged((void**)&idx_n, sizeof(uint) * data.size());
+	cudaMallocManaged((void**)&bit_bits, sizeof(uint) * data.size());
+	cudaMallocManaged((void**)&bit_offset, sizeof(char) * data.size());
+	cudaMallocManaged((void**)&bit_buffer, sizeof(Word) * data.size());
+	cudaMallocManaged((void**)&bit_cnt, sizeof(unsigned long long) * data.size());
+	cudaMallocManaged((void**)&bit_rmn_bits, sizeof(uint) * data.size());
+
 	block_size = dim3(4, 4, 4);
-	grid_size = emax_size;
+	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
 
-	cudaDecodeGroup<bsize> << <grid_size, block_size >> >(
+	cudaDecodeGroup<bsize> << <grid_size, block_size, 64 * 8 + 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64 + 64 * 4 + sizeof(Word) * 64 >> >(
 		raw_pointer_cast(stream.data()),
 		idx_g,
 		idx_n,
@@ -777,7 +796,7 @@ device_vector<UInt> &buffer
 		bit_buffer,
 		bit_cnt,
 		bit_rmn_bits,
-		raw_pointer_cast(buffer.data()),
+		m_data,//raw_pointer_cast(buffer.data()),
 		maxbits,
 		intprec,
 		kmin,
@@ -790,6 +809,13 @@ device_vector<UInt> &buffer
 	ec.chk("cudaencode");
 
 	cout << "decode bitstream GPU in time: " << millisecs << endl;
+	for (int i = 0; i < buffer.size(); i++){
+		if (m_data[i] != buffer[i]){
+			cout << i << " " << m_data[i] << " " << buffer[i] << endl;
+			exit(-1);
+		}
+	}
+#endif
 
 	block_size = dim3(8, 8, 8);
 	grid_size = dim3(nx, ny, nz);
