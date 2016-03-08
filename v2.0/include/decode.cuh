@@ -363,22 +363,22 @@ Int *p
 
 __host__ __device__
 int
-read_bit(char &offset, uint *bits, Word *buffer, uint idx, const Word *begin)
+read_bit(char &offset, uint &bits, Word &buffer, const Word *begin)
 {
 	uint bit;
-	if (!bits[idx]) {
-		buffer[idx] = begin[offset++];
-		bits[idx] = wsize;
+	if (!bits) {
+		buffer = begin[offset++];
+		bits = wsize;
 	}
-	bits[idx]--;
-	bit = (uint)buffer[idx] & 1u;
-	buffer[idx] >>= 1;
+	bits--;
+	bit = (uint)buffer & 1u;
+	buffer >>= 1;
 	return bit;
 }
 /* read 0 <= n <= 64 bits */
 __host__ __device__
 unsigned long long
-read_bits(uint n, char &offset, uint *bits, Word *buffer, uint idx, const Word *begin)
+read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
 {
 #if 0
 	/* read bits in LSB to MSB order */
@@ -390,28 +390,28 @@ read_bits(uint n, char &offset, uint *bits, Word *buffer, uint idx, const Word *
 	unsigned long long value;
 	/* because shifts by 64 are not possible, treat n = 64 specially */
 	if (n == bitsize(value)) {
-		if (!bits[idx])
+		if (!bits)
 			value = begin[offset++];//*ptr++;
 		else {
-			value = buffer[idx];
-			buffer[idx] = begin[offset++];//*ptr++;
-			value += buffer[idx] << bits[idx];
-			buffer[idx] >>= n - bits[idx];
+			value = buffer;
+			buffer = begin[offset++];//*ptr++;
+			value += buffer << bits;
+			buffer >>= n - bits;
 		}
 	}
 	else {
-		value = buffer[idx];
-		if (bits[idx] < n) {
+		value = buffer;
+		if (bits < n) {
 			/* not enough bits buffered; fetch wsize more */
-			buffer[idx] = begin[offset++];//*ptr++;
-			value += buffer[idx] << bits[idx];
-			buffer[idx] >>= n - bits[idx];
-			bits[idx] += wsize;
+			buffer = begin[offset++];//*ptr++;
+			value += buffer << bits;
+			buffer >>= n - bits;
+			bits += wsize;
 		}
 		else
-			buffer[idx] >>= n;
-		value -= buffer[idx] << n;
-		bits[idx] -= n;
+			buffer >>= n;
+		value -= buffer << n;
+		bits -= n;
 	}
 	return value;
 #endif
@@ -430,52 +430,50 @@ void decodeBitstream
 (
 const Bit<bsize> &stream,
 
-const uint *idx_g,
-const uint *idx_n,
-uint *bits,
-char *offset,
-Word *buffer,
+uint idx_g,
+uint idx_n,
+unsigned long long count,
+uint new_bits,
+uint bits,
+char offset,
+Word buffer,
 
 UInt *data,
 
 const uint maxbits,
 const uint intprec,
 const uint kmin,
-const unsigned long long orig_count,
-const uint tid
+const uint tid,
+const uint k
 )
 {
-	unsigned long long count = orig_count;
-	uint new_bits = maxbits;
 
-	for (uint k = intprec; k-- > kmin;){
-		for (uint i = 0, m = idx_n[k], n = 0; i < idx_g[k] + 1; i++){
-			if (new_bits){
-				/* decode bit k for the next set of m values */
-				m = MIN(m, new_bits);
-				new_bits -= m;
 
-				unsigned long long x = read_bits(m, offset[k], bits, buffer, k, stream.begin);
-				x >>= tid - n;
-				n += m;
-				data[tid] += (UInt)(x & 1u) << k;
+	for (uint i = 0, m = idx_n, n = 0; i < idx_g + 1; i++){
+		/* decode bit k for the next set of m values */
+		m = MIN(m, new_bits);
+		new_bits -= m;
 
-				/* continue with next bit plane if there are no more groups */
-				if (!count || !new_bits)
-					break;
-				/* perform group test */
-				new_bits--;
-				uint test = read_bit(offset[k], bits, buffer, k, stream.begin);
-				/* cache[k] with next bit plane if there are no more significant bits */
-				if (!test || !new_bits)
-					break;
-				/* decode next group of m values */
-				m = count & 0xfu;
-				count >>= 4;
-			}
-		}
+		unsigned long long x = read_bits(m, offset, bits, buffer, stream.begin);
+		x >>= tid - n;
+		n += m;
+		data[tid] += (UInt)(x & 1u) << k;
+
+		/* continue with next bit plane if there are no more groups */
+		//if (!count || !new_bits)
+		//	break;
+		/* perform group test */
+		new_bits--;
+		uint test = read_bit(offset, bits, buffer, stream.begin);
+		/* cache[k] with next bit plane if there are no more significant bits */
+		//if (!test || !new_bits)
+		//	break;
+		/* decode next group of m values */
+		m = count & 0xfu;
+		count >>= 4;
 	}
 }
+
 template<class UInt, uint bsize>
 __global__
 void cudaDecodeBitstream
@@ -486,6 +484,8 @@ const uint *idx_n,
 const uint *bit_bits,
 const char *bit_offset,
 const Word *bit_buffer,
+const unsigned long long *bit_cnt,
+const uint *bit_rmn_bits,
 
 UInt *data,
 
@@ -500,27 +500,44 @@ const unsigned long long orig_count
 	UInt *s_data = (UInt*)smem;
 	uint *s_idx_n = (uint*)&smem[64 * 8];
 	uint *s_idx_g = (uint*)&smem[64 * 8 + 64 * 4];
-
+	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[64 * 8 + 64 * 4 + 64 * 4];
+	uint *s_bit_rmn_bits = (uint*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8];
 
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
 	uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
-	char l_offset[64];
-	uint l_bits[64];
-	Word l_buffer[64];
 
-
+	s_bit_rmn_bits[tid] = bit_rmn_bits[bidx + tid];
+	s_bit_cnt[tid] = bit_cnt[bidx + tid];
 	s_idx_n[tid] = idx_n[bidx + tid];
 	s_idx_g[tid] = idx_g[bidx + tid];
 	s_data[tid] = 0;
 	
+	char l_offset[64];
+	uint l_bits[64];
+	Word l_buffer[64];
 	for (int k = 0; k < 64; k++){
 		l_offset[k] = bit_offset[bidx + k];
 		l_bits[k] = bit_bits[bidx + k];
 		l_buffer[k] = bit_buffer[bidx + k];
 	}
 	__syncthreads();
-	decodeBitstream<UInt, bsize>(stream[idx], s_idx_g, s_idx_n, l_bits, l_offset, l_buffer, s_data, maxbits, intprec, kmin, orig_count, tid);
+	for (uint k = kmin; k < intprec; k++){
+		unsigned long long count = bit_cnt[k];
+		uint new_bits = bit_rmn_bits[k];
+
+		decodeBitstream<UInt, bsize>(
+			stream[idx],
+			s_idx_g[k],
+			s_idx_n[k],
+			s_bit_cnt[k],
+			s_bit_rmn_bits[k],
+			l_bits[k],
+			l_offset[k],
+			l_buffer[k],
+			s_data,
+			maxbits, intprec, kmin, tid, k);
+	}
 	data[bidx + tid] = s_data[tid];
 }
 
@@ -535,6 +552,8 @@ uint *idx_n,
 uint *bit_bits,
 char *bit_offset,
 Word *bit_buffer,
+unsigned long long *bit_cnt,
+uint *bit_rmn_bits,
 
 const uint maxbits,
 const uint intprec,
@@ -549,6 +568,9 @@ const unsigned long long orig_count
 	for (uint k = intprec, n = 0; k-- > kmin;) {
 		/* decode bit plane k */
 		idx_n[k] = n;
+		bit_rmn_bits[k] = bits;
+		bit_cnt[k] = count;
+
 		bit_bits[k] = stream.bits;
 		bit_offset[k] = stream.offset;
 		bit_buffer[k] = stream.buffer;
@@ -590,6 +612,8 @@ uint *idx_n,
 uint *bit_bits,
 char *bit_offset,
 Word *bit_buffer,
+unsigned long long *bit_cnt,
+uint *bit_rmn_bits,
 
 const uint maxbits,
 const uint intprec,
@@ -597,37 +621,48 @@ const uint kmin,
 const unsigned long long orig_count
 )
 {
-	extern __shared__ unsigned char smem[];
-
-	uint *s_idx_n = (uint*)&smem[0];
-	uint *s_idx_g = (uint*)&smem[blockDim.x*blockDim.y*blockDim.z * sizeof(uint)];
-	uint *s_bit_bits = (uint*)&smem[blockDim.x*blockDim.y*blockDim.z * 2*sizeof(uint)];
-	char *s_bit_offset = (char*)&smem[blockDim.x*blockDim.y*blockDim.z * 3 * sizeof(uint)];
-	Word *s_bit_buffer = (Word*)&smem[blockDim.x*blockDim.y*blockDim.z * (3 * sizeof(uint) + sizeof(char))];
-
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
 	uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
-	
+
+	//uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
+	//uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
+	//uint idx = tid + bidx;
+
+	extern __shared__ unsigned char smem[];
+	uint *s_idx_n = (uint*)&smem[64 * 8];
+	uint *s_idx_g = (uint*)&smem[64 * 8 + 64 * 4];
+	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[64 * 8 + 64 * 4 + 64 * 4];
+	uint *s_bit_rmn_bits = (uint*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8];
+	char *s_bit_offset = (char*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4];
+	uint *s_bit_bits = (uint*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64];
+	Word *s_bit_buffer = (Word*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64 + 64 * 4];
+
 	s_idx_g[tid] = 0;
 	__syncthreads();
 
 	if (tid == 0){
-		insert_bit<bsize>(stream[idx], 
+		insert_bit<bsize>(
+			stream[idx],
 			s_idx_g,
 			s_idx_n,
 			s_bit_bits,
 			s_bit_offset,
 			s_bit_buffer,
+			s_bit_cnt,
+			s_bit_rmn_bits,
 			maxbits, intprec, kmin, orig_count);
 	}
-	__syncthreads();
 
+	__syncthreads();
 	idx_g[bidx + tid] = s_idx_g[tid];
 	idx_n[bidx + tid] = s_idx_n[tid];
 	bit_bits[bidx + tid] = s_bit_bits[tid];
 	bit_offset[bidx + tid] = s_bit_offset[tid];
 	bit_buffer[bidx + tid] = s_bit_buffer[tid];
+	bit_cnt[bidx + tid] = s_bit_cnt[tid];
+	bit_rmn_bits[bidx + tid] = s_bit_rmn_bits[tid];
+
 
 }
 template<class UInt, uint bsize>
@@ -644,43 +679,49 @@ const uint kmin,
 const unsigned long long orig_count
 )
 {
-	extern __shared__ unsigned char smem[];
-	uint *s_idx_n = (uint*)&smem[0];
-	uint *s_idx_g = (uint*)&smem[blockDim.x*blockDim.y*blockDim.z * sizeof(uint)];
-	uint *s_bit_bits = (uint*)&smem[blockDim.x*blockDim.y*blockDim.z * 2 * sizeof(uint)];
-	char *s_bit_offset = (char*)&smem[blockDim.x*blockDim.y*blockDim.z * 3 * sizeof(uint)];
-	Word *s_bit_buffer = (Word*)&smem[blockDim.x*blockDim.y*blockDim.z * (3 * sizeof(uint) + sizeof(char))];
-
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
 	uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
+
+	extern __shared__ unsigned char smem[];
+	uint *s_idx_n = (uint*)&smem[64 * 8];
+	uint *s_idx_g = (uint*)&smem[64 * 8 + 64 * 4];
+	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[64 * 8 + 64 * 4 + 64 * 4];
+	uint *s_bit_rmn_bits = (uint*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8];
+	char *s_bit_offset = (char*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4];
+	uint *s_bit_bits = (uint*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64];
+	Word *s_bit_buffer = (Word*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64 + 64 * 4];
 
 	s_idx_g[tid] = 0;
 	__syncthreads();
 
 	if (tid == 0){
-		insert_bit<bsize>(stream[idx],
+		insert_bit<bsize>(
+			stream[idx],
 			s_idx_g,
 			s_idx_n,
 			s_bit_bits,
 			s_bit_offset,
 			s_bit_buffer,
+			s_bit_cnt,
+			s_bit_rmn_bits,
 			maxbits, intprec, kmin, orig_count);
-	}__syncthreads();
+	}	__syncthreads();
 
-	char l_offset[64];
-	uint l_bits[64];
-	Word l_buffer[64];
-
-	for (int k = 0; k < 64; k++){
-		l_offset[k] = s_bit_offset[k];
-		l_bits[k] = s_bit_bits[k];
-		l_buffer[k] = s_bit_buffer[k];
+	for (uint k = kmin; k < intprec; k++){
+		decodeBitstream<UInt, bsize>(
+			stream[idx],
+			s_idx_g[k],
+			s_idx_n[k],
+			s_bit_cnt[k],
+			s_bit_rmn_bits[k],
+			s_bit_bits[k],
+			s_bit_offset[k],
+			s_bit_buffer[k],
+			data + bidx,
+			maxbits, intprec, kmin, tid, k);
 	}
-
-	decodeBitstream<UInt, bsize>(stream[idx], s_idx_g, s_idx_n, l_bits, l_offset, l_buffer, data + bidx, maxbits, intprec, kmin, orig_count, tid);	
 }
-
 template<class Int, class Scalar>
 __global__
 void cudaInvCast
