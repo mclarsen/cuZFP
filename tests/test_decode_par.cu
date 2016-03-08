@@ -707,20 +707,6 @@ device_vector<UInt> &buffer
 
 	cout << "encode GPU in time: " << millisecs << endl;
 
-
-	cudaMemset(raw_pointer_cast(buffer.data()), 0, sizeof(UInt)*buffer.size());
-
-	uint *idx_g, *idx_n, *bit_bits;
-	char *bit_offset;
-	Word *bit_buffer;
-	UInt *m_data;
-	cudaMallocManaged((void**)&idx_g, sizeof(uint) * data.size());
-	cudaMallocManaged((void**)&idx_n, sizeof(uint) * data.size());
-	cudaMallocManaged((void**)&bit_bits, sizeof(uint) * data.size());
-	cudaMallocManaged((void**)&bit_offset, sizeof(char) * data.size());
-	cudaMallocManaged((void**)&bit_buffer, sizeof(Word) * data.size());
-	cudaMallocManaged((void**)&m_data, sizeof(UInt) * data.size());
-
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
 	cudaEventRecord(start, 0);
@@ -733,6 +719,41 @@ device_vector<UInt> &buffer
 		raw_pointer_cast(stream.data())
 		);
 	ec.chk("cudaRewind");
+
+	cudaMemset(raw_pointer_cast(buffer.data()), 0, sizeof(UInt)*buffer.size());
+	ec.chk("clear");
+#ifNdef DEBUG
+	block_size = dim3(4,4,4);
+	grid_size = dim3(nx, ny, nz);
+	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+	cudaDecodePar<UInt, bsize> << < grid_size, block_size, (3 * sizeof(uint) + sizeof(char) + sizeof(Word))*block_size.x*block_size.y*block_size.z >> >
+		(
+		raw_pointer_cast(stream.data()),
+		raw_pointer_cast(buffer.data()),
+		maxbits,
+		intprec,
+		kmin,
+		group_count);
+	cudaStreamSynchronize(0);
+	ec.chk("cudaDecodePar");
+	cudaEventRecord(stop, 0);
+	cudaEventSynchronize(stop);
+	cudaEventElapsedTime(&millisecs, start, stop);
+	ec.chk("cudaencode");
+
+	cout << "decode parallel GPU in time: " << millisecs << endl;
+#else
+	uint *idx_g, *idx_n, *bit_bits;
+	char *bit_offset;
+	Word *bit_buffer;
+	UInt *m_data;
+	cudaMallocManaged((void**)&idx_g, sizeof(uint) * data.size());
+	cudaMallocManaged((void**)&idx_n, sizeof(uint) * data.size());
+	cudaMallocManaged((void**)&bit_bits, sizeof(uint) * data.size());
+	cudaMallocManaged((void**)&bit_offset, sizeof(char) * data.size());
+	cudaMallocManaged((void**)&bit_buffer, sizeof(Word) * data.size());
+	cudaMallocManaged((void**)&m_data, sizeof(UInt) * data.size());
+
 
 	block_size = dim3(4, 4, 4);
 	grid_size = dim3(nx, ny, nz);;
@@ -783,7 +804,7 @@ device_vector<UInt> &buffer
 	ec.chk("cudaencode");
 
 	cout << "decode bitstream GPU in time: " << millisecs << endl;
-
+#endif
 	block_size = dim3(8, 8, 8);
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
