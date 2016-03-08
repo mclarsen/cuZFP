@@ -722,7 +722,7 @@ device_vector<UInt> &buffer
 
 	cudaMemset(raw_pointer_cast(buffer.data()), 0, sizeof(UInt)*buffer.size());
 	ec.chk("clear");
-#ifNdef DEBUG
+#ifndef DEBUG
 	block_size = dim3(4,4,4);
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
