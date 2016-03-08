@@ -20,9 +20,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 128;
-const size_t ny = 128;
-const size_t nz = 128;
+const size_t nx = 256;
+const size_t ny = 256;
+const size_t nz = 256;
 
 uint minbits = 4096;
 uint maxbits = 4096;
@@ -612,7 +612,7 @@ device_vector<Scalar> &data
 		}
 	}
 }
-
+//#define ORIGINAL
 template<class Int, class UInt, class Scalar, uint bsize>
 void gpuTestBitStream
 (
@@ -722,27 +722,20 @@ device_vector<UInt> &buffer
 
 	cudaMemset(raw_pointer_cast(buffer.data()), 0, sizeof(UInt)*buffer.size());
 	ec.chk("clear");
-#ifndef DEBUG
-	block_size = dim3(4,4,4);
-	grid_size = dim3(nx, ny, nz);
-	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-	cudaDecodePar<UInt, bsize> << < grid_size, block_size, (3 * sizeof(uint) + sizeof(char) + sizeof(Word))*block_size.x*block_size.y*block_size.z >> >
-		(
-		raw_pointer_cast(stream.data()),
-		raw_pointer_cast(buffer.data()),
-		maxbits,
-		intprec,
-		kmin,
-		group_count);
-	cudaStreamSynchronize(0);
-	ec.chk("cudaDecodePar");
-	cudaEventRecord(stop, 0);
-	cudaEventSynchronize(stop);
-	cudaEventElapsedTime(&millisecs, start, stop);
-	ec.chk("cudaencode");
 
-	cout << "decode parallel GPU in time: " << millisecs << endl;
-#else
+#if defined(ORIGINAL)
+	cudaDecode<UInt, bsize> << < emax_size.x*emax_size.y*emax_size.z / 16, 16, 16 * (sizeof(Bit<bsize>) + sizeof(int)) >> >
+		(
+		raw_pointer_cast(buffer.data()),
+		raw_pointer_cast(stream.data()),
+		raw_pointer_cast(emax.data()),
+		minbits, maxbits, maxprec, minexp, group_count, size
+		);
+	cudaStreamSynchronize(0);
+	ec.chk("cudaDecode");
+
+#elif defined(DEBUG)
+
 	uint *idx_g, *idx_n, *bit_bits;
 	char *bit_offset;
 	Word *bit_buffer;
@@ -771,7 +764,7 @@ device_vector<UInt> &buffer
 		kmin,
 		group_count);
 	cudaStreamSynchronize(0);
-	ec.chk("cudaDecodeDecodeGroup");	
+	ec.chk("cudaDecodeDecodeGroup");
 
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
@@ -780,10 +773,10 @@ device_vector<UInt> &buffer
 
 	cout << "decode group GPU in time: " << millisecs << endl;
 
-	block_size = dim3(4,4,4);
+	block_size = dim3(4, 4, 4);
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-	cudaDecodeBitstream<UInt, bsize> << < grid_size, block_size, (sizeof(UInt) + 2*sizeof(uint))*64 + sizeof(Bit<bsize>)>> >
+	cudaDecodeBitstream<UInt, bsize> << < grid_size, block_size, (sizeof(UInt) + 2 * sizeof(uint)) * 64 + sizeof(Bit<bsize>) >> >
 		(
 		raw_pointer_cast(stream.data()),
 		idx_g,
@@ -804,6 +797,26 @@ device_vector<UInt> &buffer
 	ec.chk("cudaencode");
 
 	cout << "decode bitstream GPU in time: " << millisecs << endl;
+#else
+	block_size = dim3(4,4,4);
+	grid_size = dim3(nx, ny, nz);
+	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+	cudaDecodePar<UInt, bsize> << < grid_size, block_size, (3 * sizeof(uint) + sizeof(char) + sizeof(Word))*block_size.x*block_size.y*block_size.z >> >
+		(
+		raw_pointer_cast(stream.data()),
+		raw_pointer_cast(buffer.data()),
+		maxbits,
+		intprec,
+		kmin,
+		group_count);
+	cudaStreamSynchronize(0);
+	ec.chk("cudaDecodePar");
+	cudaEventRecord(stop, 0);
+	cudaEventSynchronize(stop);
+	cudaEventElapsedTime(&millisecs, start, stop);
+	ec.chk("cudaencode");
+
+	cout << "decode parallel GPU in time: " << millisecs << endl;
 #endif
 	block_size = dim3(8, 8, 8);
 	grid_size = dim3(nx, ny, nz);
