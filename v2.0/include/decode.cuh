@@ -597,11 +597,37 @@ const uint kmin,
 const unsigned long long orig_count
 )
 {
-	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
-	uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
-	uint idx = tid + bidx;
+	extern __shared__ unsigned char smem[];
 
-	insert_bit<bsize>(stream[idx], idx_g + idx * 64, idx_n + idx * 64, bit_bits + idx * 64, bit_offset + idx * 64, bit_buffer + idx * 64, maxbits, intprec, kmin, orig_count);
+	uint *s_idx_n = (uint*)&smem[0];
+	uint *s_idx_g = (uint*)&smem[blockDim.x*blockDim.y*blockDim.z * sizeof(uint)];
+	uint *s_bit_bits = (uint*)&smem[blockDim.x*blockDim.y*blockDim.z * 2*sizeof(uint)];
+	char *s_bit_offset = (char*)&smem[blockDim.x*blockDim.y*blockDim.z * 3 * sizeof(uint)];
+	Word *s_bit_buffer = (Word*)&smem[blockDim.x*blockDim.y*blockDim.z * (3 * sizeof(uint) + sizeof(char))];
+
+	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
+	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
+	uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
+	
+	s_idx_g[tid] = 0;
+	__syncthreads();
+
+	if (tid == 0){
+		insert_bit<bsize>(stream[idx], 
+			s_idx_g,
+			s_idx_n,
+			s_bit_bits,
+			s_bit_offset,
+			s_bit_buffer,
+			maxbits, intprec, kmin, orig_count);
+	}
+	__syncthreads();
+
+	idx_g[bidx + tid] = s_idx_g[tid];
+	idx_n[bidx + tid] = s_idx_n[tid];
+	bit_bits[bidx + tid] = s_bit_bits[tid];
+	bit_offset[bidx + tid] = s_bit_offset[tid];
+	bit_buffer[bidx + tid] = s_bit_buffer[tid];
 
 }
 //template<class UInt, uint bsize>

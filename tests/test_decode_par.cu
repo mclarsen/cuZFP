@@ -735,10 +735,10 @@ device_vector<UInt> &buffer
 	ec.chk("cudaRewind");
 
 	block_size = dim3(4, 4, 4);
-	grid_size = emax_size;
+	grid_size = dim3(nx, ny, nz);;
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
 
-	cudaDecodeGroup<bsize> << <grid_size, block_size >> >(
+	cudaDecodeGroup<bsize> << <grid_size, block_size, (3*sizeof(uint) + sizeof(char) + sizeof(Word))*block_size.x*block_size.y*block_size.z >> >(
 		raw_pointer_cast(stream.data()),
 		idx_g,
 		idx_n,
