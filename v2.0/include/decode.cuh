@@ -681,16 +681,17 @@ const unsigned long long orig_count
 {
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
-	uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
+	uint bdim = blockDim.x*blockDim.y*blockDim.z;
+	uint bidx = idx*bdim;
 
 	extern __shared__ unsigned char smem[];
-	uint *s_idx_n = (uint*)&smem[64 * 8];
-	uint *s_idx_g = (uint*)&smem[64 * 8 + 64 * 4];
-	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[64 * 8 + 64 * 4 + 64 * 4];
-	uint *s_bit_rmn_bits = (uint*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8];
-	char *s_bit_offset = (char*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4];
-	uint *s_bit_bits = (uint*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64];
-	Word *s_bit_buffer = (Word*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64 + 64 * 4];
+	uint *s_idx_n = (uint*)&smem[0];
+	uint *s_idx_g = (uint*)&smem[64 * sizeof(uint)];
+	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[64 * (4+4)];
+	uint *s_bit_rmn_bits = (uint*)&smem[64 *( 4 + 4 + 8)];
+	char *s_bit_offset = (char*)&smem[64 *(4 + 4 + 8 + 4)];
+	uint *s_bit_bits = (uint*)&smem[64 *(4 + 4 + 8 + 4 + 1)];
+	Word *s_bit_buffer = (Word*)&smem[64 *(4 + 4 + 8 +4 + 1 + 4)];
 
 	s_idx_g[tid] = 0;
 	__syncthreads();

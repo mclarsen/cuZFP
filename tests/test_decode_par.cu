@@ -727,7 +727,7 @@ device_vector<UInt> &buffer
 	block_size = dim3(4,4,4);
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-	cudaDecodePar<UInt, bsize> << < grid_size, block_size, 64 * 8 + 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64 + 64 * 4 + sizeof(Word)*64>> >
+	cudaDecodePar<UInt, bsize> << < grid_size, block_size,64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64 + 64 * 4 + sizeof(Word)*64>> >
 		(
 		raw_pointer_cast(stream.data()),
 		raw_pointer_cast(buffer.data()),
