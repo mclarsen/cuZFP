@@ -20,9 +20,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 256;
-const size_t ny = 256;
-const size_t nz = 256;
+const size_t nx = 512;
+const size_t ny = 512;
+const size_t nz = 512;
 
 uint minbits = 4096;
 uint maxbits = 4096;
@@ -346,9 +346,7 @@ device_vector<Scalar> &data
 template<class Int, class UInt, class Scalar, uint bsize>
 void gpuTestBitStream
 (
-device_vector<Scalar> &data,
-device_vector<Int> &q,
-device_vector<UInt> &buffer
+host_vector<Scalar> &h_data
 )
 {
 	host_vector<int> h_emax;
@@ -358,8 +356,10 @@ device_vector<UInt> &buffer
 	host_vector<Bit<bsize> > h_bits;
 	device_vector<unsigned char> d_g_cnt;
 
-	host_vector<Scalar> h_data;
-	h_data = data;
+	device_vector<Scalar> data;
+	data = h_data;
+
+	device_vector<UInt> buffer(nx*ny*nz);
 
 	dim3 emax_size(nx / 4, ny / 4, nz / 4);
 
@@ -436,9 +436,13 @@ device_vector<UInt> &buffer
 	cout << "encode GPU in time: " << millisecs << endl;
 
 
+	buffer.clear();
+	buffer.shrink_to_fit();
+	device_vector<Int> q(nx*ny*nz);
 	//cudaMemset(raw_pointer_cast(buffer.data()), 0, sizeof(UInt)*buffer.size());
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
+	
 	cudaEventRecord(start, 0);
 	block_size = dim3(8, 8, 8);
 	grid_size = emax_size;
@@ -451,24 +455,6 @@ device_vector<UInt> &buffer
 
 
 #ifndef DEBUG
-	//cudaMemset(raw_pointer_cast(buffer.data()), 0, sizeof(UInt) * buffer.size());
-	//block_size = dim3(4, 4, 4);
-	//grid_size = dim3(nx, ny, nz);
-	//grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-	//cudaDecodePar<UInt, bsize> << < grid_size, block_size, 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64 + 64 * 4 + sizeof(Word) * 64 >> >
-	//	(
-	//	raw_pointer_cast(stream.data()),
-	//	raw_pointer_cast(buffer.data()),
-	//	maxbits,
-	//	intprec,
-	//	kmin,
-	//	group_count);
-	//cudaStreamSynchronize(0);
-	//ec.chk("cudaDecodePar");
-	//cudaEventRecord(stop, 0);
-	//cudaEventSynchronize(stop);
-	//cudaEventElapsedTime(&millisecs, start, stop);
-	//ec.chk("cudadecode");
 	block_size = dim3(4, 4, 4);
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
@@ -613,9 +599,10 @@ device_vector<UInt> &buffer
 
 	cout << "decode GPU in time: " << millisecs << endl;
 
+	host_vector<Scalar> h_out = data;
 	for (int i = 0; i < h_data.size(); i++){
-		if (h_data[i] != data[i]){
-			cout << i << " " << h_data[i] << " " << data[i] << endl;
+		if (h_data[i] != h_out[i]){
+			cout << i << " " << h_data[i] << " " << h_out[i] << endl;
 			exit(-1);
 		}
 	}
@@ -627,8 +614,6 @@ int main()
 {
 
 	device_vector<double> d_vec_in(nx*ny*nz);
-	device_vector<long long> d_vec_out(nx*ny*nz);
-	device_vector<unsigned long long> d_vec_buffer(nx*ny*nz);
 	host_vector<double> h_vec_in;
 
 	thrust::counting_iterator<uint> index_sequence_begin(0);
@@ -639,10 +624,12 @@ int main()
 		RandGen());
 
 	h_vec_in = d_vec_in;
+	d_vec_in.clear();
+	d_vec_in.shrink_to_fit();
 	//    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
 	setupConst<double>(perm);
 	cout << "Begin gpuTestBitStream" << endl;
-	gpuTestBitStream<long long, unsigned long long, double, 64>(d_vec_in, d_vec_out, d_vec_buffer);
+	gpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
 	cout << "Finish gpuTestBitStream" << endl;
 	//    cout << "Begin cpuTestBitStream" << endl;
 	//    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
