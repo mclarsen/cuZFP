@@ -560,9 +560,9 @@ device_vector<UInt> &buffer
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&millisecs, start, stop);
-	ec.chk("cudaencode");
+	ec.chk("cudadecode");
 
-	cout << "encode GPU in time: " << millisecs << endl;
+	cout << "decode GPU in time: " << millisecs << endl;
 
 	gpuValidate<Int, UInt, Scalar, bsize>(h_data, q, data);
 
