@@ -65,8 +65,10 @@ endif(WIN32)
 #list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_35,code=sm_35")
 #list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_50,code=sm_50")
 list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_52,code=sm_52")
+
+
 #list(APPEND CUDA_NVCC_FLAGS "-G")
-#list(APPEND CUDA_NVCC_FLAGS "--ptxas-options=-v")
+list(APPEND CUDA_NVCC_FLAGS "--ptxas-options=-v")
 #list(APPEND CUDA_NVCC_FLAGS "-Xptxas;-O3")
 
 #set(BaseName "binary" CACHE STRING "BaseName chosen by the user at CMake configure time")
@@ -146,7 +148,6 @@ ${LIBOMP}
 
 cudart
 )
-
 CUDA_ADD_EXECUTABLE(zfp_test_bitstream
 ErrorCheck.cpp
 ${ENC_CUH}
@@ -171,6 +172,7 @@ ${LIBOMP}
 
 cudart
 )
+endif()
 
 CUDA_ADD_EXECUTABLE(zfp_test_decode
 ErrorCheck.cpp
@@ -184,6 +186,8 @@ ${LIBOMP}
 
 cudart
 )
+
+if(false)
 CUDA_ADD_EXECUTABLE(zfp_test_all
 ErrorCheck.cpp
 ${ENC_CUH}
@@ -198,7 +202,13 @@ cudart
 )
 endif()
 
-
+cuda_compile_ptx(
+  cuda_ptx_files
+	ErrorCheck.cpp
+	${ENC_CUH}
+	${BIT_CUH}
+  test_encode_par.cu
+)
 CUDA_ADD_EXECUTABLE(zfp_test_encode_par
 ErrorCheck.cpp
 ${ENC_CUH}
@@ -211,6 +221,8 @@ ${LIBOMP}
 cudart
 )
 
+if(false)
+
 CUDA_ADD_EXECUTABLE(zfp_test_ull128
 ErrorCheck.cpp
 ${ENC_CUH}
@@ -218,6 +230,33 @@ ${BIT_CUH}
 test_ull128.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_ull128
+${LIBOMP}
+
+cudart
+)
+endif()
+
+CUDA_ADD_EXECUTABLE(zfp_test_decode_par
+ErrorCheck.cpp
+${ENC_CUH}
+${DEC_CUH}
+${BIT_CUH}
+test_decode_par.cu
+)
+TARGET_LINK_LIBRARIES(zfp_test_decode_par
+${LIBOMP}
+
+cudart
+)
+
+CUDA_ADD_EXECUTABLE(zfp_test_parallel
+ErrorCheck.cpp
+${ENC_CUH}
+${DEC_CUH}
+${BIT_CUH}
+test_parallel.cu
+)
+TARGET_LINK_LIBRARIES(zfp_test_parallel
 ${LIBOMP}
 
 cudart
