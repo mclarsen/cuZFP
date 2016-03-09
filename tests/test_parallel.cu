@@ -198,8 +198,9 @@ host_vector<Bit<bsize> > &stream
 
 template<class Int, class Scalar>
 __global__
-void cudaInvEmaxXformCast
+void cudaInvXformCast
 (
+const int *emax,
 Scalar *data,
 Int *iblock
 )
@@ -212,8 +213,7 @@ Int *iblock
 	x *= 4; y *= 4; z *= 4;
 
 	inv_xform(iblock + eidx * 64);
-	int emax = max_exp(data, x, y, z, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
-	inv_cast<Int, Scalar>(iblock + eidx * 64, data, emax, x, y, z, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
+	inv_cast<Int, Scalar>(iblock + eidx * 64, data, emax[eidx], x, y, z, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
 
 }
 
@@ -247,6 +247,7 @@ const unsigned long long orig_count
 	Word *s_bit_buffer = (Word*)&smem[64 * (4 + 4 + 8 + 4 + 1 + 4)];
 	UInt *s_data = (UInt*)&smem[64 * (4 + 4 + 8 + 4 + 1 + 4 + 8)];
 	s_idx_g[tid] = 0;
+	s_data[tid] = 0;
 	__syncthreads();
 
 	if (tid == 0){
@@ -261,8 +262,7 @@ const unsigned long long orig_count
 			s_bit_rmn_bits,
 			maxbits, intprec, kmin, orig_count);
 	}	__syncthreads();
-	
-	UInt l_data[64];
+
 	for (uint k = kmin; k < intprec; k++){
 		decodeBitstream<UInt, bsize>(
 			stream[idx],
@@ -273,12 +273,11 @@ const unsigned long long orig_count
 			s_bit_bits[k],
 			s_bit_offset[k],
 			s_bit_buffer[k],
-			l_data,
+			s_data[tid],
 			maxbits, intprec, kmin, tid, k);
 	}
 
-	for (int k = 0; k < intprec; k++)
-		data[c_perm[k] + bidx] = uint2int<Int, UInt>(l_data[k]);
+	data[c_perm[tid] + bidx] = uint2int<Int, UInt>(s_data[tid]);
 
 }
 
@@ -452,25 +451,41 @@ device_vector<UInt> &buffer
 
 
 #ifndef DEBUG
-	cudaMemset(raw_pointer_cast(buffer.data()), 0, sizeof(UInt) * buffer.size());
+	//cudaMemset(raw_pointer_cast(buffer.data()), 0, sizeof(UInt) * buffer.size());
+	//block_size = dim3(4, 4, 4);
+	//grid_size = dim3(nx, ny, nz);
+	//grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+	//cudaDecodePar<UInt, bsize> << < grid_size, block_size, 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64 + 64 * 4 + sizeof(Word) * 64 >> >
+	//	(
+	//	raw_pointer_cast(stream.data()),
+	//	raw_pointer_cast(buffer.data()),
+	//	maxbits,
+	//	intprec,
+	//	kmin,
+	//	group_count);
+	//cudaStreamSynchronize(0);
+	//ec.chk("cudaDecodePar");
+	//cudaEventRecord(stop, 0);
+	//cudaEventSynchronize(stop);
+	//cudaEventElapsedTime(&millisecs, start, stop);
+	//ec.chk("cudadecode");
 	block_size = dim3(4, 4, 4);
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-	cudaDecodePar<UInt, bsize> << < grid_size, block_size, 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64 + 64 * 4 + sizeof(Word) * 64 >> >
+	cudaDecodeInvOrder<Int, UInt, bsize> << < grid_size, block_size, 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64 + 64 * 4 + sizeof(Word) * 64 + 8*64>> >
 		(
 		raw_pointer_cast(stream.data()),
-		raw_pointer_cast(buffer.data()),
+		raw_pointer_cast(q.data()),
 		maxbits,
 		intprec,
 		kmin,
 		group_count);
 	cudaStreamSynchronize(0);
-	ec.chk("cudaDecodePar");
+	ec.chk("cudaDecodeInvOrder");
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&millisecs, start, stop);
 	ec.chk("cudadecode");
-
 	cout << "decode parallel GPU in time: " << millisecs << endl;
 #else
 	uint *idx_g, *idx_n, *bit_bits, *bit_rmn_bits;
@@ -546,6 +561,17 @@ device_vector<UInt> &buffer
 	}
 #endif
 
+#ifndef DEBUG
+	block_size = dim3(4,4,4);
+	grid_size = emax_size;
+	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+	cudaInvXformCast<Int, Scalar> << <grid_size, block_size >> >(
+		raw_pointer_cast(emax.data()),
+		raw_pointer_cast(data.data()),
+		raw_pointer_cast(q.data()));
+	cudaStreamSynchronize(0);
+	ec.chk("cudaInvXformCast");
+#else
 	block_size = dim3(8, 8, 8);
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
@@ -579,11 +605,11 @@ device_vector<UInt> &buffer
 		raw_pointer_cast(q.data())
 		);
 	ec.chk("cudaInvCast");
-
+#endif
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&millisecs, start, stop);
-	ec.chk("cudaencode");
+	ec.chk("cudadecode");
 
 	cout << "decode GPU in time: " << millisecs << endl;
 
@@ -591,7 +617,7 @@ device_vector<UInt> &buffer
 		if (h_data[i] != data[i]){
 			cout << i << " " << h_data[i] << " " << data[i] << endl;
 			exit(-1);
-		}	
+		}
 	}
 	//gpuValidate<Int, UInt, Scalar, bsize>(h_data, q, data);
 

@@ -438,7 +438,7 @@ uint bits,
 char offset,
 Word buffer,
 
-UInt *data,
+UInt &data,
 
 const uint maxbits,
 const uint intprec,
@@ -457,7 +457,7 @@ const uint k
 		unsigned long long x = read_bits(m, offset, bits, buffer, stream.begin);
 		x >>= tid - n;
 		n += m;
-		data[tid] += (UInt)(x & 1u) << k;
+		data += (UInt)(x & 1u) << k;
 
 		/* continue with next bit plane if there are no more groups */
 		//if (!count || !new_bits)
@@ -692,7 +692,7 @@ const unsigned long long orig_count
 	char *s_bit_offset = (char*)&smem[64 *(4 + 4 + 8 + 4)];
 	uint *s_bit_bits = (uint*)&smem[64 *(4 + 4 + 8 + 4 + 1)];
 	Word *s_bit_buffer = (Word*)&smem[64 *(4 + 4 + 8 +4 + 1 + 4)];
-
+	UInt *s_data = (UInt*)&smem[64 * (4 + 4 + 8 + 4 + 1 + 4 + 8)];
 	s_idx_g[tid] = 0;
 	__syncthreads();
 
@@ -719,9 +719,11 @@ const unsigned long long orig_count
 			s_bit_bits[k],
 			s_bit_offset[k],
 			s_bit_buffer[k],
-			data + bidx,
+			s_data[tid],
 			maxbits, intprec, kmin, tid, k);
 	}
+
+	data[bidx + tid] = s_data[tid];
 }
 template<class Int, class Scalar>
 __global__
