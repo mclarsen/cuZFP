@@ -493,7 +493,13 @@ Bit<bsize> *stream
 	int mz = threadIdx.z + blockDim.z*blockIdx.z;
 	int eidx = mz*gridDim.x*blockDim.x*gridDim.y*blockDim.y + my*gridDim.x*blockDim.x + mx;
 
-	extern __shared__ unsigned char sh_g[], sh_sbits[];
+	extern __shared__ unsigned char smem[];
+	__shared__ unsigned char *sh_g, *sh_sbits; 
+	__shared__ Bitter *sh_bitters;
+
+	sh_g = &smem[0];
+	sh_sbits = &smem[64];
+	sh_bitters = (Bitter*)&smem[64 + 64];
 	unsigned long long x;
 
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
@@ -544,11 +550,11 @@ Bit<bsize> *stream
 		uint offset = 0;
 		for (int i = 0; i < intprec; i++){
 			if (sh_sbits[i] <= 64){
-				write_outx(stream[bidx / 64].begin, tot_sbits, offset, i, sh_sbits[i]);
+				write_outx(sh_bitters, stream[bidx / 64].begin, tot_sbits, offset, i, sh_sbits[i]);
 			}
 			else{
-				write_outx(stream[bidx / 64].begin, tot_sbits, offset, i, 64);
-				write_outy(stream[bidx / 64].begin, tot_sbits, offset, i, sh_sbits[i] - 64);
+				write_outx(sh_bitters, stream[bidx / 64].begin, tot_sbits, offset, i, 64);
+				write_outy(sh_bitters, stream[bidx / 64].begin, tot_sbits, offset, i, sh_sbits[i] - 64);
 			}
 		}
 	}
