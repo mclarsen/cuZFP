@@ -694,6 +694,7 @@ const unsigned long long orig_count
 	Word *s_bit_buffer = (Word*)&smem[64 *(4 + 4 + 8 +4 + 1 + 4)];
 	UInt *s_data = (UInt*)&smem[64 * (4 + 4 + 8 + 4 + 1 + 4 + 8)];
 	s_idx_g[tid] = 0;
+	s_data[tid] = 0;
 	__syncthreads();
 
 	if (tid == 0){
