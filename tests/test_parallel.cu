@@ -20,9 +20,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 64;
-const size_t ny = 64;
-const size_t nz = 64;
+const size_t nx = 256;
+const size_t ny = 256;
+const size_t nz = 256;
 
 uint minbits = 4096;
 uint maxbits = 4096;
@@ -410,8 +410,14 @@ host_vector<Scalar> &h_data
 	block_size = dim3(4, 4, 4);
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+	size_t blcksize = block_size.x *block_size.y * block_size.z;
+	size_t s_idx[8] = { sizeof(size_t)*9, blcksize * sizeof(uint), blcksize * sizeof(uint), +blcksize * sizeof(unsigned long long), blcksize * sizeof(uint), blcksize * sizeof(char), blcksize * sizeof(uint), blcksize * sizeof(Word) };
+	thrust::inclusive_scan(s_idx, s_idx + 8, s_idx);
+	const size_t shmem_size = thrust::reduce(s_idx, s_idx + 8);
+	device_vector<size_t> d_sidx(s_idx, s_idx + 8);
 
-	cudaDecodeGroup<bsize> << <grid_size, block_size, 64 * 8 + 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64 + 64 * 4 + sizeof(Word) * 64 >> >(
+	cudaDecodeGroup<bsize, 8> << <grid_size, block_size, shmem_size >> >(
+		raw_pointer_cast(d_sidx.data()),
 		raw_pointer_cast(stream.data()),
 		idx_g,
 		idx_n,
@@ -437,8 +443,15 @@ host_vector<Scalar> &h_data
 	block_size = dim3(4, 4, 4);
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-	cudaDecodeBitstream<UInt, bsize> << < grid_size, block_size, (sizeof(UInt) + 3 * sizeof(uint) + sizeof(unsigned long long)) * 64 >> >
+
+	size_t s_idx2[5] = { sizeof(size_t) * 5, blcksize * sizeof(UInt), blcksize * sizeof(uint), +blcksize * sizeof(uint), blcksize * sizeof(unsigned long long) };
+	thrust::inclusive_scan(s_idx, s_idx + 5, s_idx);
+	const size_t shmem_size2 = thrust::reduce(s_idx2, s_idx2 + 5);
+	device_vector<size_t> d_sidx2(s_idx2, s_idx2 + 5);
+
+	cudaDecodeBitstream<UInt, bsize, 5> << < grid_size, block_size, shmem_size2 >> >
 		(
+		raw_pointer_cast(d_sidx2.data()),
 		raw_pointer_cast(stream.data()),
 		idx_g,
 		idx_n,
@@ -447,7 +460,7 @@ host_vector<Scalar> &h_data
 		bit_buffer,
 		bit_cnt,
 		bit_rmn_bits,
-		m_data,//raw_pointer_cast(buffer.data()),
+		raw_pointer_cast(buffer.data()),
 		maxbits,
 		intprec,
 		kmin,
@@ -460,12 +473,6 @@ host_vector<Scalar> &h_data
 	ec.chk("cudaencode");
 
 	cout << "decode bitstream GPU in time: " << millisecs << endl;
-	for (int i = 0; i < buffer.size(); i++){
-		if (m_data[i] != buffer[i]){
-			cout << i << " " << m_data[i] << " " << buffer[i] << endl;
-			exit(-1);
-		}
-	}
 #endif
 
 #ifndef DEBUG

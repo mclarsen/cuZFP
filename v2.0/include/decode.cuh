@@ -474,10 +474,11 @@ const uint k
 	}
 }
 
-template<class UInt, uint bsize>
+template<class UInt, uint bsize, uint num_sidx>
 __global__
 void cudaDecodeBitstream
 (
+const size_t *sidx,
 Bit<bsize> *stream,
 const uint *idx_g,
 const uint *idx_n,
@@ -495,18 +496,31 @@ const uint kmin,
 const unsigned long long orig_count
 )
 {
-	extern __shared__ unsigned char smem[];
-
-	UInt *s_data = (UInt*)smem;
-	uint *s_idx_n = (uint*)&smem[64 * 8];
-	uint *s_idx_g = (uint*)&smem[64 * 8 + 64 * 4];
-	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[64 * 8 + 64 * 4 + 64 * 4];
-	uint *s_bit_rmn_bits = (uint*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8];
 
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
 	uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
 
+	extern __shared__ unsigned char smem[];
+#if 1
+	size_t *s_sidx = (size_t*)&smem[0];
+	if (tid < num_sidx)
+		s_sidx[tid] = sidx[tid];
+	__syncthreads();
+
+	UInt *s_data = (UInt*)smem[s_sidx[0]];
+	uint *s_idx_n = (uint*)&smem[s_sidx[1]];
+	uint *s_idx_g = (uint*)&smem[s_sidx[2]];
+	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[s_sidx[3]];
+	uint *s_bit_rmn_bits = (uint*)&smem[s_sidx[4]];
+
+#else
+	UInt *s_data = (UInt*)smem;
+	uint *s_idx_n = (uint*)&smem[64 * 8];
+	uint *s_idx_g = (uint*)&smem[64 * 8 + 64 * 4];
+	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[64 * 8 + 64 * 4 + 64 * 4];
+	uint *s_bit_rmn_bits = (uint*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8];
+#endif
 	s_bit_rmn_bits[tid] = bit_rmn_bits[bidx + tid];
 	s_bit_cnt[tid] = bit_cnt[bidx + tid];
 	s_idx_n[tid] = idx_n[bidx + tid];
@@ -535,7 +549,7 @@ const unsigned long long orig_count
 			l_bits[k],
 			l_offset[k],
 			l_buffer[k],
-			s_data,
+			s_data[tid],
 			maxbits, intprec, kmin, tid, k);
 	}
 	data[bidx + tid] = s_data[tid];
@@ -602,10 +616,11 @@ const unsigned long long orig_count
 	}
 }
 
-template<uint bsize>
+template<uint bsize, uint num_sidx>
 __global__
 void cudaDecodeGroup
 (
+const size_t *sidx,
 Bit<bsize> *stream,
 uint *idx_g,
 uint *idx_n,
@@ -630,6 +645,20 @@ const unsigned long long orig_count
 	//uint idx = tid + bidx;
 
 	extern __shared__ unsigned char smem[];
+#if 1
+	size_t *s_sidx = (size_t*)&smem[0];
+	if (tid < num_sidx)
+		s_sidx[tid] = sidx[tid];
+	__syncthreads();
+	uint *s_idx_n = (uint*)&smem[s_sidx[0]];
+	uint *s_idx_g = (uint*)&smem[s_sidx[1]];
+	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[s_sidx[2]];
+	uint *s_bit_rmn_bits = (uint*)&smem[s_sidx[3]];
+	char *s_bit_offset = (char*)&smem[s_sidx[4]];
+	uint *s_bit_bits = (uint*)&smem[s_sidx[5]];
+	Word *s_bit_buffer = (Word*)&smem[s_sidx[6]];
+
+#else
 	uint *s_idx_n = (uint*)&smem[64 * 8];
 	uint *s_idx_g = (uint*)&smem[64 * 8 + 64 * 4];
 	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[64 * 8 + 64 * 4 + 64 * 4];
@@ -637,7 +666,7 @@ const unsigned long long orig_count
 	char *s_bit_offset = (char*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4];
 	uint *s_bit_bits = (uint*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64];
 	Word *s_bit_buffer = (Word*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64 + 64 * 4];
-
+#endif
 	s_idx_g[tid] = 0;
 	__syncthreads();
 
