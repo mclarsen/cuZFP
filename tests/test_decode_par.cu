@@ -727,8 +727,15 @@ device_vector<UInt> &buffer
 	block_size = dim3(4,4,4);
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-	cudaDecodePar<UInt, bsize> << < grid_size, block_size,64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64 + 64 * 4 + sizeof(Word)*64 + 64*8>> >
+	size_t blcksize = block_size.x *block_size.y * block_size.z;
+	size_t s_idx[9] = { sizeof(size_t) * 9, blcksize * sizeof(uint), blcksize * sizeof(uint), +blcksize * sizeof(unsigned long long), blcksize * sizeof(uint), blcksize * sizeof(char), blcksize * sizeof(uint), blcksize * sizeof(Word), blcksize * sizeof(UInt) };
+	thrust::inclusive_scan(s_idx, s_idx + 9, s_idx);
+	const size_t shmem_size = thrust::reduce(s_idx, s_idx + 9);
+	device_vector<size_t> d_sidx(s_idx, s_idx + 9);
+
+	cudaDecodePar<UInt, bsize, 9> << < grid_size, block_size,64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64 + 64 * 4 + sizeof(Word)*64 + 64*8>> >
 		(
+		raw_pointer_cast(d_sidx.data()),
 		raw_pointer_cast(stream.data()),
 		raw_pointer_cast(buffer.data()),
 		maxbits,
