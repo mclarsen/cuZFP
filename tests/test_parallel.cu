@@ -20,9 +20,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 512;
-const size_t ny = 512;
-const size_t nz = 512;
+const size_t nx = 64;
+const size_t ny = 64;
+const size_t nz = 64;
 
 uint minbits = 4096;
 uint maxbits = 4096;
@@ -217,10 +217,11 @@ Int *iblock
 
 }
 
-template<class Int, class UInt, uint bsize>
+template<class Int, class UInt, uint bsize, uint num_sidx>
 __global__
 void cudaDecodeInvOrder
 (
+size_t *sidx,
 Bit<bsize> *stream,
 
 Int *data,
@@ -238,14 +239,29 @@ const unsigned long long orig_count
 	uint bidx = idx*bdim;
 
 	extern __shared__ unsigned char smem[];
+#if 1
+	size_t *s_sidx = (size_t*)&smem[0];
+	if (tid < num_sidx)
+		s_sidx[tid] = sidx[tid];
+	__syncthreads();
+	uint *s_idx_n = (uint*)&smem[s_sidx[0]];
+	uint *s_idx_g = (uint*)&smem[s_sidx[1]];
+	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[s_sidx[2]];
+	uint *s_bit_rmn_bits = (uint*)&smem[s_sidx[3]];
+	char *s_bit_offset = (char*)&smem[s_sidx[4]];
+	uint *s_bit_bits = (uint*)&smem[s_sidx[5]];
+	Word *s_bit_buffer = (Word*)&smem[s_sidx[6]];
+	UInt *s_data = (UInt*)&smem[s_sidx[7]];
+#else
 	uint *s_idx_n = (uint*)&smem[0];
-	uint *s_idx_g = (uint*)&smem[64 * sizeof(uint)];
-	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[64 * (4 + 4)];
-	uint *s_bit_rmn_bits = (uint*)&smem[64 * (4 + 4 + 8)];
-	char *s_bit_offset = (char*)&smem[64 * (4 + 4 + 8 + 4)];
-	uint *s_bit_bits = (uint*)&smem[64 * (4 + 4 + 8 + 4 + 1)];
-	Word *s_bit_buffer = (Word*)&smem[64 * (4 + 4 + 8 + 4 + 1 + 4)];
-	UInt *s_data = (UInt*)&smem[64 * (4 + 4 + 8 + 4 + 1 + 4 + 8)];
+	uint *s_idx_g = (uint*)&smem[64*4];
+	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[64 * (4+4)];
+	uint *s_bit_rmn_bits = (uint*)&smem[64 * (4+4+8)];
+	char *s_bit_offset = (char*)&smem[64 * (4+4+8+4)];
+	uint *s_bit_bits = (uint*)&smem[64 * (4+4+8+4+1)];
+	Word *s_bit_buffer = (Word*)&smem[64 * (4+4+8+4+1+4)];
+	UInt *s_data = (UInt*)&smem[64 * (4+4+8+4+1+4+8)];
+#endif
 	s_idx_g[tid] = 0;
 	s_data[tid] = 0;
 	__syncthreads();
@@ -419,7 +435,7 @@ host_vector<Scalar> &h_data
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
 
-	cudaEncodeUInt<UInt, bsize> << <grid_size, block_size, 2 * (sizeof(unsigned char) + sizeof(unsigned long long)) * 64 >> >
+	cudaEncodeUInt<UInt, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter)) * 64 >> >
 		(
 		kmin, group_count, size,
 		thrust::raw_pointer_cast(buffer.data()),
@@ -458,8 +474,14 @@ host_vector<Scalar> &h_data
 	block_size = dim3(4, 4, 4);
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-	cudaDecodeInvOrder<Int, UInt, bsize> << < grid_size, block_size, 64 * 4 + 64 * 4 + 64 * 8 + 64 * 4 + 64 + 64 * 4 + sizeof(Word) * 64 + 8*64>> >
+	size_t blcksize = block_size.x *block_size.y * block_size.z;
+	size_t s_idx[9] = { 0, blcksize * sizeof(uint), blcksize * sizeof(uint), +blcksize * sizeof(unsigned long long), blcksize * sizeof(uint), blcksize * sizeof(char), blcksize * sizeof(uint), blcksize * sizeof(Word), blcksize * sizeof(UInt) };
+	thrust::inclusive_scan(s_idx, s_idx + 9, s_idx);
+	const size_t shmem_size = thrust::reduce(s_idx, s_idx + 9);
+	device_vector<size_t> d_sidx(s_idx, s_idx + 9);
+	cudaDecodeInvOrder<Int, UInt, bsize, 9> << < grid_size, block_size, sizeof(size_t)*9 + shmem_size>> >
 		(
+		raw_pointer_cast(d_sidx.data()),
 		raw_pointer_cast(stream.data()),
 		raw_pointer_cast(q.data()),
 		maxbits,
