@@ -378,7 +378,9 @@ host_vector<Scalar> &h_data
 	thrust::inclusive_scan(s_idx, s_idx + 9, s_idx);
 	const size_t shmem_size = thrust::reduce(s_idx, s_idx + 9);
 	device_vector<size_t> d_sidx(s_idx, s_idx + 9);
-	cudaDecodeInvOrder<Int, UInt, bsize, 9> << < grid_size, block_size, shmem_size>> >
+	//cudaDecodeInvOrder<Int, UInt, bsize, 9> << < grid_size, block_size, shmem_size>> >
+	cudaDecodeInvOrder<Int, UInt, bsize, 9> << < grid_size, block_size, 64 * (4 + 4 * 8 + 4 + 1 + 4 + 8 + 8) >> >
+
 		(
 		raw_pointer_cast(d_sidx.data()),
 		raw_pointer_cast(stream.data()),
