@@ -350,11 +350,15 @@ host_vector<Scalar> &h_data
 
 	cout << "encode GPU in time: " << millisecs << endl;
 
-
+#define DEBUG
+#ifndef DEBUG
 	buffer.clear();
 	buffer.shrink_to_fit();
+#else
+  cudaMemset(raw_pointer_cast(buffer.data()), 0, sizeof(UInt)*buffer.size());
+
+#endif
 	device_vector<Int> q(nx*ny*nz);
-	//cudaMemset(raw_pointer_cast(buffer.data()), 0, sizeof(UInt)*buffer.size());
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
 	
@@ -446,12 +450,12 @@ host_vector<Scalar> &h_data
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
 
-	size_t s_idx2[5] = { sizeof(size_t) * 5, blcksize * sizeof(UInt), blcksize * sizeof(uint), +blcksize * sizeof(uint), blcksize * sizeof(unsigned long long) };
-	thrust::inclusive_scan(s_idx, s_idx + 5, s_idx);
-	const size_t shmem_size2 = thrust::reduce(s_idx2, s_idx2 + 5);
-	device_vector<size_t> d_sidx2(s_idx2, s_idx2 + 5);
+  size_t s_idx2[6] = { sizeof(size_t) * 5, blcksize * sizeof(UInt), blcksize * sizeof(uint), +blcksize * sizeof(uint), blcksize * sizeof(unsigned long long), sizeof(uint)*blcksize };
+  const uint shmem_size2 = thrust::reduce(s_idx2, s_idx2 + 6);
+  thrust::inclusive_scan(s_idx2, s_idx2 + 5, s_idx2);
+  device_vector<size_t> d_sidx2(s_idx2, s_idx2 + 5);
 
-	cudaDecodeBitstream<UInt, bsize, 5> << < grid_size, block_size, shmem_size2 >> >
+  cudaDecodeBitstream<UInt, bsize, 5> << < grid_size, block_size, shmem_size2 >> >
 		(
 		raw_pointer_cast(d_sidx2.data()),
 		raw_pointer_cast(stream.data()),

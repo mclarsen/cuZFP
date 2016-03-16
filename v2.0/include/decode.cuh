@@ -508,7 +508,7 @@ const unsigned long long orig_count
 		s_sidx[tid] = sidx[tid];
 	__syncthreads();
 
-	UInt *s_data = (UInt*)smem[s_sidx[0]];
+  UInt *s_data = (UInt*)&smem[s_sidx[0]];
 	uint *s_idx_n = (uint*)&smem[s_sidx[1]];
 	uint *s_idx_g = (uint*)&smem[s_sidx[2]];
 	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[s_sidx[3]];
