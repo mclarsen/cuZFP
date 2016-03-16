@@ -418,9 +418,9 @@ UInt *p
 	//int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
 	int emax = max_exp(data, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
 
-	uint sz = gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4;
-	uint sy = gridDim.x*blockDim.x * 4;
-	uint sx = 1;
+//	uint sz = gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4;
+//	uint sy = gridDim.x*blockDim.x * 4;
+//	uint sx = 1;
 	fixed_point(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64, data, emax, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
 	fwd_xform(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64);
 
@@ -488,10 +488,10 @@ const unsigned char *g_cnt,
 Bit<bsize> *stream
 )
 {
-	int mx = threadIdx.x + blockDim.x*blockIdx.x;
-	int my = threadIdx.y + blockDim.y*blockIdx.y;
-	int mz = threadIdx.z + blockDim.z*blockIdx.z;
-	int eidx = mz*gridDim.x*blockDim.x*gridDim.y*blockDim.y + my*gridDim.x*blockDim.x + mx;
+//	int mx = threadIdx.x + blockDim.x*blockIdx.x;
+//	int my = threadIdx.y + blockDim.y*blockIdx.y;
+//	int mz = threadIdx.z + blockDim.z*blockIdx.z;
+//	int eidx = mz*gridDim.x*blockDim.x*gridDim.y*blockDim.y + my*gridDim.x*blockDim.x + mx;
 
 	extern __shared__ unsigned char smem[];
 	__shared__ unsigned char *sh_g, *sh_sbits; 

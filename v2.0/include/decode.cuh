@@ -537,8 +537,8 @@ const unsigned long long orig_count
 	}
 	__syncthreads();
 	for (uint k = kmin; k < intprec; k++){
-		unsigned long long count = bit_cnt[k];
-		uint new_bits = bit_rmn_bits[k];
+//		unsigned long long count = bit_cnt[k];
+//		uint new_bits = bit_rmn_bits[k];
 
 		decodeBitstream<UInt, bsize>(
 			stream[idx],
