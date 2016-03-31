@@ -79,33 +79,12 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}
 endif()
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_CXX_FLAGS}")
 
-set(CMAKE_C_FLAGS "-std=c99")
+
 #ADD_DEFINITIONS("-std=c++0x -march=native -msse2")
-<<<<<<< HEAD
-ADD_DEFINITIONS("-std=c99")
+
 #SET(CMAKE_BUILD_TYPE Release)
 SET(CMAKE_BUILD_TYPE Debug)
-
-include_directories(${CMAKE_CURRENT_BINARY_DIR}
-        "${PROJECT_SOURCE_DIR}/inc"
-)
-
-CUDA_ADD_EXECUTABLE(zfp_encode
-    src/encode.c
-    src/bitstream.c
-    src/main.c
-    inc/bitstream.h
-    inc/codec.h
-    inc/types.h
-)
-target_link_libraries(zfp_encode
-)
-=======
-
-SET(CMAKE_BUILD_TYPE Release)
-#SET(CMAKE_BUILD_TYPE Debug)
 SUBDIRS(
     src
     examples
   )
->>>>>>> master
