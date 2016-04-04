@@ -1,9 +1,11 @@
-#ifndef BITSTREAM_H
-#define BITSTREAM_H
+#ifndef BITSTREAM_CUH
+#define BITSTREAM_CUH
 
 #include <limits.h>
 #include <stdlib.h>
 #include "shared.h"
+
+namespace cuZFP{
 
 template<uint bsize>
 class Bit
@@ -684,5 +686,6 @@ void cudaencode
 		stream[idx] = sl_bits[threadIdx.x];
 //    encode_ints<UInt, bsize>(stream[idx], q + idx * bsize, minbits, maxbits, precision(emax[idx], maxprec, minexp), group_count, size);
 
+}
 }
 #endif

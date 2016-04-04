@@ -1,8 +1,13 @@
-#include <helper_math.h>
+#ifndef DECODE_CUH
+#define DECODE_CUH
+
+//#include <helper_math.h>
 //dealing with doubles
 #include "BitStream.cuh"
 #define NBMASK 0xaaaaaaaaaaaaaaaaull
 #define LDEXP(x, e) ldexp(x, e)
+
+namespace cuZFP{
 
 template<class Int, class Scalar>
 __device__
@@ -138,61 +143,61 @@ uint2int(UInt x)
 
 
 
-/* decompress sequence of unsigned integers */
-template<class Int, class UInt>
-static uint
-decode_ints_old(BitStream* stream, uint minbits, uint maxbits, uint maxprec, UInt* data, uint size, unsigned long long count)
-{
-	BitStream s = *stream;
-	uint intprec = CHAR_BIT * (uint)sizeof(UInt);
-	uint kmin = intprec > maxprec ? intprec - maxprec : 0;
-	uint bits = maxbits;
-	uint i, k, m, n, test;
-	unsigned long long x;
+///* decompress sequence of unsigned integers */
+//template<class Int, class UInt>
+//static uint
+//decode_ints_old(BitStream* stream, uint minbits, uint maxbits, uint maxprec, UInt* data, uint size, unsigned long long count)
+//{
+//	BitStream s = *stream;
+//	uint intprec = CHAR_BIT * (uint)sizeof(UInt);
+//	uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+//	uint bits = maxbits;
+//	uint i, k, m, n, test;
+//	unsigned long long x;
 
-	/* initialize data array to all zeros */
-	for (i = 0; i < size; i++)
-		data[i] = 0;
+//	/* initialize data array to all zeros */
+//	for (i = 0; i < size; i++)
+//		data[i] = 0;
 
-	/* input one bit plane at a time from MSB to LSB */
-	for (k = intprec, n = 0; k-- > kmin;) {
-		/* decode bit plane k */
-		UInt* p = data;
-		for (m = n;;) {
-			/* decode bit k for the next set of m values */
-			m = MIN(m, bits);
-			bits -= m;
-			for (x = stream->read_bits(m); m; m--, x >>= 1)
-				*p++ += (UInt)(x & 1u) << k;
-			/* continue with next bit plane if there are no more groups */
-			if (!count || !bits)
-				break;
-			/* perform group test */
-			bits--;
-			test = stream->read_bit();
-			/* continue with next bit plane if there are no more significant bits */
-			if (!test || !bits)
-				break;
-			/* decode next group of m values */
-			m = count & 0xfu;
-			count >>= 4;
-			n += m;
-		}
-		/* exit if there are no more bits to read */
-		if (!bits)
-			goto exit;
-	}
+//	/* input one bit plane at a time from MSB to LSB */
+//	for (k = intprec, n = 0; k-- > kmin;) {
+//		/* decode bit plane k */
+//		UInt* p = data;
+//		for (m = n;;) {
+//			/* decode bit k for the next set of m values */
+//			m = MIN(m, bits);
+//			bits -= m;
+//			for (x = stream->read_bits(m); m; m--, x >>= 1)
+//				*p++ += (UInt)(x & 1u) << k;
+//			/* continue with next bit plane if there are no more groups */
+//			if (!count || !bits)
+//				break;
+//			/* perform group test */
+//			bits--;
+//			test = stream->read_bit();
+//			/* continue with next bit plane if there are no more significant bits */
+//			if (!test || !bits)
+//				break;
+//			/* decode next group of m values */
+//			m = count & 0xfu;
+//			count >>= 4;
+//			n += m;
+//		}
+//		/* exit if there are no more bits to read */
+//		if (!bits)
+//			goto exit;
+//	}
 
-	/* read at least minbits bits */
-	while (bits > maxbits - minbits) {
-		bits--;
-		stream->read_bit();
-	}
+//	/* read at least minbits bits */
+//	while (bits > maxbits - minbits) {
+//		bits--;
+//		stream->read_bit();
+//	}
 
-exit:
-	*stream = s;
-	return maxbits - bits;
-}
+//exit:
+//	*stream = s;
+//	return maxbits - bits;
+//}
 
 template<uint bsize>
 __global__
@@ -890,3 +895,7 @@ const unsigned long long orig_count
 	data[c_perm[tid] + bidx] = uint2int<Int, UInt>(s_data[tid]);
 
 }
+
+}
+
+#endif

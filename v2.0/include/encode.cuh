@@ -1,8 +1,10 @@
-#include <helper_math.h>
+//#include <helper_math.h>
 #include "shared.h"
 #include "ull128.h"
 #include "BitStream.cuh"
 #include "WriteBitter.cuh"
+
+#include <thrust/functional.h>
 
 __constant__ unsigned char c_perm[64];
 __constant__ uint c_sizeof_scalar;
@@ -13,7 +15,7 @@ __constant__ uint c_sizeof_scalar;
 
 const int ebias = 1023;
 
-
+namespace cuZFP{
 
 // map two's complement signed integer to negabinary unsigned integer
 template<class Int, class UInt>
@@ -558,6 +560,8 @@ Bit<bsize> *stream
 			}
 		}
 	}
+}
+
 }
 
 
