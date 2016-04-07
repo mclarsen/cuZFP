@@ -562,6 +562,106 @@ Bit<bsize> *stream
 	}
 }
 
+template<class Int, class UInt, class Scalar, uint bsize>
+void encode
+(
+int nx, int ny, int nz,
+const thrust::host_vector<Scalar> &h_data,
+thrust::device_vector<cuZFP::Bit<bsize> > &stream,
+thrust::device_vector<int> &emax,
+    const uint maxprec,
+    const unsigned long long group_count,
+    const uint size
+)
+{
+  thrust::device_vector<UInt> buffer(nx*ny*nz);
+  thrust::device_vector<unsigned char> d_g_cnt;
+
+  thrust::device_vector<Scalar> d_data = h_data;
+
+  dim3 emax_size(nx / 4, ny / 4, nz / 4);
+
+  dim3 block_size(8, 8, 8);
+  dim3 grid_size = emax_size;
+  grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
+
+  const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+  //ErrorCheck ec;
+
+  stream.resize(emax_size.x * emax_size.y * emax_size.z);
+  emax.resize(emax_size.x * emax_size.y * emax_size.z);
+
+  //  cudaEvent_t start, stop;
+  //  float millisecs;
+
+  //  cudaEventCreate(&start);
+  //  cudaEventCreate(&stop);
+  //  cudaEventRecord(start, 0);
+
+
+  //ec.chk("pre-cudaMaxExp");
+  cuZFP::cudaMaxExp << <grid_size, block_size >> >
+    (
+    thrust::raw_pointer_cast(emax.data()),
+    thrust::raw_pointer_cast(d_data.data())
+    );
+  cudaStreamSynchronize(0);
+  //ec.chk("cudaMaxExp");
+
+  for (int i = 0; i < emax.size(); i++){
+    std::cout << emax[i] << " ";
+    if (!(i % nx))
+      std::cout << std::endl;
+    if (!(i % nx*ny))
+      std::cout << std::endl;
+  }
+  block_size = dim3(4, 4, 4);
+  grid_size = emax_size;
+  grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
+  //ec.chk("pre-cudaEFPDI2UTransform");
+  cuZFP::cudaEFPDI2UTransform <Int, UInt, Scalar> << < grid_size, block_size, sizeof(Int) * 4 * 4 * 4 * 4 * 4 * 4 >> >
+    (
+    thrust::raw_pointer_cast(d_data.data()),
+    thrust::raw_pointer_cast(buffer.data())
+    );
+  //ec.chk("post-cudaEFPDI2UTransform");
+
+
+
+
+
+  unsigned long long count = group_count;
+  thrust::host_vector<unsigned char> g_cnt(10);
+  uint sum = 0;
+  g_cnt[0] = 0;
+  for (int i = 1; i < 10; i++){
+    sum += count & 0xf;
+    g_cnt[i] = sum;
+    count >>= 4;
+  }
+  d_g_cnt = g_cnt;
+
+  block_size = dim3(4, 4, 4);
+  grid_size = dim3(nx, ny, nz);
+  grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
+
+  cuZFP::cudaEncodeUInt<UInt, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter)) * 64 >> >
+    (
+    kmin, group_count, size,
+    thrust::raw_pointer_cast(buffer.data()),
+    thrust::raw_pointer_cast(d_g_cnt.data()),
+    thrust::raw_pointer_cast(stream.data())
+    );
+  cudaStreamSynchronize(0);
+  //ec.chk("cudaEncode");
+  //  cudaEventRecord(stop, 0);
+  //  cudaEventSynchronize(stop);
+  //  cudaEventElapsedTime(&millisecs, start, stop);
+
+
+  //  cout << "encode GPU in time: " << millisecs << endl;
+
+}
 }
 
 

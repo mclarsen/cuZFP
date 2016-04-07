@@ -9,6 +9,7 @@
 
 namespace cuZFP{
 
+#ifdef __CUDA_ARCH__
 template<class Int, class Scalar>
 __device__
 Scalar
@@ -16,7 +17,7 @@ dequantize(Int x, int e)
 {
 	return LDEXP((double)x, e - (CHAR_BIT * c_sizeof_scalar - 2));
 }
-
+#else
 template<class Int, class Scalar, uint sizeof_scalar>
 __host__
 Scalar
@@ -24,7 +25,7 @@ dequantize(Int x, int e)
 {
 	return LDEXP((double)x, e - (CHAR_BIT * sizeof_scalar - 2));
 }
-
+#endif
 /* inverse block-floating-point transform from signed integers */
 template<class Int, class Scalar>
 __host__ __device__
@@ -896,6 +897,84 @@ const unsigned long long orig_count
 
 }
 
+template<class Int, class UInt, class Scalar, uint bsize>
+void decode
+(
+int nx, int ny, int nz,
+thrust::device_vector<cuZFP::Bit<bsize> > &stream,
+thrust::device_vector<int> &emax,
+thrust::device_vector<Scalar> &d_data,
+    uint maxprec,
+    unsigned long long group_count,
+    uint maxbits
+)
+{
+  //ErrorCheck ec;
+  const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+  dim3 emax_size(nx / 4, ny / 4, nz / 4);
+
+  thrust::device_vector<Int> q(nx*ny*nz);
+  dim3 block_size = dim3(8, 8, 8);
+  dim3 grid_size = emax_size;
+  grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+  cuZFP::cudaRewind<bsize> << < grid_size, block_size >> >
+    (
+    raw_pointer_cast(stream.data())
+    );
+  //ec.chk("cudaRewind");
+
+
+  block_size = dim3(4, 4, 4);
+  grid_size = dim3(nx, ny, nz);
+  grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+  size_t blcksize = block_size.x *block_size.y * block_size.z;
+  size_t s_idx[9] = { sizeof(size_t) * 9, blcksize * sizeof(uint), blcksize * sizeof(uint), +blcksize * sizeof(unsigned long long), blcksize * sizeof(uint), blcksize * sizeof(char), blcksize * sizeof(uint), blcksize * sizeof(Word), blcksize * sizeof(UInt) };
+  thrust::inclusive_scan(s_idx, s_idx + 9, s_idx);
+  const size_t shmem_size = thrust::reduce(s_idx, s_idx + 9);
+  thrust::device_vector<size_t> d_sidx(s_idx, s_idx + 9);
+  //cudaDecodeInvOrder<Int, UInt, bsize, 9> << < grid_size, block_size, shmem_size>> >
+  cuZFP::cudaDecodeInvOrder<Int, UInt, bsize, 9> << < grid_size, block_size, 64 * (4 + 4 * 8 + 4 + 1 + 4 + 8 + 8) >> >
+
+    (
+    raw_pointer_cast(d_sidx.data()),
+    raw_pointer_cast(stream.data()),
+    raw_pointer_cast(q.data()),
+    maxbits,
+    intprec,
+    kmin,
+    group_count);
+  cudaStreamSynchronize(0);
+  //ec.chk("cudaDecodeInvOrder");
+  //  for (int i=0; i<q.size(); i++){
+  //    std::cout << q[i] << " ";
+  //    if (!(i % nx))
+  //      std::cout << std::endl;
+  //    if (!(i%nx*ny))
+  //      std::cout << std::endl;
+  //  }
+  //  std::cout << std:: endl;
+
+  //  cudaEventRecord(stop, 0);
+  //  cudaEventSynchronize(stop);
+  //  cudaEventElapsedTime(&millisecs, start, stop);
+  //ec.chk("cudadecode");
+  //  cout << "decode parallel GPU in time: " << millisecs << endl;
+
+  block_size = dim3(4, 4, 4);
+  grid_size = emax_size;
+  grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+  cuZFP::cudaInvXformCast<Int, Scalar> << <grid_size, block_size >> >(
+    thrust::raw_pointer_cast(emax.data()),
+    thrust::raw_pointer_cast(d_data.data()),
+    thrust::raw_pointer_cast(q.data()));
+  cudaStreamSynchronize(0);
+  //ec.chk("cudaInvXformCast");
+
+  //  cudaEventRecord(stop, 0);
+  //  cudaEventSynchronize(stop);
+  //  cudaEventElapsedTime(&millisecs, start, stop);
+  //ec.chk("cudadecode");
+}
 }
 
 #endif
