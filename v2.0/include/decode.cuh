@@ -4,6 +4,7 @@
 //#include <helper_math.h>
 //dealing with doubles
 #include "BitStream.cuh"
+#include <thrust/device_vector.h>
 #define NBMASK 0xaaaaaaaaaaaaaaaaull
 #define LDEXP(x, e) ldexp(x, e)
 

@@ -1,3 +1,6 @@
+#ifndef ENCODE_CUH
+#define ENCODE_CUH
+
 //#include <helper_math.h>
 #include "shared.h"
 #include "ull128.h"
@@ -6,8 +9,6 @@
 
 #include <thrust/functional.h>
 
-__constant__ unsigned char c_perm[64];
-__constant__ uint c_sizeof_scalar;
 
 #define LDEXP(x, e) ldexp(x, e)
 #define FREXP(x, e) frexp(x, e)
@@ -566,7 +567,7 @@ template<class Int, class UInt, class Scalar, uint bsize>
 void encode
 (
 int nx, int ny, int nz,
-const thrust::host_vector<Scalar> &h_data,
+const thrust::device_vector<Scalar> &d_data,
 thrust::device_vector<cuZFP::Bit<bsize> > &stream,
 thrust::device_vector<int> &emax,
     const uint maxprec,
@@ -576,8 +577,6 @@ thrust::device_vector<int> &emax,
 {
   thrust::device_vector<UInt> buffer(nx*ny*nz);
   thrust::device_vector<unsigned char> d_g_cnt;
-
-  thrust::device_vector<Scalar> d_data = h_data;
 
   dim3 emax_size(nx / 4, ny / 4, nz / 4);
 
@@ -662,6 +661,26 @@ thrust::device_vector<int> &emax,
   //  cout << "encode GPU in time: " << millisecs << endl;
 
 }
+
+template<class Int, class UInt, class Scalar, uint bsize>
+void encode
+(
+int nx, int ny, int nz,
+const thrust::host_vector<Scalar> &h_data,
+thrust::device_vector<cuZFP::Bit<bsize> > &stream,
+thrust::device_vector<int> &emax,
+const uint maxprec,
+const unsigned long long group_count,
+const uint size
+)
+{
+	thrust::device_vector<UInt> buffer(nx*ny*nz);
+	thrust::device_vector<unsigned char> d_g_cnt;
+
+	thrust::device_vector<Scalar> d_data = h_data;
+
+	encode<Int, UInt, Scalar, bsize>(nx, ny, nz, d_data, stream, emax, maxprec, group_count, size);
 }
 
-
+}
+#endif
