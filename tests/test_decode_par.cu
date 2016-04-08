@@ -14,10 +14,10 @@
 #include "ErrorCheck.h"
 #include "include/encode.cuh"
 #include "include/decode.cuh"
-
+#include "include/BitStream.cuh"
 using namespace thrust;
 using namespace std;
-
+using namespace cuZFP;
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
 const size_t nx = 256;

@@ -19,6 +19,7 @@
 #include "include/ull128.h"
 using namespace thrust;
 using namespace std;
+using namespace cuZFP;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 

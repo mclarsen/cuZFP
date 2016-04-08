@@ -3,13 +3,6 @@
 
 typedef unsigned char uchar;
 typedef unsigned int uint;
-<<<<<<< HEAD
-typedef signed int int32;
-typedef unsigned int uint32;
-typedef signed long long int64;
-typedef unsigned long long uint64;
-
-=======
 
 #if __STDC_VERSION__ >= 199901L
   #include <stdint.h>
@@ -24,5 +17,4 @@ typedef unsigned long long uint64;
   typedef unsigned long long uint64; /* not ANSI C compliant */
 #endif
 
->>>>>>> master
 #endif

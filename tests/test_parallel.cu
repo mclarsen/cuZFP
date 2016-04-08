@@ -17,12 +17,13 @@
 
 using namespace thrust;
 using namespace std;
+using namespace cuZFP;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 256;
-const size_t ny = 256;
-const size_t nz = 256;
+const size_t nx = 32;
+const size_t ny = 32;
+const size_t nz = 32;
 
 uint minbits = 4096;
 uint maxbits = 4096;
@@ -271,8 +272,8 @@ host_vector<Scalar> &h_data
 	host_vector<Bit<bsize> > h_bits;
 	device_vector<unsigned char> d_g_cnt;
 
-	device_vector<Scalar> data;
-	data = h_data;
+  device_vector<Scalar> data;
+  data = h_data;
 
 	device_vector<UInt> buffer(nx*ny*nz);
 
@@ -301,7 +302,17 @@ host_vector<Scalar> &h_data
 		raw_pointer_cast(emax.data()),
 		raw_pointer_cast(data.data())
 		);
+  cudaStreamSynchronize(0);
+
 	ec.chk("cudaMaxExp");
+
+  for (int i=0; i<emax.size(); i++){
+    std::cout << emax[i] << " ";
+    if ( !(i % nx))
+      std::cout << std::endl;
+    if (!(i % nx*ny))
+      std::cout << std::endl;
+  }
 
 	block_size = dim3(4, 4, 4);
 	grid_size = emax_size;
@@ -341,7 +352,7 @@ host_vector<Scalar> &h_data
 		thrust::raw_pointer_cast(d_g_cnt.data()),
 		thrust::raw_pointer_cast(stream.data())
 		);
-	cudaStreamSynchronize(0);
+  cudaStreamSynchronize(0);
 	ec.chk("cudaEncode");
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
@@ -350,7 +361,7 @@ host_vector<Scalar> &h_data
 
 	cout << "encode GPU in time: " << millisecs << endl;
 
-#define DEBUG
+  cudaMemset(thrust::raw_pointer_cast(data.data()), 0, sizeof(Scalar)*data.size());
 #ifndef DEBUG
 	buffer.clear();
 	buffer.shrink_to_fit();
@@ -394,7 +405,9 @@ host_vector<Scalar> &h_data
 		kmin,
 		group_count);
 	cudaStreamSynchronize(0);
-	ec.chk("cudaDecodeInvOrder");
+
+  cout << endl;
+  ec.chk("cudaDecodeInvOrder");
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&millisecs, start, stop);
@@ -547,15 +560,29 @@ host_vector<Scalar> &h_data
 int main()
 {
 
-	device_vector<double> d_vec_in(nx*ny*nz);
-	host_vector<double> h_vec_in;
+  host_vector<double> h_vec_in(nx*ny*nz);
+  for (int z=0; z<nz; z++){
+    for (int y=0; y<ny; y++){
+      for (int x=0; x<nx; x++){
+        if (x == 0)
+          h_vec_in[z*nx*ny + y*nx + x] = 10;
+        else if(x == nx - 1)
+          h_vec_in[z*nx*ny + y*nx + x] = 0;
+        else
+          h_vec_in[z*nx*ny + y*nx + x] = 5;
 
-	thrust::counting_iterator<uint> index_sequence_begin(0);
-	thrust::transform(
-		index_sequence_begin,
-		index_sequence_begin + nx*ny*nz,
-		d_vec_in.begin(),
-		RandGen());
+      }
+    }
+  }
+  device_vector<double> d_vec_in;
+  d_vec_in = h_vec_in;
+
+//	thrust::counting_iterator<uint> index_sequence_begin(0);
+//	thrust::transform(
+//		index_sequence_begin,
+//		index_sequence_begin + nx*ny*nz,
+//		d_vec_in.begin(),
+//		RandGen());
 
 	h_vec_in = d_vec_in;
 	d_vec_in.clear();
