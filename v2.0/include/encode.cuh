@@ -607,13 +607,13 @@ thrust::device_vector<int> &emax,
   cudaStreamSynchronize(0);
   //ec.chk("cudaMaxExp");
 
-  for (int i = 0; i < emax.size(); i++){
-    std::cout << emax[i] << " ";
-    if (!(i % nx))
-      std::cout << std::endl;
-    if (!(i % nx*ny))
-      std::cout << std::endl;
-  }
+  //for (int i = 0; i < emax.size(); i++){
+  //  std::cout << emax[i] << " ";
+  //  if (!(i % nx))
+  //    std::cout << std::endl;
+  //  if (!(i % nx*ny))
+  //    std::cout << std::endl;
+  //}
   block_size = dim3(4, 4, 4);
   grid_size = emax_size;
   grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
