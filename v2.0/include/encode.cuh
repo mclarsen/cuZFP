@@ -567,7 +567,7 @@ template<class Int, class UInt, class Scalar, uint bsize>
 void encode
 (
 int nx, int ny, int nz,
-const thrust::device_vector<Scalar> &d_data,
+const Scalar *d_data,
 thrust::device_vector<cuZFP::Bit<bsize> > &stream,
 thrust::device_vector<int> &emax,
     const uint maxprec,
@@ -602,7 +602,7 @@ thrust::device_vector<int> &emax,
   cuZFP::cudaMaxExp << <grid_size, block_size >> >
     (
     thrust::raw_pointer_cast(emax.data()),
-    thrust::raw_pointer_cast(d_data.data())
+    d_data
     );
   cudaStreamSynchronize(0);
   //ec.chk("cudaMaxExp");
@@ -620,7 +620,7 @@ thrust::device_vector<int> &emax,
   //ec.chk("pre-cudaEFPDI2UTransform");
   cuZFP::cudaEFPDI2UTransform <Int, UInt, Scalar> << < grid_size, block_size, sizeof(Int) * 4 * 4 * 4 * 4 * 4 * 4 >> >
     (
-    thrust::raw_pointer_cast(d_data.data()),
+    d_data,
     thrust::raw_pointer_cast(buffer.data())
     );
   //ec.chk("post-cudaEFPDI2UTransform");
@@ -660,6 +660,27 @@ thrust::device_vector<int> &emax,
 
   //  cout << "encode GPU in time: " << millisecs << endl;
 
+}
+
+template<class Int, class UInt, class Scalar, uint bsize>
+void encode
+(
+int nx, int ny, int nz,
+thrust::device_vector<Scalar> &d_data,
+thrust::device_vector<cuZFP::Bit<bsize> > &stream,
+thrust::device_vector<int> &emax,
+const uint maxprec,
+const unsigned long long group_count,
+const uint size
+)
+{
+	encode<Int, UInt, Scalar, bsize>(nx, ny, nz,
+		thrust::raw_pointer_cast(d_data.data()),
+		stream,
+		emax,
+		maxprec,
+		group_count,
+		size);
 }
 
 template<class Int, class UInt, class Scalar, uint bsize>

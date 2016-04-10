@@ -904,7 +904,7 @@ void decode
 int nx, int ny, int nz,
 thrust::device_vector<cuZFP::Bit<bsize> > &stream,
 thrust::device_vector<int> &emax,
-thrust::device_vector<Scalar> &d_data,
+Scalar *d_data,
     uint maxprec,
     unsigned long long group_count,
     uint maxbits
@@ -966,7 +966,7 @@ thrust::device_vector<Scalar> &d_data,
   grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
   cuZFP::cudaInvXformCast<Int, Scalar> << <grid_size, block_size >> >(
     thrust::raw_pointer_cast(emax.data()),
-    thrust::raw_pointer_cast(d_data.data()),
+    d_data,
     thrust::raw_pointer_cast(q.data()));
   cudaStreamSynchronize(0);
   //ec.chk("cudaInvXformCast");
@@ -975,6 +975,26 @@ thrust::device_vector<Scalar> &d_data,
   //  cudaEventSynchronize(stop);
   //  cudaEventElapsedTime(&millisecs, start, stop);
   //ec.chk("cudadecode");
+}
+template<class Int, class UInt, class Scalar, uint bsize>
+void decode
+(
+int nx, int ny, int nz,
+thrust::device_vector<cuZFP::Bit<bsize> > &stream,
+thrust::device_vector<int> &emax,
+thrust::device_vector<Scalar> &d_data,
+uint maxprec,
+unsigned long long group_count,
+uint maxbits
+)
+{
+	decode<Int, UInt, Scalar, bsize>(
+		nx, ny, nz, 
+		stream, 
+		emax, 
+		thrust::raw_pointer_cast(d_data.data()),
+		maxprec, group_count,
+		maxbits);
 }
 }
 
