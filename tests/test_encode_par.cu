@@ -35,6 +35,7 @@ const double rate = 64;
 size_t  blksize = 0;
 unsigned long long group_count = 0x46acca631ull;
 uint size = 64;
+int EBITS = 11;                     /* number of exponent bits */
 
 
 
@@ -130,11 +131,19 @@ perm[64] = {
 static size_t block_size(double rate) { return (lrint(64 * rate) + CHAR_BIT - 1) / CHAR_BIT; }
 
 
-void setupConst(const unsigned char *perm)
+void setupConst(const unsigned char *perm,
+	uint maxprec_,
+	int minexp_,
+	int ebits_)
+	
 {
 	ErrorCheck ec;
 	ec.chk("setupConst start");
 	cudaMemcpyToSymbol(c_perm, perm, sizeof(unsigned char) * 64, 0); ec.chk("setupConst: lic_dim");
+
+	cudaMemcpyToSymbol(c_maxprec, &maxprec_, sizeof(uint)); ec.chk("setupConst: c_maxprec");
+	cudaMemcpyToSymbol(c_minexp, &minexp_, sizeof(int)); ec.chk("setupConst: c_minexp");
+	cudaMemcpyToSymbol(c_ebits, &ebits_, sizeof(int)); ec.chk("setupConst: c_ebits");
 	ec.chk("setupConst finished");
 
 
@@ -391,16 +400,17 @@ host_vector<Scalar> &h_data
 	//ec.chk("cudaint2uint");
 	//q.clear();
 	//q.shrink_to_fit();
+	device_vector<Bit<bsize> > stream(emax_size.x * emax_size.y * emax_size.z);
 
 	ec.chk("pre-cudaEFPDI2UTransform");
-	cudaEFPDI2UTransform <Int, UInt, Scalar> << < grid_size, block_size, sizeof(Int)*4*4*4* 4*4*4 >> >
+	cudaEFPDI2UTransform <Int, UInt, Scalar, bsize> << < grid_size, block_size, sizeof(Int)*4*4*4* 4*4*4 >> >
 		(
 		raw_pointer_cast(data.data()),
-		raw_pointer_cast(buffer.data())
+		raw_pointer_cast(buffer.data()),
+		raw_pointer_cast(stream.data())
 		);
 	ec.chk("post-cudaEFPDI2UTransform");
 
-	device_vector<Bit<bsize> > stream(emax_size.x * emax_size.y * emax_size.z);
 
 
 
@@ -488,7 +498,7 @@ int main()
 	d_vec_in.clear();
 	d_vec_in.shrink_to_fit();
 	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
-	setupConst(perm);
+	setupConst(perm, maxprec, minexp, EBITS);
 	cout << "Begin gpuTestBitStream" << endl;
 	gpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
 	cout << "Finish gpuTestBitStream" << endl;

@@ -11,6 +11,7 @@ template<uint bsize>
 class Bit
 {
 public:
+	int emax;
     uint bits;   // number of buffered bits (0 <= bits < wsize)
     Word buffer; // buffer for incoming/outgoing bits
     char offset;   // pointer to next word to be read/written

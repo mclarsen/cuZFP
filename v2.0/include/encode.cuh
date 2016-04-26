@@ -147,7 +147,8 @@ void  fixed_point(Int *q, const Scalar *p, int emax, uint mx, uint my, uint mz, 
 //    uint mx,my,mz;
 //    decompIdx(sx,sy,sz, idx, mx,my,mz);
 
-
+		//quantize
+		//ASSUME CHAR_BIT is 8 and Scalar is 8
     Scalar w = LDEXP(1.0, intprec -2 -emax);
 		uint i = 0;
     for (int z=mz; z<mz+4; z++)
@@ -401,12 +402,13 @@ Int *q
 }
 
 
-template<class Int, class UInt, class Scalar>
+template<class Int, class UInt, class Scalar, uint bsize>
 __global__
 void cudaEFPDI2UTransform
 (
 const Scalar *data,
-UInt *p
+UInt *p,
+Bit<bsize> *stream
 
 )
 {
@@ -420,17 +422,21 @@ UInt *p
 	mx *= 4; my *= 4; mz *= 4;
 	//int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
 	int emax = max_exp(data, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
-
+	
+	stream[eidx].emax = emax;
 //	uint sz = gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4;
 //	uint sy = gridDim.x*blockDim.x * 4;
 //	uint sx = 1;
 	fixed_point(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64, data, emax, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
 	fwd_xform(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64);
 
+
+	//fwd_order
 	for (int i = 0; i < 64; i++){
 		uint idx = eidx * 64 + i;
 		p[idx] = int2uint<Int, UInt>(sh_q[(threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64 + c_perm[i]]);
 	}
+
 }
 
 inline
@@ -457,8 +463,6 @@ unsigned char &sbits
 	uint n_cnt = g_cnt[h];
 
 	/* serial: output one bit plane at a time from MSB to LSB */
-	bitters.x = 0;
-	bitters.y = 0;
 
 	sbits = 0;
 	/* encode bit k for first n values */
@@ -509,7 +513,24 @@ Bit<bsize> *stream
 
 	uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
 
+	Bitter bitter = make_bitter(0, 0);
+	unsigned char sbit = 0;
+
 //	uint k = threadIdx.x + blockDim.x * blockIdx.x;
+	if (tid == 0){
+		int emax = stream[bidx / 64].emax;
+		int maxprec = precision(emax, c_maxprec, c_minexp);
+		int ebits = c_ebits + 1;
+		uint e = maxprec ? emax + ebias : 0;
+		printf("%d %d %d %d\n", emax, maxprec, ebits, e);
+		if (e){
+			write_bitters(bitter, make_bitter(2*e+1, 0), ebits, sbit);
+		}
+		else{
+			write_bitter(bitter, make_bitter(0, 0), sbit);
+		}
+	}
+	__syncthreads();
 
 	/* extract bit plane k to x[k] */
 	unsigned long long y = 0;
@@ -541,8 +562,7 @@ Bit<bsize> *stream
 	unsigned char g = sh_g[tid];
 	unsigned char h = sh_g[min(tid + 1, intprec - 1)];
 
-	Bitter bitter = make_bitter(0, 0);
-	unsigned char sbit = 0;
+
 	encodeBitplane(kmin, count, x, g, h, g_cnt, bitter, sbit);
 	sh_bitters[63 - tid] = bitter;
 	sh_sbits[63 - tid] = sbit;

@@ -33,6 +33,7 @@ const double rate = 64;
 size_t  blksize = 0;
 unsigned long long group_count = 0x46acca631ull;
 uint size = 64;
+int EBITS = 11;                     /* number of exponent bits */
 
 
 static const unsigned char
@@ -127,7 +128,10 @@ static size_t block_size(double rate) { return (lrint(64 * rate) + CHAR_BIT - 1)
 
 
 template<class Scalar>
-void setupConst(const unsigned char *perm)
+void setupConst(const unsigned char *perm,
+	uint maxprec_,
+	int minexp_,
+	int ebits_)
 {
 	ErrorCheck ec;
 	ec.chk("setupConst start");
@@ -136,7 +140,12 @@ void setupConst(const unsigned char *perm)
 	const uint sizeof_scalar = sizeof(Scalar);
 	cudaMemcpyToSymbol(c_sizeof_scalar, &sizeof_scalar, sizeof(uint)); ec.chk("setupConst: c_sizeof_scalar");
 
+	cudaMemcpyToSymbol(c_maxprec, &maxprec_, sizeof(uint)); ec.chk("setupConst: c_maxprec");
+	cudaMemcpyToSymbol(c_minexp, &minexp_, sizeof(int)); ec.chk("setupConst: c_minexp");
+	cudaMemcpyToSymbol(c_ebits, &ebits_, sizeof(int)); ec.chk("setupConst: c_ebits");
+
 	ec.chk("setupConst finished");
+
 
 
 }
@@ -314,18 +323,20 @@ host_vector<Scalar> &h_data
       std::cout << std::endl;
   }
 
+	device_vector<Bit<bsize> > stream(emax_size.x * emax_size.y * emax_size.z);
+
 	block_size = dim3(4, 4, 4);
 	grid_size = emax_size;
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
 	ec.chk("pre-cudaEFPDI2UTransform");
-	cudaEFPDI2UTransform <Int, UInt, Scalar> << < grid_size, block_size, sizeof(Int) * 4 * 4 * 4 * 4 * 4 * 4 >> >
+	cudaEFPDI2UTransform <Int, UInt, Scalar, bsize> << < grid_size, block_size, sizeof(Int) * 4 * 4 * 4 * 4 * 4 * 4 >> >
 		(
 		raw_pointer_cast(data.data()),
-		raw_pointer_cast(buffer.data())
+		raw_pointer_cast(buffer.data()),
+		raw_pointer_cast(stream.data())
 		);
 	ec.chk("post-cudaEFPDI2UTransform");
 
-	device_vector<Bit<bsize> > stream(emax_size.x * emax_size.y * emax_size.z);
 
 
 
@@ -588,7 +599,7 @@ int main()
 	d_vec_in.clear();
 	d_vec_in.shrink_to_fit();
 	//    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
-	setupConst<double>(perm);
+	setupConst<double>(perm, maxprec, minexp, EBITS);
 	cout << "Begin gpuTestBitStream" << endl;
 	gpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
 	cout << "Finish gpuTestBitStream" << endl;
