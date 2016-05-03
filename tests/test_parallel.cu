@@ -242,10 +242,11 @@ Bit<bsize> *stream
 				//printf("%d %d %d %d\n", emax, maxprec, ebits, e);
 				if (e){
 					//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
-
+					stream[bidx / 64].begin[0] = 2 * e + 1;
+					sbit[0] = ebits;
 				}
 				else{
-					//write_bitter(bitter[0], make_bitter(0, 0), sbit[0]);
+					sbit[0] = 1;
 				}
 //				const uint kmin = intprec > MAXPREC ? intprec - MAXPREC : 0;
 
@@ -351,12 +352,16 @@ const unsigned long long orig_count
 				uint s_bit_bits[64];// = (uint*)&smem[s_sidx[5]];
 				Word s_bit_buffer[64];// = (Word*)&smem[s_sidx[6]];
 				UInt s_data[64];// = (UInt*)&smem[s_sidx[7]];
+				uint s_kmin[1];
 
-				int emax = stream[bidx / 64].emax;
+
+				stream[idx].read_bit();
+				uint ebits = EBITS + 1;
+				int emax = stream[idx].read_bits(ebits - 1) - ebias;
 				int maxprec = precision(emax, MAXPREC, MINEXP);
-				int ebits = EBITS + 1;
-				const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+				s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
 
+				
 				for (int tid = 0; tid < 64; tid++){
 					s_idx_g[tid] = 0;
 					s_data[tid] = 0;
@@ -371,11 +376,11 @@ const unsigned long long orig_count
 					s_bit_buffer,
 					s_bit_cnt,
 					s_bit_rmn_bits,
-					maxbits, intprec, kmin, orig_count);
+					maxbits - ebits, intprec, s_kmin[0], orig_count);
 
 				for (int tid = 0; tid < 64; tid++){
 
-					for (uint k = kmin; k < intprec; k++){
+					for (uint k = s_kmin[0]; k < intprec; k++){
 						decodeBitstream<UInt, bsize>(
 							stream[idx],
 							s_idx_g[k],
@@ -386,7 +391,7 @@ const unsigned long long orig_count
 							s_bit_offset[k],
 							s_bit_buffer[k],
 							s_data[tid],
-							maxbits, intprec, kmin, tid, k);
+							tid, k);
 					}
 
 					data[perm[tid] + bidx] = uint2int<Int, UInt>(s_data[tid]);
@@ -550,25 +555,25 @@ host_vector<Scalar> &h_data
 	host_vector<unsigned char> cpu_g_cnt;
 	host_vector<Bit<bsize> > cpu_stream(emax_size.x * emax_size.y * emax_size.z);
 
-	//cpu_buffer = buffer;
-	//cpu_g_cnt = d_g_cnt;
+	cpu_buffer = buffer;
+	cpu_g_cnt = d_g_cnt;
 
-	//cpuEncodeUInt<UInt, bsize>(group_count, size,
-	//	thrust::raw_pointer_cast(cpu_buffer.data()),
-	//	thrust::raw_pointer_cast(cpu_g_cnt.data()),
-	//	thrust::raw_pointer_cast(cpu_stream.data()));
+	cpuEncodeUInt<UInt, bsize>(group_count, size,
+		thrust::raw_pointer_cast(cpu_buffer.data()),
+		thrust::raw_pointer_cast(cpu_g_cnt.data()),
+		thrust::raw_pointer_cast(cpu_stream.data()));
 
 	//buffer = cpu_buffer;
 	//cpu_g_cnt = d_g_cnt;
 	//stream = cpu_stream;
-	cudaEncodeUInt<UInt, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter)) * 64 >> >
-		(
-		group_count, size,
-		thrust::raw_pointer_cast(buffer.data()),
-		thrust::raw_pointer_cast(d_g_cnt.data()),
-		thrust::raw_pointer_cast(stream.data())
-		);
-  cudaStreamSynchronize(0);
+	//cudaEncodeUInt<UInt, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter)) * 64 >> >
+	//	(
+	//	group_count, size,
+	//	thrust::raw_pointer_cast(buffer.data()),
+	//	thrust::raw_pointer_cast(d_g_cnt.data()),
+	//	thrust::raw_pointer_cast(stream.data())
+	//	);
+ // cudaStreamSynchronize(0);
 	//cpu_stream = stream;
 
 
@@ -613,27 +618,28 @@ host_vector<Scalar> &h_data
 	const size_t shmem_size = thrust::reduce(s_idx, s_idx + 9);
 	device_vector<size_t> d_sidx(s_idx, s_idx + 9);
 
-	//host_vector<size_t> cpu_sidx = d_sidx;
-	//host_vector<Int> cpu_q = q;
-	//cpuDecodeInvOrder < Int, UInt, bsize, 9 >
-	//	(
-	//	raw_pointer_cast(cpu_sidx.data()),
-	//		raw_pointer_cast(cpu_stream.data()),
-	//		raw_pointer_cast(cpu_q.data()),
-	//		group_count);
-
-	//stream = cpu_stream;
-	//q = cpu_q;
-	cudaDecodeInvOrder<Int, UInt, bsize, 9> << < grid_size, block_size, 64 * (4 + 4 + 8 + 4 + 1 + 4 + 8 + 8) + 4 >> >
-
+	host_vector<size_t> cpu_sidx = d_sidx;
+	host_vector<Int> cpu_q = q;
+	cpuDecodeInvOrder < Int, UInt, bsize, 9 >
 		(
-		raw_pointer_cast(d_sidx.data()),
-		raw_pointer_cast(stream.data()),
-		raw_pointer_cast(q.data()),
-		maxbits,
-		intprec,
-		group_count);
-	cudaStreamSynchronize(0);
+		raw_pointer_cast(cpu_sidx.data()),
+			raw_pointer_cast(cpu_stream.data()),
+			raw_pointer_cast(cpu_q.data()),
+			group_count);
+	stream = cpu_stream;
+	q = cpu_q;
+
+
+	//cudaDecodeInvOrder<Int, UInt, bsize, 9> << < grid_size, block_size, 64 * (4 + 4 + 8 + 4 + 1 + 4 + 8 + 8) + 4 >> >
+
+	//	(
+	//	raw_pointer_cast(d_sidx.data()),
+	//	raw_pointer_cast(stream.data()),
+	//	raw_pointer_cast(q.data()),
+	//	maxbits,
+	//	intprec,
+	//	group_count);
+	//cudaStreamSynchronize(0);
 
   cout << endl;
   ec.chk("cudaDecodeInvOrder");

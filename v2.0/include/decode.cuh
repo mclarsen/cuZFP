@@ -447,8 +447,6 @@ Word buffer,
 
 UInt &data,
 
-const uint maxbits,
-const uint intprec,
 const uint tid,
 const uint k
 )
@@ -772,7 +770,7 @@ const unsigned long long orig_count
 			s_bit_offset[k],
 			s_bit_buffer[k],
 			s_data[tid],
-			maxbits, intprec, tid, k);
+			tid, k);
 	}
 
 	data[bidx + tid] = s_data[tid];
