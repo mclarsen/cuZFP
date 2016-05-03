@@ -21,6 +21,7 @@ public:
 
     __device__ __host__
     Bit(){
+			emax = 0;
         bits = 0;
         buffer = 0;
         offset = 0;
@@ -37,6 +38,7 @@ public:
     __device__ __host__
     Bit(const Bit &bs)
     {
+			emax = bs.emax;
         bits = bs.bits;
         buffer = bs.buffer;
         offset = bs.offset;
