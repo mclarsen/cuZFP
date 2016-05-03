@@ -211,38 +211,50 @@ Bit<bsize> *stream
 
 	//uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
 
-	for (int tz = 0; tz < nz; tz+=4){
-		for (int ty = 0; ty < ny; ty+=4){
-			for (int tx = 0; tx < nx; tx+=4){
-				uint bidx = tz * nx*ny + ty*nx + tx;
+	uint3 blockIdx, gridDim, blockDim;
+	gridDim.x = nx / 4;
+	gridDim.y = ny / 4;
+	gridDim.z = nz / 4;
+	
+	blockDim.x = blockDim.y = blockDim.z = 4;
 
-				unsigned long long x;
-				Bitter bitter = make_bitter(0, 0);
-				unsigned char sbit = 0;
+	for (blockIdx.z = 0; blockIdx.z < gridDim.z; blockIdx.z++){
+		for (blockIdx.y = 0; blockIdx.y < gridDim.y; blockIdx.y++){
+			for (blockIdx.x = 0; blockIdx.x <gridDim.x; blockIdx.x++){
+				uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
 
-				//maxprec, minexp, EBITS
-				//	uint k = threadIdx.x + blockDim.x * blockIdx.x;
-				int emax = stream[bidx / 64].emax;
-				int maxprec = precision(emax, MAXPREC, MINEXP);
-				int ebits = EBITS + 1;
-				const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
-
-				uint e = maxprec ? emax + ebias : 0;
-				printf("%d %d %d %d\n", emax, maxprec, ebits, e);
-				if (e){
-					write_bitters(bitter, make_bitter(2 * e + 1, 0), ebits, sbit);
-				}
-				else{
-					write_bitter(bitter, make_bitter(0, 0), sbit);
+				unsigned long long x[64];
+				Bitter bitter[64];
+				unsigned char sbit[64];
+				for (int i = 0; i < 64; i++){
+					bitter[i] = make_bitter(0, 0);
+					sbit[i] = 0;
 				}
 
-				unsigned long long y = 0;
+				////maxprec, minexp, EBITS
+				////	uint k = threadIdx.x + blockDim.x * blockIdx.x;
+				//int emax = stream[bidx / 64].emax;
+				//int maxprec = precision(emax, MAXPREC, MINEXP);
+				//int ebits = EBITS + 1;
+				//const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+
+				//uint e = maxprec ? emax + ebias : 0;
+				////printf("%d %d %d %d\n", emax, maxprec, ebits, e);
+				//if (e){
+				//	write_bitters(bitter, make_bitter(2 * e + 1, 0), ebits, sbit);
+				//}
+				//else{
+				//	write_bitter(bitter, make_bitter(0, 0), sbit);
+				//}
+				const uint kmin = intprec > MAXPREC ? intprec - MAXPREC : 0;
+
+				unsigned long long y[64];
 				for (int tid = 0; tid < 64; tid++){
 					/* extract bit plane k to x[k] */
-					unsigned long long y = 0;
+					y[tid] = 0;
 					for (uint i = 0; i < size; i++)
-						y += ((data[bidx + i] >> tid) & (unsigned long long)1) << i;
-					x = y;
+						y[tid] += ((data[bidx + i] >> tid) & (unsigned long long)1) << i;
+					x[tid] = y[tid];
 				}
 
 				char sh_g[64], sh_sbits[64];
@@ -251,7 +263,7 @@ Bit<bsize> *stream
 				/* count number of positive group tests g[k] among 3*d in d dimensions */
 				for (int tid = 0; tid < 64; tid++){
 					sh_g[tid] = 0;
-					for (unsigned long long c = count; y; y >>= c & 0xfu, c >>= 4)
+					for (unsigned long long c = count; y[tid]; y[tid] >>= c & 0xfu, c >>= 4)
 						sh_g[tid]++;
 				}
 
@@ -270,9 +282,9 @@ Bit<bsize> *stream
 					unsigned char h = sh_g[min(tid + 1, intprec - 1)];
 
 
-					encodeBitplane(kmin, count, x, g, h, g_cnt, bitter, sbit);
-					sh_bitters[63 - tid] = bitter;
-					sh_sbits[63 - tid] = sbit;
+					encodeBitplane(kmin, count, x[tid], g, h, g_cnt, bitter[tid], sbit[tid]);
+					sh_bitters[63 - tid] = bitter[tid];
+					sh_sbits[63 - tid] = sbit[tid];
 				}
 
 
@@ -290,7 +302,95 @@ Bit<bsize> *stream
 			}
 		}
 	}
+}
 
+template<class Int, class UInt, uint bsize, uint num_sidx>
+void cpuDecodeInvOrder
+(
+size_t *sidx,
+Bit<bsize> *stream,
+
+Int *data,
+
+const uint maxbits,
+const uint intprec,
+const uint kmin,
+const unsigned long long orig_count
+
+)
+{
+	//uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
+	//uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
+	//uint bdim = blockDim.x*blockDim.y*blockDim.z;
+	//uint bidx = idx*bdim;
+
+	uint3 blockIdx, gridDim, blockDim;
+	gridDim.x = nx / 4;
+	gridDim.y = ny / 4;
+	gridDim.z = nz / 4;
+
+	blockDim.x = blockDim.y = blockDim.z = 4;
+
+	for (blockIdx.z = 0; blockIdx.z < gridDim.z; blockIdx.z++){
+		for (blockIdx.y = 0; blockIdx.y < gridDim.y; blockIdx.y++){
+			for (blockIdx.x = 0; blockIdx.x < gridDim.x; blockIdx.x++){
+				uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
+				uint bdim = blockDim.x*blockDim.y*blockDim.z;
+				uint bidx = idx*bdim;
+
+				size_t s_sidx[64];// = (size_t*)&smem[0];
+				//if (tid < num_sidx)
+				for (int tid = 0; tid < num_sidx; tid++){
+
+					s_sidx[tid] = sidx[tid];
+				}
+
+				uint s_idx_n[64];// = (uint*)&smem[s_sidx[0]];
+				uint s_idx_g[64];// = (uint*)&smem[s_sidx[1]];
+				unsigned long long s_bit_cnt[64];// = (unsigned long long*)&smem[s_sidx[2]];
+				uint s_bit_rmn_bits[64];// = (uint*)&smem[s_sidx[3]];
+				char s_bit_offset[64];// = (char*)&smem[s_sidx[4]];
+				uint s_bit_bits[64];// = (uint*)&smem[s_sidx[5]];
+				Word s_bit_buffer[64];// = (Word*)&smem[s_sidx[6]];
+				UInt s_data[64];// = (UInt*)&smem[s_sidx[7]];
+
+				for (int tid = 0; tid < 64; tid++){
+					s_idx_g[tid] = 0;
+					s_data[tid] = 0;
+				}
+
+				insert_bit<bsize>(
+					stream[idx],
+					s_idx_g,
+					s_idx_n,
+					s_bit_bits,
+					s_bit_offset,
+					s_bit_buffer,
+					s_bit_cnt,
+					s_bit_rmn_bits,
+					maxbits, intprec, kmin, orig_count);
+
+				for (int tid = 0; tid < 64; tid++){
+
+					for (uint k = kmin; k < intprec; k++){
+						decodeBitstream<UInt, bsize>(
+							stream[idx],
+							s_idx_g[k],
+							s_idx_n[k],
+							s_bit_cnt[k],
+							s_bit_rmn_bits[k],
+							s_bit_bits[k],
+							s_bit_offset[k],
+							s_bit_buffer[k],
+							s_data[tid],
+							maxbits, intprec, kmin, tid, k);
+					}
+
+					data[perm[tid] + bidx] = uint2int<Int, UInt>(s_data[tid]);
+				}
+			}
+		}
+	}
 }
 
 template<class Int, class UInt, class Scalar, uint bsize>
@@ -508,18 +608,32 @@ host_vector<Scalar> &h_data
 	thrust::inclusive_scan(s_idx, s_idx + 9, s_idx);
 	const size_t shmem_size = thrust::reduce(s_idx, s_idx + 9);
 	device_vector<size_t> d_sidx(s_idx, s_idx + 9);
-	//cudaDecodeInvOrder<Int, UInt, bsize, 9> << < grid_size, block_size, shmem_size>> >
-	cudaDecodeInvOrder<Int, UInt, bsize, 9> << < grid_size, block_size, 64 * (4 + 4 + 8 + 4 + 1 + 4 + 8 + 8) >> >
 
+	host_vector<size_t> cpu_sidx = d_sidx;
+	host_vector<Int> cpu_q = q;
+	cpuDecodeInvOrder < Int, UInt, bsize, 9 >
 		(
-		raw_pointer_cast(d_sidx.data()),
-		raw_pointer_cast(stream.data()),
-		raw_pointer_cast(q.data()),
-		maxbits,
-		intprec,
-		intprec > MAXPREC ? intprec - MAXPREC : 0,  //kmin,  this is a temporary change: kmin should be computed per 4x4x4 block
-		group_count);
-	cudaStreamSynchronize(0);
+		raw_pointer_cast(cpu_sidx.data()),
+			raw_pointer_cast(cpu_stream.data()),
+			raw_pointer_cast(cpu_q.data()),
+			maxbits,
+			intprec,
+			intprec > MAXPREC ? intprec - MAXPREC : 0,  //kmin,  this is a temporary change: kmin should be computed per 4x4x4 block
+			group_count);
+
+	stream = cpu_stream;
+	q = cpu_q;
+	//cudaDecodeInvOrder<Int, UInt, bsize, 9> << < grid_size, block_size, 64 * (4 + 4 + 8 + 4 + 1 + 4 + 8 + 8) >> >
+
+	//	(
+	//	raw_pointer_cast(d_sidx.data()),
+	//	raw_pointer_cast(stream.data()),
+	//	raw_pointer_cast(q.data()),
+	//	maxbits,
+	//	intprec,
+	//	intprec > MAXPREC ? intprec - MAXPREC : 0,  //kmin,  this is a temporary change: kmin should be computed per 4x4x4 block
+	//	group_count);
+	//cudaStreamSynchronize(0);
 
   cout << endl;
   ec.chk("cudaDecodeInvOrder");
