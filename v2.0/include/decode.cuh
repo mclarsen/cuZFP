@@ -449,7 +449,6 @@ UInt &data,
 
 const uint maxbits,
 const uint intprec,
-const uint kmin,
 const uint tid,
 const uint k
 )
@@ -557,7 +556,7 @@ const unsigned long long orig_count
 			l_offset[k],
 			l_buffer[k],
 			s_data[tid],
-			maxbits, intprec, kmin, tid, k);
+			maxbits, intprec, tid, k);
 	}
 	data[bidx + tid] = s_data[tid];
 }
@@ -773,7 +772,7 @@ const unsigned long long orig_count
 			s_bit_offset[k],
 			s_bit_buffer[k],
 			s_data[tid],
-			maxbits, intprec, kmin, tid, k);
+			maxbits, intprec, tid, k);
 	}
 
 	data[bidx + tid] = s_data[tid];
@@ -829,7 +828,6 @@ Int *data,
 
 const uint maxbits,
 const uint intprec,
-const uint kmin,
 const unsigned long long orig_count
 
 )
@@ -853,6 +851,7 @@ const unsigned long long orig_count
 	uint *s_bit_bits = (uint*)&smem[s_sidx[5]];
 	Word *s_bit_buffer = (Word*)&smem[s_sidx[6]];
 	UInt *s_data = (UInt*)&smem[s_sidx[7]];
+	uint *s_kmin = (uint*)&smem[s_sidx[8]];
 #else
 	uint *s_idx_n = (uint*)&smem[0];
 	uint *s_idx_g = (uint*)&smem[64 * 4];
@@ -868,6 +867,10 @@ const unsigned long long orig_count
 	__syncthreads();
 
 	if (tid == 0){
+		int emax = stream[bidx / 64].emax;
+		int maxprec = precision(emax, c_maxprec, c_minexp);
+		s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
+
 		insert_bit<bsize>(
 			stream[idx],
 			s_idx_g,
@@ -877,10 +880,10 @@ const unsigned long long orig_count
 			s_bit_buffer,
 			s_bit_cnt,
 			s_bit_rmn_bits,
-			maxbits, intprec, kmin, orig_count);
+			maxbits, intprec, s_kmin[0], orig_count);
 	}	__syncthreads();
 
-	for (uint k = kmin; k < intprec; k++){
+	for (uint k = s_kmin[0]; k < intprec; k++){
 		decodeBitstream<UInt, bsize>(
 			stream[idx],
 			s_idx_g[k],
@@ -891,7 +894,7 @@ const unsigned long long orig_count
 			s_bit_offset[k],
 			s_bit_buffer[k],
 			s_data[tid],
-			maxbits, intprec, kmin, tid, k);
+			maxbits, intprec, tid, k);
 	}
 
 	data[c_perm[tid] + bidx] = uint2int<Int, UInt>(s_data[tid]);

@@ -444,7 +444,6 @@ __device__ __host__
 void
 encodeBitplane
 (
-const uint kmin,
 unsigned long long count,
 
 unsigned long long x,
@@ -487,7 +486,6 @@ template<class UInt, uint bsize>
 __global__
 void cudaEncodeUInt
 (
-uint kmin,
 const unsigned long long count,
 uint size,
 const UInt* data,
@@ -515,22 +513,25 @@ Bit<bsize> *stream
 
 	Bitter bitter = make_bitter(0, 0);
 	unsigned char sbit = 0;
+	uint kmin = 0;
 
 //	uint k = threadIdx.x + blockDim.x * blockIdx.x;
 	if (tid == 0){
 		int emax = stream[bidx / 64].emax;
 		int maxprec = precision(emax, c_maxprec, c_minexp);
-		int ebits = c_ebits + 1;
-		uint e = maxprec ? emax + ebias : 0;
-		printf("%d %d %d %d\n", emax, maxprec, ebits, e);
-		if (e){
-			write_bitters(bitter, make_bitter(2*e+1, 0), ebits, sbit);
-		}
-		else{
-			write_bitter(bitter, make_bitter(0, 0), sbit);
-		}
+		kmin = intprec > maxprec ? intprec - maxprec : 0;
 	}
-	__syncthreads();
+	//	int ebits = c_ebits + 1;
+	//	uint e = maxprec ? emax + ebias : 0;
+	//	printf("%d %d %d %d\n", emax, maxprec, ebits, e);
+	//	if (e){
+	//		write_bitters(bitter, make_bitter(2*e+1, 0), ebits, sbit);
+	//	}
+	//	else{
+	//		write_bitter(bitter, make_bitter(0, 0), sbit);
+	//	}
+	//}
+	//__syncthreads();
 
 	/* extract bit plane k to x[k] */
 	unsigned long long y = 0;
@@ -563,7 +564,7 @@ Bit<bsize> *stream
 	unsigned char h = sh_g[min(tid + 1, intprec - 1)];
 
 
-	encodeBitplane(kmin, count, x, g, h, g_cnt, bitter, sbit);
+	encodeBitplane(count, x, g, h, g_cnt, bitter, sbit);
 	sh_bitters[63 - tid] = bitter;
 	sh_sbits[63 - tid] = sbit;
 

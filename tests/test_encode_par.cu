@@ -198,7 +198,7 @@ unsigned char *sbits
 
 	sh_x[threadIdx.x] = x[k];
 	__syncthreads();
-	encodeBitplane(kmin, count, x[k], g[k], g[blockDim.x*blockIdx.x + min(threadIdx.x + 1, intprec - 1)], g_cnt, bitters[blockDim.x *(blockIdx.x + 1) - threadIdx.x - 1], sbits[blockDim.x*(blockIdx.x + 1) - threadIdx.x - 1]);
+	encodeBitplane(count, x[k], g[k], g[blockDim.x*blockIdx.x + min(threadIdx.x + 1, intprec - 1)], g_cnt, bitters[blockDim.x *(blockIdx.x + 1) - threadIdx.x - 1], sbits[blockDim.x*(blockIdx.x + 1) - threadIdx.x - 1]);
 }
 
 template<class UInt>
@@ -415,7 +415,6 @@ host_vector<Scalar> &h_data
 
 
 
-	const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 	unsigned long long count = group_count;
 	host_vector<unsigned char> g_cnt(10);
 	uint sum = 0;
@@ -433,7 +432,7 @@ host_vector<Scalar> &h_data
 
   cudaEncodeUInt<UInt, bsize> << <grid_size, block_size, 2*(sizeof(unsigned char) + sizeof(unsigned long long)) * 64 >> >
 		(
-		kmin, group_count, size,
+		 group_count, size,
 		thrust::raw_pointer_cast(buffer.data()),
 		thrust::raw_pointer_cast(d_g_cnt.data()),
     thrust::raw_pointer_cast(stream.data())
