@@ -6,7 +6,7 @@
 #include "ull128.h"
 #include "BitStream.cuh"
 #include "WriteBitter.cuh"
-
+#include "shared.h"
 #include <thrust/functional.h>
 
 

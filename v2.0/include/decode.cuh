@@ -865,7 +865,9 @@ const unsigned long long orig_count
 	__syncthreads();
 
 	if (tid == 0){
-		int emax = stream[bidx / 64].emax;
+		stream[idx].read_bit();
+		uint ebits = c_ebits + 1;
+		int emax = stream[idx].read_bits(ebits - 1) - ebias;
 		int maxprec = precision(emax, c_maxprec, c_minexp);
 		s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
 
@@ -892,7 +894,7 @@ const unsigned long long orig_count
 			s_bit_offset[k],
 			s_bit_buffer[k],
 			s_data[tid],
-			maxbits, intprec, tid, k);
+			tid, k);
 	}
 
 	data[c_perm[tid] + bidx] = uint2int<Int, UInt>(s_data[tid]);
