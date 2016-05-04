@@ -501,10 +501,12 @@ Bit<bsize> *stream
 	extern __shared__ unsigned char smem[];
 	__shared__ unsigned char *sh_g, *sh_sbits; 
 	__shared__ Bitter *sh_bitters;
-
+	__shared__ uint *s_emax_bits;
 	sh_g = &smem[0];
 	sh_sbits = &smem[64];
 	sh_bitters = (Bitter*)&smem[64 + 64];
+	s_emax_bits = (uint*)&smem[64 + 64 + 16 * 64];
+
 	unsigned long long x;
 
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
@@ -517,21 +519,19 @@ Bit<bsize> *stream
 
 //	uint k = threadIdx.x + blockDim.x * blockIdx.x;
 	if (tid == 0){
+		s_emax_bits[0] = 1;
 		int emax = stream[bidx / 64].emax;
 		int maxprec = precision(emax, c_maxprec, c_minexp);
 		kmin = intprec > maxprec ? intprec - maxprec : 0;
+
+		uint e = maxprec ? emax + ebias : 0;
+		if (e){
+			//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
+			stream[bidx / 64].begin[0] = 2 * e + 1;
+			s_emax_bits[0] = c_ebits + 1;
+		}
 	}
-	//	int ebits = c_ebits + 1;
-	//	uint e = maxprec ? emax + ebias : 0;
-	//	printf("%d %d %d %d\n", emax, maxprec, ebits, e);
-	//	if (e){
-	//		write_bitters(bitter, make_bitter(2*e+1, 0), ebits, sbit);
-	//	}
-	//	else{
-	//		write_bitter(bitter, make_bitter(0, 0), sbit);
-	//	}
-	//}
-	//__syncthreads();
+	__syncthreads();
 
 	/* extract bit plane k to x[k] */
 	unsigned long long y = 0;
@@ -570,7 +570,7 @@ Bit<bsize> *stream
 
 	__syncthreads();
 	if (tid == 0){
-		uint tot_sbits = 0;// sbits[0];
+		uint tot_sbits = s_emax_bits[0];// sbits[0];
 		uint offset = 0;
 		for (int i = 0; i < intprec; i++){
 			if (sh_sbits[i] <= 64){
