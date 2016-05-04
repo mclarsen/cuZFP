@@ -230,7 +230,8 @@ Bit<bsize> *stream
 					bitter[i] = make_bitter(0, 0);
 					sbit[i] = 0;
 				}
-
+				uint s_emax_bits[1];
+				s_emax_bits[0] = 1;
 				//maxprec, minexp, EBITS
 				//	uint k = threadIdx.x + blockDim.x * blockIdx.x;
 				int emax = stream[bidx / 64].emax;
@@ -243,10 +244,7 @@ Bit<bsize> *stream
 				if (e){
 					//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
 					stream[bidx / 64].begin[0] = 2 * e + 1;
-					sbit[0] = ebits;
-				}
-				else{
-					sbit[0] = 1;
+					s_emax_bits[0] = ebits;
 				}
 //				const uint kmin = intprec > MAXPREC ? intprec - MAXPREC : 0;
 
@@ -290,7 +288,7 @@ Bit<bsize> *stream
 				}
 
 
-				uint tot_sbits = 0;// sbits[0];
+				uint tot_sbits = s_emax_bits[0];
 				uint offset = 0;
 				for (int i = 0; i < intprec; i++){
 					if (sh_sbits[i] <= 64){
@@ -555,6 +553,7 @@ host_vector<Scalar> &h_data
 	host_vector<unsigned char> cpu_g_cnt;
 	host_vector<Bit<bsize> > cpu_stream(emax_size.x * emax_size.y * emax_size.z);
 
+	cpu_stream = stream;
 	cpu_buffer = buffer;
 	cpu_g_cnt = d_g_cnt;
 
