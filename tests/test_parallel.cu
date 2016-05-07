@@ -360,6 +360,143 @@ Bit<bsize> *stream
 	}
 }
 
+
+template<class Int, class UInt, class Scalar, uint bsize>
+void cpuEncode
+(
+const unsigned long long count,
+uint size,
+const Scalar* data,
+const unsigned char *g_cnt,
+Bit<bsize> *stream
+)
+{
+
+	//extern __shared__ unsigned char smem[];
+	//__shared__ unsigned char *sh_g, *sh_sbits;
+	//__shared__ Bitter *sh_bitters;
+
+	//sh_g = &smem[0];
+	//sh_sbits = &smem[64];
+	//sh_bitters = (Bitter*)&smem[64 + 64];
+
+	//uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
+
+	//uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
+
+	uint3 blockIdx, gridDim, blockDim;
+	gridDim.x = nx / 4;
+	gridDim.y = ny / 4;
+	gridDim.z = nz / 4;
+
+	blockDim.x = blockDim.y = blockDim.z = 4;
+
+	for (blockIdx.z = 0; blockIdx.z < gridDim.z; blockIdx.z++){
+		for (blockIdx.y = 0; blockIdx.y < gridDim.y; blockIdx.y++){
+			for (blockIdx.x = 0; blockIdx.x <gridDim.x; blockIdx.x++){
+
+
+				Int sh_q[64];
+				UInt sh_p[64];
+				uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
+				mx *= 4; my *= 4; mz *= 4;
+				int emax = max_exp_block(data, mx, my, mz, 1, gridDim.x * 4, gridDim.x * 4 * gridDim.y * 4);
+
+				//	uint sz = gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4;
+				//	uint sy = gridDim.x*blockDim.x * 4;
+				//	uint sx = 1;
+				fixed_point_block(sh_q, data, emax, mx, my, mz, 1, gridDim.x * 4, gridDim.x * 4 * gridDim.y * 4);
+				fwd_xform(sh_q);
+
+
+				//fwd_order
+				for (int i = 0; i < 64; i++){
+					sh_p[i] = int2uint<Int, UInt>(sh_q[perm[i]]);
+				}
+
+
+				uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
+
+				unsigned long long x[64];
+				Bitter bitter[64];
+				unsigned char sbit[64];
+				for (int i = 0; i < 64; i++){
+					bitter[i] = make_bitter(0, 0);
+					sbit[i] = 0;
+				}
+				uint s_emax_bits[1];
+				s_emax_bits[0] = 1;
+				//maxprec, minexp, EBITS
+				//	uint k = threadIdx.x + blockDim.x * blockIdx.x;
+				int maxprec = precision(emax, MAXPREC, MINEXP);
+				int ebits = EBITS + 1;
+				const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+
+				Bit<bsize> s_stream;
+				uint e = maxprec ? emax + ebias : 0;
+				//printf("%d %d %d %d\n", emax, maxprec, ebits, e);
+				if (e){
+					//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
+					stream[bidx / 64].begin[0] = 2 * e + 1;
+					s_emax_bits[0] = ebits;
+				}
+				//				const uint kmin = intprec > MAXPREC ? intprec - MAXPREC : 0;
+
+				unsigned long long y[64];
+				for (int tid = 0; tid < 64; tid++){
+					/* extract bit plane k to x[k] */
+					y[tid] = 0;
+					for (uint i = 0; i < size; i++)
+						y[tid] += ((sh_p[i] >> tid) & (unsigned long long)1) << i;
+					x[tid] = y[tid];
+				}
+
+				char sh_g[64], sh_sbits[64];
+				Bitter sh_bitters[64];
+
+				/* count number of positive group tests g[k] among 3*d in d dimensions */
+				for (int tid = 0; tid < 64; tid++){
+					sh_g[tid] = 0;
+					for (unsigned long long c = count; y[tid]; y[tid] >>= c & 0xfu, c >>= 4)
+						sh_g[tid]++;
+				}
+
+
+				unsigned char cur = sh_g[intprec - 1];
+
+				for (int i = intprec - 1; i-- > kmin;) {
+					if (cur < sh_g[i])
+						cur = sh_g[i];
+					else if (cur > sh_g[i])
+						sh_g[i] = cur;
+				}
+
+				for (int tid = 0; tid < 64; tid++){
+					unsigned char g = sh_g[tid];
+					unsigned char h = sh_g[min(tid + 1, intprec - 1)];
+
+
+					encodeBitplane(count, x[tid], g, h, g_cnt, bitter[tid], sbit[tid]);
+					sh_bitters[63 - tid] = bitter[tid];
+					sh_sbits[63 - tid] = sbit[tid];
+				}
+
+
+				uint tot_sbits = s_emax_bits[0];
+				uint offset = 0;
+				for (int i = 0; i < intprec; i++){
+					if (sh_sbits[i] <= 64){
+						write_outx(sh_bitters, stream[bidx / 64].begin, tot_sbits, offset, i, sh_sbits[i]);
+					}
+					else{
+						write_outx(sh_bitters, stream[bidx / 64].begin, tot_sbits, offset, i, 64);
+						write_outy(sh_bitters, stream[bidx / 64].begin, tot_sbits, offset, i, sh_sbits[i] - 64);
+					}
+				}
+			}
+		}
+	}
+}
 template<class Int, class UInt, uint bsize, uint num_sidx>
 void cpuDecodeInvOrder
 (
@@ -570,33 +707,7 @@ host_vector<Scalar> &h_data
 	block_size = dim3(4, 4, 4);
 	grid_size = emax_size;
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
-	//ec.chk("pre-cudaEFPDI2UTransform");
-	//cudaEFPDI2UTransform <Int, UInt, Scalar, bsize> << < grid_size, block_size, sizeof(Int) * 4 * 4 * 4 * 4 * 4 * 4 >> >
-	//	(
-	//	raw_pointer_cast(data.data()),
-	//	raw_pointer_cast(buffer.data()),
-	//	raw_pointer_cast(stream.data())
-	//	);
-	//cudaStreamSynchronize(0);
-
-	//ec.chk("post-cudaEFPDI2UTransform");
-
-	cpu_stream = stream;
-	cpuEFPDI2UTransform<Int, UInt, Scalar, bsize>
-		(emax_size,
-		block_size,
-		grid_size,
-		thrust::raw_pointer_cast(h_data.data()),
-		thrust::raw_pointer_cast(h_buf.data()),
-		thrust::raw_pointer_cast(cpu_stream.data()));
-
-	buffer = h_buf;
-	stream = cpu_stream;
-
-
-
-
-
+	
 	unsigned long long count = group_count;
 	host_vector<unsigned char> g_cnt(10);
 	uint sum = 0;
@@ -607,25 +718,12 @@ host_vector<Scalar> &h_data
 		count >>= 4;
 	}
 	d_g_cnt = g_cnt;
-
-	block_size = dim3(4, 4, 4);
-	grid_size = dim3(nx, ny, nz);
-	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
-	
-	host_vector<UInt> cpu_buffer(nx*ny*nz);
-	host_vector<unsigned char> cpu_g_cnt;
-
 	cpu_stream = stream;
-	cpu_buffer = buffer;
-	cpu_g_cnt = d_g_cnt;
-
-	cpuEncodeUInt<UInt, bsize>(group_count, size,
-		thrust::raw_pointer_cast(cpu_buffer.data()),
-		thrust::raw_pointer_cast(cpu_g_cnt.data()),
+	cpuEncode<Int, UInt, Scalar, bsize>(group_count, size,
+		thrust::raw_pointer_cast(h_data.data()),
+		thrust::raw_pointer_cast(g_cnt.data()),
 		thrust::raw_pointer_cast(cpu_stream.data()));
 
-	buffer = cpu_buffer;
-	cpu_g_cnt = d_g_cnt;
 	stream = cpu_stream;
 	//cudaEncodeUInt<UInt, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter)) * 64 + 4 >> >
 	//	(
