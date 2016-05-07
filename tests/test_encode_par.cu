@@ -295,9 +295,9 @@ device_vector<Bit<bsize> > &stream
 				host_vector<Int> q2(64);
 				host_vector<UInt> buf(64);
 				Bit<bsize> loc_stream;
-				int emax2 = max_exp<Scalar>(raw_pointer_cast(h_p.data()), x, y, z, 1, nx, nx*ny);
+				int emax2 = max_exp_block<Scalar>(raw_pointer_cast(h_p.data()), x, y, z, 1, nx, nx*ny);
 				//fixed_point(raw_pointer_cast(q2.data()),raw_pointer_cast(h_p.data()), emax2, idx, 1,nx,nx*ny);
-				fixed_point(raw_pointer_cast(q2.data()), raw_pointer_cast(h_p.data()), emax2, x, y, z, 1, nx, nx*ny);
+				fixed_point_block(raw_pointer_cast(q2.data()), raw_pointer_cast(h_p.data()), emax2, x, y, z, 1, nx, nx*ny);
 
 				fwd_xform(raw_pointer_cast(q2.data()));
 				reorder<Int, UInt>(raw_pointer_cast(q2.data()), raw_pointer_cast(buf.data()));

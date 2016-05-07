@@ -125,7 +125,7 @@ void decompIdx
 
 template<class Scalar>
 __device__ __host__
-int max_exp(const Scalar *p, uint mx, uint my, uint mz, uint sx, uint sy, uint sz)
+int max_exp_block(const Scalar *p, uint mx, uint my, uint mz, uint sx, uint sy, uint sz)
 {
 //    uint mx,my,mz;
 //    decompIdx(sx,sy,sz, idx, mx,my,mz);
@@ -142,7 +142,7 @@ int max_exp(const Scalar *p, uint mx, uint my, uint mz, uint sx, uint sy, uint s
 //gather from p into q
 template<class Int, class Scalar>
 __host__  __device__
-void  fixed_point(Int *q, const Scalar *p, int emax, uint mx, uint my, uint mz, uint sx, uint sy, uint sz)
+void  fixed_point_block(Int *q, const Scalar *p, int emax, uint mx, uint my, uint mz, uint sx, uint sy, uint sz)
 {
 //    uint mx,my,mz;
 //    decompIdx(sx,sy,sz, idx, mx,my,mz);
@@ -158,6 +158,35 @@ void  fixed_point(Int *q, const Scalar *p, int emax, uint mx, uint my, uint mz, 
 
 }
 
+template<class Scalar>
+__device__ __host__
+int max_exp_flat(const Scalar *p, uint begin_idx, uint end_idx)
+{
+	//    uint mx,my,mz;
+	//    decompIdx(sx,sy,sz, idx, mx,my,mz);
+	Scalar fmax = 0;
+	for (int i = begin_idx; i < end_idx; i++)
+		fmax = MAX(fmax, FABS(p[i]));
+
+	return exponent(fmax);
+}
+
+//gather from p into q
+template<class Int, class Scalar>
+__host__  __device__
+void  fixed_point_flat(Int *q, const Scalar *p, int emax, uint begin_idx, uint end_idx)
+{
+	//    uint mx,my,mz;
+	//    decompIdx(sx,sy,sz, idx, mx,my,mz);
+
+	//quantize
+	//ASSUME CHAR_BIT is 8 and Scalar is 8
+	Scalar w = LDEXP(1.0, intprec - 2 - emax);
+	
+	for (uint i = begin_idx; i < end_idx; i++)
+				q[i] = (Int)(p[i] * w);
+
+}
 
 // lifting transform of 4-vector
 template <class Int>
@@ -321,7 +350,7 @@ void cudaFixedPoint
 
     x *= 4; y*=4; z*=4;
     //int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
-    fixed_point(q + eidx*64, data, emax[eidx], x,y,z, 1, gridDim.x*blockDim.x*4, gridDim.x*blockDim.x*4*gridDim.y*blockDim.y*4);
+    fixed_point_block(q + eidx*64, data, emax[eidx], x,y,z, 1, gridDim.x*blockDim.x*4, gridDim.x*blockDim.x*4*gridDim.y*blockDim.y*4);
 }
 
 template<class Scalar>
@@ -339,7 +368,7 @@ void cudaMaxExp
 
     x *= 4; y*=4; z*=4;
     //int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
-    emax[eidx] = max_exp(data, x,y,z, 1, gridDim.x*blockDim.x*4, gridDim.x*blockDim.x*4*gridDim.y*blockDim.y*4);
+    emax[eidx] = max_exp_block(data, x,y,z, 1, gridDim.x*blockDim.x*4, gridDim.x*blockDim.x*4*gridDim.y*blockDim.y*4);
 
 }
 
@@ -361,12 +390,12 @@ Int *q
 
 	mx *= 4; my *= 4; mz *= 4;
 	//int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
-	int emax = max_exp(data, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
+	int emax = max_exp_block(data, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
 
 	uint sz = gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4;
 	uint sy = gridDim.x*blockDim.x * 4;
 	uint sx = 1;
-	fixed_point(sh_q +(threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64, data, emax, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
+	fixed_point_block(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64, data, emax, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
 	for (int i = 0; i < 64; i++){
 		q[eidx * 64 + i] = sh_q[(threadIdx.x+threadIdx.y*4+threadIdx.z*16) * 64 + i];
 	}
@@ -389,12 +418,12 @@ Int *q
 
 	mx *= 4; my *= 4; mz *= 4;
 	//int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
-	int emax = max_exp(data, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
+	int emax = max_exp_block(data, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
 
 	uint sz = gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4;
 	uint sy = gridDim.x*blockDim.x * 4;
 	uint sx = 1;
-	fixed_point(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64, data, emax, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
+	fixed_point_block(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64, data, emax, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
 	fwd_xform(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64);
 	for (int i = 0; i < 64; i++){
 		q[eidx * 64 + i] = sh_q[(threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64 + i];
@@ -421,13 +450,13 @@ Bit<bsize> *stream
 
 	mx *= 4; my *= 4; mz *= 4;
 	//int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
-	int emax = max_exp(data, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
+	int emax = max_exp_block(data, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
 	
 	stream[eidx].emax = emax;
 //	uint sz = gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4;
 //	uint sy = gridDim.x*blockDim.x * 4;
 //	uint sx = 1;
-	fixed_point(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64, data, emax, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
+	fixed_point_block(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64, data, emax, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
 	fwd_xform(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64);
 
 
