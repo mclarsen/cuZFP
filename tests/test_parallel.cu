@@ -150,6 +150,62 @@ void setupConst(const unsigned char *perm,
 
 }
 
+template<class Int, class UInt, class Scalar, uint bsize>
+void cpuEFPDI2UTransform
+(
+const dim3 &emax_size,
+const dim3 &blockDim,
+const dim3 &gridDim,
+const Scalar *data,
+UInt *p,
+Bit<bsize> *stream
+
+)
+{
+	uint3 blockIdx;
+
+	for (blockIdx.z = 0; blockIdx.z < gridDim.z; blockIdx.z++){
+		for (blockIdx.y = 0; blockIdx.y < gridDim.y; blockIdx.y++){
+			for (blockIdx.x = 0; blockIdx.x < gridDim.x; blockIdx.x++){
+				uint3 threadIdx;
+				//extern __shared__ long long sh_q[];
+				long long *sh_q = new long long[64*64];
+				for (threadIdx.z = 0; threadIdx.z < blockDim.z; threadIdx.z++){
+					for (threadIdx.y = 0; threadIdx.y < blockDim.y; threadIdx.y++){
+						for (threadIdx.x = 0; threadIdx.x < blockDim.x; threadIdx.x++){
+							int mx = threadIdx.x + blockDim.x*blockIdx.x;
+							int my = threadIdx.y + blockDim.y*blockIdx.y;
+							int mz = threadIdx.z + blockDim.z*blockIdx.z;
+							int eidx = mz*gridDim.x*blockDim.x*gridDim.y*blockDim.y + my*gridDim.x*blockDim.x + mx;
+
+							mx *= 4; my *= 4; mz *= 4;
+							//int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
+							int emax = max_exp(data, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
+
+							stream[eidx].emax = emax;
+							//	uint sz = gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4;
+							//	uint sy = gridDim.x*blockDim.x * 4;
+							//	uint sx = 1;
+							fixed_point(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64, data, emax, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
+							fwd_xform(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64);
+
+
+							//fwd_order
+							for (int i = 0; i < 64; i++){
+								uint idx = eidx * 64 + i;
+								p[idx] = int2uint<Int, UInt>(sh_q[(threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64 + perm[i]]);
+							}
+						}
+					}
+				}
+				delete[]sh_q;
+
+
+			}
+		}
+	}
+}
+
 
 /* reorder unsigned coefficients and convert to signed integer */
 template<class Int, class UInt>
@@ -468,9 +524,9 @@ host_vector<Scalar> &h_data
 )
 {
 	host_vector<int> h_emax;
-	host_vector<Scalar> h_p;
+	host_vector<UInt> h_p;
 	host_vector<Int> h_q;
-	host_vector<UInt> h_buf;
+	host_vector<UInt> h_buf(nx*ny*nz);
 	host_vector<Bit<bsize> > h_bits;
 	device_vector<unsigned char> d_g_cnt;
 
@@ -508,27 +564,34 @@ host_vector<Scalar> &h_data
 
 	ec.chk("cudaMaxExp");
 
-  for (int i=0; i<emax.size(); i++){
-    std::cout << emax[i] << " ";
-    if ( !(i % nx))
-      std::cout << std::endl;
-    if (!(i % nx*ny))
-      std::cout << std::endl;
-  }
-
 	device_vector<Bit<bsize> > stream(emax_size.x * emax_size.y * emax_size.z);
+	host_vector<Bit<bsize> > cpu_stream;
 
 	block_size = dim3(4, 4, 4);
 	grid_size = emax_size;
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
-	ec.chk("pre-cudaEFPDI2UTransform");
-	cudaEFPDI2UTransform <Int, UInt, Scalar, bsize> << < grid_size, block_size, sizeof(Int) * 4 * 4 * 4 * 4 * 4 * 4 >> >
-		(
-		raw_pointer_cast(data.data()),
-		raw_pointer_cast(buffer.data()),
-		raw_pointer_cast(stream.data())
-		);
-	ec.chk("post-cudaEFPDI2UTransform");
+	//ec.chk("pre-cudaEFPDI2UTransform");
+	//cudaEFPDI2UTransform <Int, UInt, Scalar, bsize> << < grid_size, block_size, sizeof(Int) * 4 * 4 * 4 * 4 * 4 * 4 >> >
+	//	(
+	//	raw_pointer_cast(data.data()),
+	//	raw_pointer_cast(buffer.data()),
+	//	raw_pointer_cast(stream.data())
+	//	);
+	//cudaStreamSynchronize(0);
+
+	//ec.chk("post-cudaEFPDI2UTransform");
+
+	cpu_stream = stream;
+	cpuEFPDI2UTransform<Int, UInt, Scalar, bsize>
+		(emax_size,
+		block_size,
+		grid_size,
+		thrust::raw_pointer_cast(h_data.data()),
+		thrust::raw_pointer_cast(h_buf.data()),
+		thrust::raw_pointer_cast(cpu_stream.data()));
+
+	buffer = h_buf;
+	stream = cpu_stream;
 
 
 
@@ -551,7 +614,7 @@ host_vector<Scalar> &h_data
 	
 	//host_vector<UInt> cpu_buffer(nx*ny*nz);
 	//host_vector<unsigned char> cpu_g_cnt;
-	host_vector<Bit<bsize> > cpu_stream(emax_size.x * emax_size.y * emax_size.z);
+	//host_vector<Bit<bsize> > cpu_stream(emax_size.x * emax_size.y * emax_size.z);
 
 	//cpu_stream = stream;
 	//cpu_buffer = buffer;
@@ -824,7 +887,7 @@ int main()
 	//    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
 	setupConst<double>(perm, MAXPREC, MINEXP, EBITS);
 	cout << "Begin gpuTestBitStream" << endl;
-	gpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
+	gpuTestBitStream<long long int, unsigned long long int, double, 64>(h_vec_in);
 	cout << "Finish gpuTestBitStream" << endl;
 	//    cout << "Begin cpuTestBitStream" << endl;
 	//    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
