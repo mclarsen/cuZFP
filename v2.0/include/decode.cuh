@@ -616,6 +616,8 @@ const unsigned long long orig_count
 				count >>= 4;
 				n += m;
 			}
+			else
+				break;
 		}
 	}
 }
