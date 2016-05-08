@@ -21,12 +21,12 @@ using namespace cuZFP;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 128;
-const size_t ny = 128;
-const size_t nz = 128;
+const size_t nx = 512;
+const size_t ny = 512;
+const size_t nz = 512;
 
-uint minbits = 1024;
-uint maxbits = 1024;
+uint minbits = 4096;
+uint maxbits = 4096;
 uint MAXPREC = 64;
 int MINEXP = -1074;
 const double rate = 64;
@@ -915,28 +915,29 @@ int main()
 {
 
   host_vector<double> h_vec_in(nx*ny*nz);
-  for (int z=0; z<nz; z++){
-    for (int y=0; y<ny; y++){
-      for (int x=0; x<nx; x++){
-        if (x == 0)
-          h_vec_in[z*nx*ny + y*nx + x] = 10;
-        else if(x == nx - 1)
-          h_vec_in[z*nx*ny + y*nx + x] = 0;
-        else
-          h_vec_in[z*nx*ny + y*nx + x] = 5;
+  //for (int z=0; z<nz; z++){
+  //  for (int y=0; y<ny; y++){
+  //    for (int x=0; x<nx; x++){
+  //      if (x == 0)
+  //        h_vec_in[z*nx*ny + y*nx + x] = 10;
+  //      else if(x == nx - 1)
+  //        h_vec_in[z*nx*ny + y*nx + x] = 0;
+  //      else
+  //        h_vec_in[z*nx*ny + y*nx + x] = 5;
 
-      }
-    }
-  }
-  device_vector<double> d_vec_in;
-  d_vec_in = h_vec_in;
+  //    }
+  //  }
+  //}
+  //device_vector<double> d_vec_in;
+  //d_vec_in = h_vec_in;
 
-//	thrust::counting_iterator<uint> index_sequence_begin(0);
-//	thrust::transform(
-//		index_sequence_begin,
-//		index_sequence_begin + nx*ny*nz,
-//		d_vec_in.begin(),
-//		RandGen());
+	device_vector<double> d_vec_in(nx*ny*nz);
+		thrust::counting_iterator<uint> index_sequence_begin(0);
+	thrust::transform(
+		index_sequence_begin,
+		index_sequence_begin + nx*ny*nz,
+		d_vec_in.begin(),
+		RandGen());
 
 	h_vec_in = d_vec_in;
 	d_vec_in.clear();
