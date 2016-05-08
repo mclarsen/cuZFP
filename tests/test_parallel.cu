@@ -25,8 +25,8 @@ const size_t nx = 128;
 const size_t ny = 128;
 const size_t nz = 128;
 
-uint minbits = 4096;
-uint maxbits = 4096;
+uint minbits = 1024;
+uint maxbits = 1024;
 uint MAXPREC = 64;
 int MINEXP = -1074;
 const double rate = 64;
@@ -588,6 +588,109 @@ const unsigned long long orig_count
 	}
 }
 
+template<class Int, class UInt, class Scalar, uint bsize, uint num_sidx>
+void cpuDecode
+(
+dim3 gridDim,
+dim3 blockDim,
+size_t *sidx,
+Bit<bsize> *stream,
+
+Scalar *out,
+const unsigned long long orig_count
+
+)
+{
+	//uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
+	//uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
+	//uint bdim = blockDim.x*blockDim.y*blockDim.z;
+	//uint bidx = idx*bdim;
+
+	dim3 blockIdx;
+
+	for (blockIdx.z = 0; blockIdx.z < gridDim.z; blockIdx.z++){
+		for (blockIdx.y = 0; blockIdx.y < gridDim.y; blockIdx.y++){
+			for (blockIdx.x = 0; blockIdx.x < gridDim.x; blockIdx.x++){
+				uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
+				uint bdim = blockDim.x*blockDim.y*blockDim.z;
+				uint bidx = idx*bdim;
+
+				size_t s_sidx[64];// = (size_t*)&smem[0];
+				//if (tid < num_sidx)
+				for (int tid = 0; tid < num_sidx; tid++){
+
+					s_sidx[tid] = sidx[tid];
+				}
+
+				uint s_idx_n[64];// = (uint*)&smem[s_sidx[0]];
+				uint s_idx_g[64];// = (uint*)&smem[s_sidx[1]];
+				unsigned long long s_bit_cnt[64];// = (unsigned long long*)&smem[s_sidx[2]];
+				uint s_bit_rmn_bits[64];// = (uint*)&smem[s_sidx[3]];
+				char s_bit_offset[64];// = (char*)&smem[s_sidx[4]];
+				uint s_bit_bits[64];// = (uint*)&smem[s_sidx[5]];
+				Word s_bit_buffer[64];// = (Word*)&smem[s_sidx[6]];
+				UInt s_data[64];// = (UInt*)&smem[s_sidx[7]];
+				Int s_q[64];
+				uint s_kmin[1];
+				int s_emax[1];
+
+
+				stream[idx].read_bit();
+				uint ebits = EBITS + 1;
+				s_emax[0] = stream[idx].read_bits(ebits - 1) - ebias;
+				int maxprec = precision(s_emax[0], MAXPREC, MINEXP);
+				s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
+
+
+				for (int tid = 0; tid < 64; tid++){
+					s_idx_g[tid] = 0;
+					s_data[tid] = 0;
+				}
+
+				insert_bit<bsize>(
+					stream[idx],
+					s_idx_g,
+					s_idx_n,
+					s_bit_bits,
+					s_bit_offset,
+					s_bit_buffer,
+					s_bit_cnt,
+					s_bit_rmn_bits,
+					maxbits - ebits, intprec, s_kmin[0], orig_count);
+
+				for (int tid = 0; tid < 64; tid++){
+
+					for (uint k = s_kmin[0]; k < intprec; k++){
+						decodeBitstream<UInt, bsize>(
+							stream[idx],
+							s_idx_g[k],
+							s_idx_n[k],
+							s_bit_cnt[k],
+							s_bit_rmn_bits[k],
+							s_bit_bits[k],
+							s_bit_offset[k],
+							s_bit_buffer[k],
+							s_data[tid],
+							tid, k);
+					}
+
+					s_q[perm[tid]] = uint2int<Int, UInt>(s_data[tid]);
+
+
+
+
+				}
+
+				uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
+				mx *= 4; my *= 4; mz *= 4;
+
+				inv_xform(s_q);
+				inv_cast<Int, Scalar>(s_q, out, s_emax[0], mx, my, mz, 1, gridDim.x*blockDim.x, gridDim.x*blockDim.x * gridDim.y*blockDim.y);
+
+			}
+		}
+	}
+}
 template<class Int, class UInt, class Scalar, uint bsize>
 void gpuValidate
 (
@@ -778,14 +881,14 @@ host_vector<Scalar> &h_data
 
 	host_vector<size_t> cpu_sidx = d_sidx;
 	host_vector<Int> cpu_q = q;
-	cpuDecodeInvOrder < Int, UInt, bsize, 9 >
-		(
-		raw_pointer_cast(cpu_sidx.data()),
-			raw_pointer_cast(cpu_stream.data()),
-			raw_pointer_cast(cpu_q.data()),
-			group_count);
-	stream = cpu_stream;
-	q = cpu_q;
+	//cpuDecodeInvOrder < Int, UInt, bsize, 9 >
+	//	(
+	//	raw_pointer_cast(cpu_sidx.data()),
+	//		raw_pointer_cast(cpu_stream.data()),
+	//		raw_pointer_cast(cpu_q.data()),
+	//		group_count);
+	//stream = cpu_stream;
+	//q = cpu_q;
 
 
 	//cudaDecodeInvOrder<Int, UInt, bsize, 9> << < grid_size, block_size, 64 * (4 + 4 + 8 + 4 + 1 + 4 + 8 + 8) + 4 >> >
@@ -798,6 +901,15 @@ host_vector<Scalar> &h_data
 	//	intprec,
 	//	group_count);
 	//cudaStreamSynchronize(0);
+
+
+	cpuDecode < Int, UInt, Scalar, bsize, 9 >
+		(grid_size, block_size,
+		raw_pointer_cast(cpu_sidx.data()),
+		raw_pointer_cast(cpu_stream.data()),
+		raw_pointer_cast(h_data.data()),
+		group_count);
+	data = h_data;
 
   cout << endl;
   ec.chk("cudaDecodeInvOrder");
@@ -888,15 +1000,15 @@ host_vector<Scalar> &h_data
 #endif
 
 #ifndef DEBUG
-	block_size = dim3(4,4,4);
-	grid_size = emax_size;
-	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-	cudaInvXformCast<Int, Scalar> << <grid_size, block_size >> >(
-		raw_pointer_cast(emax.data()),
-		raw_pointer_cast(data.data()),
-		raw_pointer_cast(q.data()));
-	cudaStreamSynchronize(0);
-	ec.chk("cudaInvXformCast");
+	//block_size = dim3(4,4,4);
+	//grid_size = emax_size;
+	//grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+	//cudaInvXformCast<Int, Scalar> << <grid_size, block_size >> >(
+	//	raw_pointer_cast(emax.data()),
+	//	raw_pointer_cast(data.data()),
+	//	raw_pointer_cast(q.data()));
+	//cudaStreamSynchronize(0);
+	//ec.chk("cudaInvXformCast");
 #else
 	block_size = dim3(8, 8, 8);
 	grid_size = dim3(nx, ny, nz);
