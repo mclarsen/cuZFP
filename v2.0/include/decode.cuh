@@ -269,27 +269,6 @@ decode_ints(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uint ma
 
 }
 
-template< class UInt, uint bsize>
-__global__
-void cudaDecode
-(
-UInt *q,
-Bit<bsize> *stream,
-const int *emax,
-uint minbits, uint maxbits, uint maxprec, int minexp, unsigned long long group_count, uint size
-
-)
-{
-	int idx = threadIdx.x + blockDim.x*blockIdx.x;
-	extern __shared__ Bit<bsize> sl_bits[];
-
-	sl_bits[threadIdx.x] = stream[idx];
-
-	decode_ints<UInt, bsize>(sl_bits[threadIdx.x], q + idx * bsize, minbits, maxbits, precision(emax[idx], maxprec, minexp), group_count, size);
-	stream[idx] = sl_bits[threadIdx.x];
-	//    encode_ints<UInt, bsize>(stream[idx], q + idx * bsize, minbits, maxbits, precision(emax[idx], maxprec, minexp), group_count, size);
-
-}
 template<class Int, class UInt>
 __global__
 void cudaInvOrder
@@ -903,6 +882,102 @@ const unsigned long long orig_count
 
 }
 
+template<class Int, class UInt, class Scalar, uint bsize, uint num_sidx>
+__global__
+void cudaDecode
+(
+size_t *sidx,
+Bit<bsize> *stream,
+
+Scalar *out,
+
+const uint maxbits,
+const uint intprec,
+const unsigned long long orig_count
+
+)
+{
+	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
+	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
+	uint bdim = blockDim.x*blockDim.y*blockDim.z;
+	uint bidx = idx*bdim;
+
+	extern __shared__ unsigned char smem[];
+#if 1
+	size_t *s_sidx = (size_t*)&smem[0];
+	if (tid < num_sidx)
+		s_sidx[tid] = sidx[tid];
+	__syncthreads();
+	uint *s_idx_n = (uint*)&smem[s_sidx[0]];
+	uint *s_idx_g = (uint*)&smem[s_sidx[1]];
+	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[s_sidx[2]];
+	uint *s_bit_rmn_bits = (uint*)&smem[s_sidx[3]];
+	char *s_bit_offset = (char*)&smem[s_sidx[4]];
+	uint *s_bit_bits = (uint*)&smem[s_sidx[5]];
+	Word *s_bit_buffer = (Word*)&smem[s_sidx[6]];
+	UInt *s_data = (UInt*)&smem[s_sidx[7]];
+	Int *s_iblock = (Int*)&smem[s_sidx[8]];
+	uint *s_kmin = (uint*)&smem[s_sidx[9]];
+
+#else
+	uint *s_idx_n = (uint*)&smem[0];
+	uint *s_idx_g = (uint*)&smem[64 * 4];
+	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[64 * (4 + 4)];
+	uint *s_bit_rmn_bits = (uint*)&smem[64 * (4 + 4 + 8)];
+	char *s_bit_offset = (char*)&smem[64 * (4 + 4 + 8 + 4)];
+	uint *s_bit_bits = (uint*)&smem[64 * (4 + 4 + 8 + 4 + 1)];
+	Word *s_bit_buffer = (Word*)&smem[64 * (4 + 4 + 8 + 4 + 1 + 4)];
+	UInt *s_data = (UInt*)&smem[64 * (4 + 4 + 8 + 4 + 1 + 4 + 8)];
+#endif
+	s_idx_g[tid] = 0;
+	s_data[tid] = 0;
+	__syncthreads();
+
+	int emax = 0;
+	if (tid == 0){
+		stream[idx].read_bit();
+		uint ebits = c_ebits + 1;
+		emax = stream[idx].read_bits(ebits - 1) - ebias;
+		int maxprec = precision(emax, c_maxprec, c_minexp);
+		s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
+
+		insert_bit<bsize>(
+			stream[idx],
+			s_idx_g,
+			s_idx_n,
+			s_bit_bits,
+			s_bit_offset,
+			s_bit_buffer,
+			s_bit_cnt,
+			s_bit_rmn_bits,
+			maxbits, intprec, s_kmin[0], orig_count);
+	}	__syncthreads();
+
+	for (uint k = s_kmin[0]; k < intprec; k++){
+		decodeBitstream<UInt, bsize>(
+			stream[idx],
+			s_idx_g[k],
+			s_idx_n[k],
+			s_bit_cnt[k],
+			s_bit_rmn_bits[k],
+			s_bit_bits[k],
+			s_bit_offset[k],
+			s_bit_buffer[k],
+			s_data[tid],
+			tid, k);
+	}
+
+	s_iblock[c_perm[tid]] = uint2int<Int, UInt>(s_data[tid]);
+	__syncthreads();
+	if (tid == 0){
+		uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
+		mx *= 4; my *= 4; mz *= 4;
+		inv_xform(s_iblock);
+		inv_cast<Int, Scalar>(s_iblock, out, emax, mx, my, mz, 1, gridDim.x*blockDim.x, gridDim.x*blockDim.x * gridDim.y*blockDim.y);
+
+
+	}
+}
 template<class Int, class UInt, class Scalar, uint bsize>
 void decode
 (

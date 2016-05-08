@@ -874,13 +874,9 @@ host_vector<Scalar> &h_data
 	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
 	size_t blcksize = block_size.x *block_size.y * block_size.z;
-	size_t s_idx[9] = { sizeof(size_t)*9, blcksize * sizeof(uint), blcksize * sizeof(uint), +blcksize * sizeof(unsigned long long), blcksize * sizeof(uint), blcksize * sizeof(char), blcksize * sizeof(uint), blcksize * sizeof(Word), blcksize * sizeof(UInt) };
-	thrust::inclusive_scan(s_idx, s_idx + 9, s_idx);
-	const size_t shmem_size = thrust::reduce(s_idx, s_idx + 9);
-	device_vector<size_t> d_sidx(s_idx, s_idx + 9);
 
-	host_vector<size_t> cpu_sidx = d_sidx;
-	host_vector<Int> cpu_q = q;
+	//host_vector<size_t> cpu_sidx = d_sidx;
+	//host_vector<Int> cpu_q = q;
 	//cpuDecodeInvOrder < Int, UInt, bsize, 9 >
 	//	(
 	//	raw_pointer_cast(cpu_sidx.data()),
@@ -891,6 +887,10 @@ host_vector<Scalar> &h_data
 	//q = cpu_q;
 
 
+	//size_t s_idx[9] = { sizeof(size_t) * 9, blcksize * sizeof(uint), blcksize * sizeof(uint), +blcksize * sizeof(unsigned long long), blcksize * sizeof(uint), blcksize * sizeof(char), blcksize * sizeof(uint), blcksize * sizeof(Word), blcksize * sizeof(UInt) };
+	//thrust::inclusive_scan(s_idx, s_idx + 9, s_idx);
+	//const size_t shmem_size = thrust::reduce(s_idx, s_idx + 9);
+	//device_vector<size_t> d_sidx(s_idx, s_idx + 9);
 	//cudaDecodeInvOrder<Int, UInt, bsize, 9> << < grid_size, block_size, 64 * (4 + 4 + 8 + 4 + 1 + 4 + 8 + 8) + 4 >> >
 
 	//	(
@@ -902,7 +902,23 @@ host_vector<Scalar> &h_data
 	//	group_count);
 	//cudaStreamSynchronize(0);
 
+#if 1
+	size_t s_idx[12] = { sizeof(size_t) * 12, blcksize * sizeof(uint), blcksize * sizeof(uint), +blcksize * sizeof(unsigned long long), blcksize * sizeof(uint), blcksize * sizeof(char), blcksize * sizeof(uint), blcksize * sizeof(Word), blcksize * sizeof(UInt), blcksize * sizeof(Int), sizeof(uint), sizeof(int) };
+	thrust::inclusive_scan(s_idx, s_idx + 11, s_idx);
+	const size_t shmem_size = thrust::reduce(s_idx, s_idx + 11);
+	device_vector<size_t> d_sidx(s_idx, s_idx + 11);
 
+	cudaDecode<Int, UInt, Scalar, bsize, 11> << < grid_size, block_size, 64 * (4 + 4 + 8 + 4 + 1 + 4 + 8 + 8 + 8) + 4 + 4 >> >
+
+		(
+		raw_pointer_cast(d_sidx.data()),
+		raw_pointer_cast(stream.data()),
+		raw_pointer_cast(data.data()),
+		maxbits,
+		intprec,
+		group_count);
+	cudaStreamSynchronize(0);
+#else
 	cpuDecode < Int, UInt, Scalar, bsize, 9 >
 		(grid_size, block_size,
 		raw_pointer_cast(cpu_sidx.data()),
@@ -910,8 +926,7 @@ host_vector<Scalar> &h_data
 		raw_pointer_cast(h_data.data()),
 		group_count);
 	data = h_data;
-
-  cout << endl;
+#endif
   ec.chk("cudaDecodeInvOrder");
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
