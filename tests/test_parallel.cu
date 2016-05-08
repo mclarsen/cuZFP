@@ -769,7 +769,6 @@ host_vector<Scalar> &h_data
   device_vector<Scalar> data;
   data = h_data;
 
-	device_vector<UInt> buffer(nx*ny*nz);
 
 	dim3 emax_size(nx / 4, ny / 4, nz / 4);
 
@@ -777,7 +776,6 @@ host_vector<Scalar> &h_data
 	dim3 grid_size = emax_size;
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
 
-	device_vector<int> emax(emax_size.x * emax_size.y * emax_size.z);
 	//const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 
 	ErrorCheck ec;
@@ -790,15 +788,6 @@ host_vector<Scalar> &h_data
 	cudaEventRecord(start, 0);
 
 
-	ec.chk("pre-cudaMaxExp");
-	cudaMaxExp << <grid_size, block_size >> >
-		(
-		raw_pointer_cast(emax.data()),
-		raw_pointer_cast(data.data())
-		);
-  cudaStreamSynchronize(0);
-
-	ec.chk("cudaMaxExp");
 
 	device_vector<Bit<bsize> > stream(emax_size.x * emax_size.y * emax_size.z);
 	host_vector<Bit<bsize> > cpu_stream;
@@ -847,14 +836,7 @@ host_vector<Scalar> &h_data
 	cout << "encode GPU in time: " << millisecs << endl;
 
   cudaMemset(thrust::raw_pointer_cast(data.data()), 0, sizeof(Scalar)*data.size());
-#ifndef DEBUG
-	buffer.clear();
-	buffer.shrink_to_fit();
-#else
-  cudaMemset(raw_pointer_cast(buffer.data()), 0, sizeof(UInt)*buffer.size());
 
-#endif
-	device_vector<Int> q(nx*ny*nz);
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
 	
