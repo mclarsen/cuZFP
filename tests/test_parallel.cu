@@ -21,12 +21,12 @@ using namespace cuZFP;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 32;
-const size_t ny = 32;
-const size_t nz = 32;
+const size_t nx = 128;
+const size_t ny = 128;
+const size_t nz = 128;
 
-uint minbits = 1024;
-uint maxbits = 1024;
+uint minbits = 4096;
+uint maxbits = 4096;
 uint MAXPREC = 64;
 int MINEXP = -1074;
 const double rate = 64;
@@ -364,6 +364,8 @@ Bit<bsize> *stream
 template<class Int, class UInt, class Scalar, uint bsize>
 void cpuEncode
 (
+dim3 gridDim, 
+dim3 blockDim,
 const unsigned long long count,
 uint size,
 const Scalar* data,
@@ -384,13 +386,8 @@ Bit<bsize> *stream
 
 	//uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
 
-	uint3 blockIdx, gridDim, blockDim;
-	gridDim.x = nx / 4;
-	gridDim.y = ny / 4;
-	gridDim.z = nz / 4;
-
-	blockDim.x = blockDim.y = blockDim.z = 4;
-
+	dim3 blockIdx;
+	
 	for (blockIdx.z = 0; blockIdx.z < gridDim.z; blockIdx.z++){
 		for (blockIdx.y = 0; blockIdx.y < gridDim.y; blockIdx.y++){
 			for (blockIdx.x = 0; blockIdx.x <gridDim.x; blockIdx.x++){
@@ -400,12 +397,12 @@ Bit<bsize> *stream
 				UInt sh_p[64];
 				uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
 				mx *= 4; my *= 4; mz *= 4;
-				int emax = max_exp_block(data, mx, my, mz, 1, gridDim.x * 4, gridDim.x * 4 * gridDim.y * 4);
+				int emax = max_exp_block(data, mx, my, mz, 1, blockDim.x * gridDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
 
 				//	uint sz = gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4;
 				//	uint sy = gridDim.x*blockDim.x * 4;
 				//	uint sx = 1;
-				fixed_point_block(sh_q, data, emax, mx, my, mz, 1, gridDim.x * 4, gridDim.x * 4 * gridDim.y * 4);
+				fixed_point_block(sh_q, data, emax, mx, my, mz, 1, blockDim.x * gridDim.x, gridDim.x  * gridDim.y * blockDim.x * blockDim.y);
 				fwd_xform(sh_q);
 
 
@@ -415,7 +412,7 @@ Bit<bsize> *stream
 				}
 
 
-				uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
+				uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
 
 				unsigned long long x[64];
 				Bitter bitter[64];
@@ -432,12 +429,11 @@ Bit<bsize> *stream
 				int ebits = EBITS + 1;
 				const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 
-				Bit<bsize> s_stream;
 				uint e = maxprec ? emax + ebias : 0;
 				//printf("%d %d %d %d\n", emax, maxprec, ebits, e);
 				if (e){
 					//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
-					stream[bidx / 64].begin[0] = 2 * e + 1;
+					stream[bidx].begin[0] = 2 * e + 1;
 					s_emax_bits[0] = ebits;
 				}
 				//				const uint kmin = intprec > MAXPREC ? intprec - MAXPREC : 0;
@@ -486,11 +482,11 @@ Bit<bsize> *stream
 				uint offset = 0;
 				for (int i = 0; i < intprec; i++){
 					if (sh_sbits[i] <= 64){
-						write_outx(sh_bitters, stream[bidx / 64].begin, tot_sbits, offset, i, sh_sbits[i]);
+						write_outx(sh_bitters, stream[bidx].begin, tot_sbits, offset, i, sh_sbits[i]);
 					}
 					else{
-						write_outx(sh_bitters, stream[bidx / 64].begin, tot_sbits, offset, i, 64);
-						write_outy(sh_bitters, stream[bidx / 64].begin, tot_sbits, offset, i, sh_sbits[i] - 64);
+						write_outx(sh_bitters, stream[bidx].begin, tot_sbits, offset, i, 64);
+						write_outy(sh_bitters, stream[bidx].begin, tot_sbits, offset, i, sh_sbits[i] - 64);
 					}
 				}
 			}
@@ -705,7 +701,7 @@ host_vector<Scalar> &h_data
 	host_vector<Bit<bsize> > cpu_stream;
 
 	block_size = dim3(4, 4, 4);
-	grid_size = emax_size;
+	grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
 	
 	unsigned long long count = group_count;
@@ -718,25 +714,28 @@ host_vector<Scalar> &h_data
 		count >>= 4;
 	}
 	d_g_cnt = g_cnt;
+#if 0
 	cpu_stream = stream;
-	cpuEncode<Int, UInt, Scalar, bsize>(group_count, size,
+	cpuEncode<Int, UInt, Scalar, bsize>(
+		grid_size,
+		block_size,
+		group_count, size,
 		thrust::raw_pointer_cast(h_data.data()),
 		thrust::raw_pointer_cast(g_cnt.data()),
 		thrust::raw_pointer_cast(cpu_stream.data()));
-
 	stream = cpu_stream;
-	//cudaEncodeUInt<UInt, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter)) * 64 + 4 >> >
-	//	(
-	//	group_count, size,
-	//	thrust::raw_pointer_cast(buffer.data()),
-	//	thrust::raw_pointer_cast(d_g_cnt.data()),
-	//	thrust::raw_pointer_cast(stream.data())
-	//	);
- // cudaStreamSynchronize(0);
-	//cpu_stream = stream;
-
-
+#else
+	cudaEncode<Int, UInt,Scalar, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int)) * 64 + 4 >> >
+		(
+		group_count, size,
+		thrust::raw_pointer_cast(data.data()),
+		thrust::raw_pointer_cast(d_g_cnt.data()),
+		thrust::raw_pointer_cast(stream.data())
+		);
+	 cudaStreamSynchronize(0);
 	ec.chk("cudaEncode");
+	cpu_stream = stream;
+#endif
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&millisecs, start, stop);

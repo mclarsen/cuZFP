@@ -614,6 +614,122 @@ Bit<bsize> *stream
 }
 
 template<class Int, class UInt, class Scalar, uint bsize>
+__global__
+void cudaEncode
+(
+const unsigned long long count,
+uint size,
+const Scalar* data,
+const unsigned char *g_cnt,
+Bit<bsize> *stream
+)
+{
+	//	int mx = threadIdx.x + blockDim.x*blockIdx.x;
+	//	int my = threadIdx.y + blockDim.y*blockIdx.y;
+	//	int mz = threadIdx.z + blockDim.z*blockIdx.z;
+	//	int eidx = mz*gridDim.x*blockDim.x*gridDim.y*blockDim.y + my*gridDim.x*blockDim.x + mx;
+
+	extern __shared__ unsigned char smem[];
+	__shared__ unsigned char *sh_g, *sh_sbits;
+	__shared__ Bitter *sh_bitters;
+	__shared__ uint *s_emax_bits;
+	__shared__ Int *sh_q;
+	__shared__ UInt *sh_p;
+
+	sh_g = &smem[0];
+	sh_sbits = &smem[64];
+	sh_bitters = (Bitter*)&smem[64 + 64];
+	sh_p = (UInt*)&smem[64 + 64 + 16 * 64];
+	sh_q = (Int*)&sh_p[64];
+	s_emax_bits = (uint*)&sh_q[64];
+
+	unsigned long long x;
+
+	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
+
+	uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
+
+	Bitter bitter = make_bitter(0, 0);
+	unsigned char sbit = 0;
+	uint kmin = 0;
+	if (tid == 0){
+		uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
+		mx *= 4; my *= 4; mz *= 4;
+		int emax = max_exp_block(data, mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
+
+		fixed_point_block<Int, Scalar>(sh_q, data, emax, mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
+
+		fwd_xform(sh_q);
+
+
+		//fwd_order
+		for (int i = 0; i < 64; i++){
+			sh_p[i] = int2uint<Int, UInt>(sh_q[c_perm[i]]);
+		}
+		s_emax_bits[0] = 1;
+		int maxprec = precision(emax, c_maxprec, c_minexp);
+		kmin = intprec > maxprec ? intprec - maxprec : 0;
+
+		uint e = maxprec ? emax + ebias : 0;
+		if (e){
+			//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
+			stream[bidx / 64].begin[0] = 2 * e + 1;
+			s_emax_bits[0] = c_ebits + 1;
+		}
+	}
+	__syncthreads();
+
+	/* extract bit plane k to x[k] */
+	unsigned long long y = 0;
+	for (uint i = 0; i < size; i++)
+		y += ((sh_p[i] >> tid) & (unsigned long long)1) << i;
+	x = y;
+
+	__syncthreads();
+	/* count number of positive group tests g[k] among 3*d in d dimensions */
+	sh_g[tid] = 0;
+	for (unsigned long long c = count; y; y >>= c & 0xfu, c >>= 4)
+		sh_g[tid]++;
+
+	__syncthreads();
+	if (tid == 0){
+		unsigned char cur = sh_g[intprec - 1];
+
+		for (int i = intprec - 1; i-- > kmin;) {
+			if (cur < sh_g[i])
+				cur = sh_g[i];
+			else if (cur > sh_g[i])
+				sh_g[i] = cur;
+		}
+	}
+
+	__syncthreads();
+	//	g[k] = sh_g[threadIdx.x];
+
+	unsigned char g = sh_g[tid];
+	unsigned char h = sh_g[min(tid + 1, intprec - 1)];
+
+
+	encodeBitplane(count, x, g, h, g_cnt, bitter, sbit);
+	sh_bitters[63 - tid] = bitter;
+	sh_sbits[63 - tid] = sbit;
+
+	__syncthreads();
+	if (tid == 0){
+		uint tot_sbits = s_emax_bits[0];// sbits[0];
+		uint offset = 0;
+		for (int i = 0; i < intprec; i++){
+			if (sh_sbits[i] <= 64){
+				write_outx(sh_bitters, stream[bidx / 64].begin, tot_sbits, offset, i, sh_sbits[i]);
+			}
+			else{
+				write_outx(sh_bitters, stream[bidx / 64].begin, tot_sbits, offset, i, 64);
+				write_outy(sh_bitters, stream[bidx / 64].begin, tot_sbits, offset, i, sh_sbits[i] - 64);
+			}
+		}
+	}
+}
+template<class Int, class UInt, class Scalar, uint bsize>
 void encode
 (
 int nx, int ny, int nz,
