@@ -55,7 +55,7 @@ write_out(unsigned long long *out, uint &tot_sbits, uint &offset, unsigned long 
 //__shared__ Bitter sh_bitters[64];
 __device__ __host__
 void
-write_outx(const Bitter *bitters, unsigned long long *out, uint &tot_sbits, uint &offset, unsigned long idx, uint sbits)
+write_outx(const Bitter *bitters, Word*out, uint &tot_sbits, uint &offset, unsigned long idx, uint sbits)
 {
 
 	out[offset] += bitters[idx].x << tot_sbits;
@@ -69,7 +69,7 @@ write_outx(const Bitter *bitters, unsigned long long *out, uint &tot_sbits, uint
 }
 __device__ __host__
 void
-write_outy(const Bitter *bitters, unsigned long long *out, uint &tot_sbits, uint &offset, unsigned long idx, uint sbits)
+write_outy(const Bitter *bitters, Word *out, uint &tot_sbits, uint &offset, unsigned long idx, uint sbits)
 {
 
 	out[offset] += bitters[idx].y << tot_sbits;
