@@ -21,12 +21,12 @@ using namespace cuZFP;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 32;
-const size_t ny = 32;
-const size_t nz = 32;
+const size_t nx = 512;
+const size_t ny = 512;
+const size_t nz = 512;
 
 uint minbits = 1024;
-uint maxbits = 1024;
+uint MAXBITS = 1024;
 uint MAXPREC = 64;
 int MINEXP = -1074;
 const double rate = 64;
@@ -129,6 +129,7 @@ static size_t block_size(double rate) { return (lrint(64 * rate) + CHAR_BIT - 1)
 
 template<class Scalar>
 void setupConst(const unsigned char *perm,
+	uint maxbits_,
 	uint maxprec_,
 	int minexp_,
 	int ebits_)
@@ -137,6 +138,7 @@ void setupConst(const unsigned char *perm,
 	ec.chk("setupConst start");
 	cudaMemcpyToSymbol(c_perm, perm, sizeof(unsigned char) * 64, 0); ec.chk("setupConst: c_perm");
 
+	cudaMemcpyToSymbol(c_maxbits, &MAXBITS, sizeof(uint)); ec.chk("setupConst: c_maxbits");
 	const uint sizeof_scalar = sizeof(Scalar);
 	cudaMemcpyToSymbol(c_sizeof_scalar, &sizeof_scalar, sizeof(uint)); ec.chk("setupConst: c_sizeof_scalar");
 
@@ -481,7 +483,7 @@ Bit<bsize> *stream
 				uint rem_sbits = s_emax_bits[0];
 				uint tot_sbits = s_emax_bits[0];
 				uint offset = 0;
-				for (int i = 0; i < intprec && tot_sbits < maxbits; i++){
+				for (int i = 0; i < intprec && tot_sbits < MAXBITS; i++){
 					if (sh_sbits[i] <= 64){
 						write_outx(sh_bitters, stream[bidx].begin, rem_sbits, tot_sbits, offset, i, sh_sbits[i]);
 					}
@@ -564,7 +566,7 @@ const unsigned long long orig_count
 					s_bit_buffer,
 					s_bit_cnt,
 					s_bit_rmn_bits,
-					maxbits - ebits, intprec, s_kmin[0], orig_count);
+					MAXBITS - ebits, intprec, s_kmin[0], orig_count);
 
 				for (int tid = 0; tid < 64; tid++){
 
@@ -657,7 +659,7 @@ const unsigned long long orig_count
 					s_bit_buffer,
 					s_bit_cnt,
 					s_bit_rmn_bits,
-					maxbits - ebits, intprec, s_kmin[0], orig_count);
+					MAXBITS - ebits, intprec, s_kmin[0], orig_count);
 
 				for (int tid = 0; tid < 64; tid++){
 
@@ -716,12 +718,12 @@ device_vector<Scalar> &data
 				fixed_point_block(raw_pointer_cast(q2.data()), raw_pointer_cast(h_p.data()), emax2, x, y, z, 1, nx, nx*ny);
 				fwd_xform(raw_pointer_cast(q2.data()));
 				reorder<Int, UInt>(raw_pointer_cast(q2.data()), raw_pointer_cast(buf.data()));
-				encode_ints<UInt>(loc_stream, raw_pointer_cast(buf.data()), minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+				encode_ints<UInt>(loc_stream, raw_pointer_cast(buf.data()), minbits, MAXBITS, precision(emax2, maxprec, minexp), group_count, size);
 
 				loc_stream.rewind();
 				UInt dec[64];
 
-				decode_ints<UInt, bsize>(loc_stream, dec, minbits, maxbits, precision(emax2, maxprec, minexp), group_count, size);
+				decode_ints<UInt, bsize>(loc_stream, dec, minbits, MAXBITS, precision(emax2, maxprec, minexp), group_count, size);
 
 
 				Int iblock[64];
@@ -881,7 +883,6 @@ host_vector<Scalar> &h_data
 		raw_pointer_cast(d_sidx.data()),
 		raw_pointer_cast(stream.data()),
 		raw_pointer_cast(data.data()),
-		maxbits,
 		intprec,
 		group_count);
 	cudaStreamSynchronize(0);
@@ -1055,9 +1056,9 @@ int main()
 	d_vec_in.clear();
 	d_vec_in.shrink_to_fit();
 	//    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
-	setupConst<double>(perm, MAXPREC, MINEXP, EBITS);
+	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS);
 	cout << "Begin gpuTestBitStream" << endl;
-	cpuTestBitStream<long long int, unsigned long long int, double, 16>(h_vec_in);
+	gpuTestBitStream<long long int, unsigned long long int, double, 16>(h_vec_in);
 	cout << "Finish gpuTestBitStream" << endl;
 	//    cout << "Begin cpuTestBitStream" << endl;
 	//    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);

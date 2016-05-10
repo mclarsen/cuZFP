@@ -718,14 +718,15 @@ Bit<bsize> *stream
 	__syncthreads();
 	if (tid == 0){
 		uint tot_sbits = s_emax_bits[0];// sbits[0];
+		uint  rem_sbits = s_emax_bits[0];// sbits[0];
 		uint offset = 0;
-		for (int i = 0; i < intprec; i++){
+		for (int i = 0; i < intprec && tot_sbits < c_maxbits; i++){
 			if (sh_sbits[i] <= 64){
-				write_outx(sh_bitters, stream[bidx / 64].begin, tot_sbits, offset, i, sh_sbits[i]);
+				write_outx(sh_bitters, stream[bidx / 64].begin, rem_sbits, tot_sbits, offset, i, sh_sbits[i]);
 			}
 			else{
-				write_outx(sh_bitters, stream[bidx / 64].begin, tot_sbits, offset, i, 64);
-				write_outy(sh_bitters, stream[bidx / 64].begin, tot_sbits, offset, i, sh_sbits[i] - 64);
+				write_outx(sh_bitters, stream[bidx / 64].begin, rem_sbits, tot_sbits, offset, i, 64);
+				write_outy(sh_bitters, stream[bidx / 64].begin, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64);
 			}
 		}
 	}

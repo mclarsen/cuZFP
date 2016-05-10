@@ -891,7 +891,6 @@ Bit<bsize> *stream,
 
 Scalar *out,
 
-const uint maxbits,
 const uint intprec,
 const unsigned long long orig_count
 
@@ -950,7 +949,7 @@ const unsigned long long orig_count
 			s_bit_buffer,
 			s_bit_cnt,
 			s_bit_rmn_bits,
-			maxbits, intprec, s_kmin[0], orig_count);
+			c_maxbits, intprec, s_kmin[0], orig_count);
 	}	__syncthreads();
 
 	for (uint k = s_kmin[0]; k < intprec; k++){
