@@ -25,6 +25,16 @@ const size_t nx = 512;
 const size_t ny = 512;
 const size_t nz = 512;
 
+
+
+//BSIZE is the length of the array in class Bit
+//It's tied to MAXBITS such that 
+//MAXBITS = sizeof(Word) * BSIZE
+//which is really
+//MAXBITS = wsize * BSIZE
+//e.g. if we match bits one-to-one, double -> unsigned long long
+// then BSIZE = 64 and MAXPBITS = 4096
+uint BSIZE = 16;
 uint minbits = 1024;
 uint MAXBITS = 1024;
 uint MAXPREC = 64;
@@ -1058,7 +1068,7 @@ int main()
 	//    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
 	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS);
 	cout << "Begin gpuTestBitStream" << endl;
-	gpuTestBitStream<long long int, unsigned long long int, double, 16>(h_vec_in);
+	gpuTestBitStream<long long int, unsigned long long int, double, BSIZE>(h_vec_in);
 	cout << "Finish gpuTestBitStream" << endl;
 	//    cout << "Begin cpuTestBitStream" << endl;
 	//    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
