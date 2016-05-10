@@ -900,13 +900,31 @@ host_vector<Scalar> &h_data
 	ec.chk("cudadecode");
 	cout << "decode parallel GPU in time: " << millisecs << endl;
 
+	double tot_sum = 0, max_diff = 0, min_diff = 1e16;
+
 	host_vector<Scalar> h_out = data;
 	for (int i = 0; i < h_data.size(); i++){
-		if (h_data[i] != h_out[i]){
-			cout << i << " " << h_data[i] << " " << h_out[i] << endl;
-			exit(-1);
-		}
+		int k = 0, j = 0;
+		frexp(h_data[i], &j);
+		frexp(h_out[i], &k);
+
+		//if (abs(j - k) > 1){
+		//	cout << i << " " << j << " " << k << " " << h_data[i] << " " << h_out[i] << endl;
+		//	//exit(-1);
+		//}
+		double diff = fabs(h_data[i] - h_out[i]);
+		if (diff > 1 )
+			cout << i << " " << j << " " << k << " " << h_data[i] << " " << h_out[i] << endl;
+
+		if (max_diff < diff)
+			max_diff = diff;
+		if (min_diff > diff)
+			min_diff = diff;
+
+		tot_sum += diff;
 	}
+
+	cout << "tot diff: " << tot_sum << " average diff: " << tot_sum / (float)h_data.size() << " max diff: " << max_diff << " min diff: " << min_diff << endl;
 	//gpuValidate<Int, UInt, Scalar, bsize>(h_data, q, data);
 
 }
