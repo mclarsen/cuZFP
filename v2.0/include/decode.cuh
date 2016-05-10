@@ -930,6 +930,7 @@ const unsigned long long orig_count
 #endif
 	s_idx_g[tid] = 0;
 	s_data[tid] = 0;
+	s_bit_rmn_bits[tid] = 0;
 	__syncthreads();
 
 	int emax = 0;
