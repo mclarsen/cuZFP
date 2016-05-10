@@ -372,102 +372,6 @@ void cudaMaxExp
 
 }
 
-
-template<class Int, class Scalar>
-__global__
-void cudaEFPTransform
-(
-const Scalar *data,
-Int *q
-)
-{
-	int mx = threadIdx.x + blockDim.x*blockIdx.x;
-	int my = threadIdx.y + blockDim.y*blockIdx.y;
-	int mz = threadIdx.z + blockDim.z*blockIdx.z;
-	int eidx = mz*gridDim.x*blockDim.x*gridDim.y*blockDim.y + my*gridDim.x*blockDim.x + mx;
-	extern __shared__ long long sh_q[];
-
-
-	mx *= 4; my *= 4; mz *= 4;
-	//int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
-	int emax = max_exp_block(data, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
-
-	uint sz = gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4;
-	uint sy = gridDim.x*blockDim.x * 4;
-	uint sx = 1;
-	fixed_point_block(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64, data, emax, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
-	for (int i = 0; i < 64; i++){
-		q[eidx * 64 + i] = sh_q[(threadIdx.x+threadIdx.y*4+threadIdx.z*16) * 64 + i];
-	}
-}
-
-template<class Int, class Scalar>
-__global__
-void cudaEFPDTransform
-(
-const Scalar *data,
-Int *q
-)
-{
-	int mx = threadIdx.x + blockDim.x*blockIdx.x;
-	int my = threadIdx.y + blockDim.y*blockIdx.y;
-	int mz = threadIdx.z + blockDim.z*blockIdx.z;
-	int eidx = mz*gridDim.x*blockDim.x*gridDim.y*blockDim.y + my*gridDim.x*blockDim.x + mx;
-	extern __shared__ long long sh_q[];
-
-
-	mx *= 4; my *= 4; mz *= 4;
-	//int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
-	int emax = max_exp_block(data, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
-
-	uint sz = gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4;
-	uint sy = gridDim.x*blockDim.x * 4;
-	uint sx = 1;
-	fixed_point_block(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64, data, emax, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
-	fwd_xform(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64);
-	for (int i = 0; i < 64; i++){
-		q[eidx * 64 + i] = sh_q[(threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64 + i];
-	}
-}
-
-
-template<class Int, class UInt, class Scalar, uint bsize>
-__global__
-void cudaEFPDI2UTransform
-(
-const Scalar *data,
-UInt *p,
-Bit<bsize> *stream
-
-)
-{
-	int mx = threadIdx.x + blockDim.x*blockIdx.x;
-	int my = threadIdx.y + blockDim.y*blockIdx.y;
-	int mz = threadIdx.z + blockDim.z*blockIdx.z;
-	int eidx = mz*gridDim.x*blockDim.x*gridDim.y*blockDim.y + my*gridDim.x*blockDim.x + mx;
-	extern __shared__ long long sh_q[];
-
-
-	mx *= 4; my *= 4; mz *= 4;
-	//int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
-	int emax = max_exp_block(data, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
-	
-	stream[eidx].emax = emax;
-//	uint sz = gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4;
-//	uint sy = gridDim.x*blockDim.x * 4;
-//	uint sx = 1;
-	fixed_point_block(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64, data, emax, mx, my, mz, 1, gridDim.x*blockDim.x * 4, gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4);
-	fwd_xform(sh_q + (threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64);
-
-
-	//fwd_order
-	for (int i = 0; i < 64; i++){
-		uint idx = eidx * 64 + i;
-		p[idx] = int2uint<Int, UInt>(sh_q[(threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64 + c_perm[i]]);
-	}
-
-}
-
 inline
 __device__ __host__
 void
@@ -508,109 +412,6 @@ unsigned char &sbits
 	/* if there are more groups, output a zero bit for a negative group test */
 	if (cnt) {
 		write_bitter(bitters, make_bitter(0, 0), sbits);
-	}
-}
-
-template<class UInt, uint bsize>
-__global__
-void cudaEncodeUInt
-(
-const unsigned long long count,
-uint size,
-const UInt* data,
-const unsigned char *g_cnt,
-Bit<bsize> *stream
-)
-{
-//	int mx = threadIdx.x + blockDim.x*blockIdx.x;
-//	int my = threadIdx.y + blockDim.y*blockIdx.y;
-//	int mz = threadIdx.z + blockDim.z*blockIdx.z;
-//	int eidx = mz*gridDim.x*blockDim.x*gridDim.y*blockDim.y + my*gridDim.x*blockDim.x + mx;
-
-	extern __shared__ unsigned char smem[];
-	__shared__ unsigned char *sh_g, *sh_sbits; 
-	__shared__ Bitter *sh_bitters;
-	__shared__ uint *s_emax_bits;
-	sh_g = &smem[0];
-	sh_sbits = &smem[64];
-	sh_bitters = (Bitter*)&smem[64 + 64];
-	s_emax_bits = (uint*)&smem[64 + 64 + 16 * 64];
-
-	unsigned long long x;
-
-	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
-
-	uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
-
-	Bitter bitter = make_bitter(0, 0);
-	unsigned char sbit = 0;
-	uint kmin = 0;
-
-//	uint k = threadIdx.x + blockDim.x * blockIdx.x;
-	if (tid == 0){
-		s_emax_bits[0] = 1;
-		int emax = stream[bidx / 64].emax;
-		int maxprec = precision(emax, c_maxprec, c_minexp);
-		kmin = intprec > maxprec ? intprec - maxprec : 0;
-
-		uint e = maxprec ? emax + ebias : 0;
-		if (e){
-			//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
-			stream[bidx / 64].begin[0] = 2 * e + 1;
-			s_emax_bits[0] = c_ebits + 1;
-		}
-	}
-	__syncthreads();
-
-	/* extract bit plane k to x[k] */
-	unsigned long long y = 0;
-	for (uint i = 0; i < size; i++)
-		y += ((data[bidx + i] >> tid) & (unsigned long long)1) << i;
-	x = y;
-
-	__syncthreads();
-	/* count number of positive group tests g[k] among 3*d in d dimensions */
-	sh_g[tid] = 0;
-	for (unsigned long long c = count; y; y >>= c & 0xfu, c >>= 4)
-		sh_g[tid]++;
-
-	__syncthreads();
-	if (tid == 0){
-		unsigned char cur = sh_g[intprec - 1];
-
-		for (int i = intprec - 1; i-- > kmin;) {
-			if (cur < sh_g[i])
-				cur = sh_g[i];
-			else if (cur > sh_g[i])
-				sh_g[i] = cur;
-		}
-	}
-
-	__syncthreads();
-	//	g[k] = sh_g[threadIdx.x];
-
-	unsigned char g = sh_g[tid];
-	unsigned char h = sh_g[min(tid + 1, intprec - 1)];
-
-
-	encodeBitplane(count, x, g, h, g_cnt, bitter, sbit);
-	sh_bitters[63 - tid] = bitter;
-	sh_sbits[63 - tid] = sbit;
-
-	__syncthreads();
-	if (tid == 0){
-		uint tot_sbits = s_emax_bits[0];// sbits[0];
-		uint  rem_sbits = s_emax_bits[0];
-		uint offset = 0;
-		for (int i = 0; i < intprec; i++){
-			if (sh_sbits[i] <= 64){
-				write_outx(sh_bitters, stream[bidx / 64].begin, tot_sbits, rem_sbits, offset, i, sh_sbits[i]);
-			}
-			else{
-				write_outx(sh_bitters, stream[bidx / 64].begin, tot_sbits, rem_sbits, offset, i, 64);
-				write_outy(sh_bitters, stream[bidx / 64].begin, tot_sbits, rem_sbits, offset, i, sh_sbits[i] - 64);
-			}
-		}
 	}
 }
 
@@ -734,69 +535,15 @@ Bit<bsize> *stream
 template<class Int, class UInt, class Scalar, uint bsize>
 void encode
 (
-int nx, int ny, int nz,
-const Scalar *d_data,
-thrust::device_vector<cuZFP::Bit<bsize> > &stream,
-thrust::device_vector<int> &emax,
-    const uint maxprec,
-    const unsigned long long group_count,
-    const uint size
+	int nx, int ny, int nz,
+	const Scalar *d_data,
+	thrust::device_vector<cuZFP::Bit<bsize> > &stream,
+  const unsigned long long group_count,
+  const uint size
 )
 {
-  thrust::device_vector<UInt> buffer(nx*ny*nz);
+	dim3 block_size, grid_size;
   thrust::device_vector<unsigned char> d_g_cnt;
-
-  dim3 emax_size(nx / 4, ny / 4, nz / 4);
-
-  dim3 block_size(8, 8, 8);
-  dim3 grid_size = emax_size;
-  grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
-
-  const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
-  //ErrorCheck ec;
-
-  stream.resize(emax_size.x * emax_size.y * emax_size.z);
-  emax.resize(emax_size.x * emax_size.y * emax_size.z);
-
-  //  cudaEvent_t start, stop;
-  //  float millisecs;
-
-  //  cudaEventCreate(&start);
-  //  cudaEventCreate(&stop);
-  //  cudaEventRecord(start, 0);
-
-
-  //ec.chk("pre-cudaMaxExp");
-  cuZFP::cudaMaxExp << <grid_size, block_size >> >
-    (
-    thrust::raw_pointer_cast(emax.data()),
-    d_data
-    );
-  cudaStreamSynchronize(0);
-  //ec.chk("cudaMaxExp");
-
-  //for (int i = 0; i < emax.size(); i++){
-  //  std::cout << emax[i] << " ";
-  //  if (!(i % nx))
-  //    std::cout << std::endl;
-  //  if (!(i % nx*ny))
-  //    std::cout << std::endl;
-  //}
-  block_size = dim3(4, 4, 4);
-  grid_size = emax_size;
-  grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
-  //ec.chk("pre-cudaEFPDI2UTransform");
-  cuZFP::cudaEFPDI2UTransform <Int, UInt, Scalar> << < grid_size, block_size, sizeof(Int) * 4 * 4 * 4 * 4 * 4 * 4 >> >
-    (
-    d_data,
-    thrust::raw_pointer_cast(buffer.data())
-    );
-  //ec.chk("post-cudaEFPDI2UTransform");
-
-
-
-
-
   unsigned long long count = group_count;
   thrust::host_vector<unsigned char> g_cnt(10);
   uint sum = 0;
@@ -812,22 +559,14 @@ thrust::device_vector<int> &emax,
   grid_size = dim3(nx, ny, nz);
   grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
 
-  cuZFP::cudaEncodeUInt<UInt, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter)) * 64 >> >
-    (
-    kmin, group_count, size,
-    thrust::raw_pointer_cast(buffer.data()),
-    thrust::raw_pointer_cast(d_g_cnt.data()),
-    thrust::raw_pointer_cast(stream.data())
-    );
-  cudaStreamSynchronize(0);
-  //ec.chk("cudaEncode");
-  //  cudaEventRecord(stop, 0);
-  //  cudaEventSynchronize(stop);
-  //  cudaEventElapsedTime(&millisecs, start, stop);
-
-
-  //  cout << "encode GPU in time: " << millisecs << endl;
-
+	cudaEncode<Int, UInt, Scalar, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int)) * 64 + 4 >> >
+		(
+		group_count, size,
+		d_data,
+		thrust::raw_pointer_cast(d_g_cnt.data()),
+		thrust::raw_pointer_cast(stream.data())
+		);
+	cudaStreamSynchronize(0);
 }
 
 template<class Int, class UInt, class Scalar, uint bsize>
@@ -836,8 +575,6 @@ void encode
 int nx, int ny, int nz,
 thrust::device_vector<Scalar> &d_data,
 thrust::device_vector<cuZFP::Bit<bsize> > &stream,
-thrust::device_vector<int> &emax,
-const uint maxprec,
 const unsigned long long group_count,
 const uint size
 )
@@ -845,8 +582,6 @@ const uint size
 	encode<Int, UInt, Scalar, bsize>(nx, ny, nz,
 		thrust::raw_pointer_cast(d_data.data()),
 		stream,
-		emax,
-		maxprec,
 		group_count,
 		size);
 }
@@ -857,8 +592,6 @@ void encode
 int nx, int ny, int nz,
 const thrust::host_vector<Scalar> &h_data,
 thrust::device_vector<cuZFP::Bit<bsize> > &stream,
-thrust::device_vector<int> &emax,
-const uint maxprec,
 const unsigned long long group_count,
 const uint size
 )
@@ -868,7 +601,7 @@ const uint size
 
 	thrust::device_vector<Scalar> d_data = h_data;
 
-	encode<Int, UInt, Scalar, bsize>(nx, ny, nz, d_data, stream, emax, maxprec, group_count, size);
+	encode<Int, UInt, Scalar, bsize>(nx, ny, nz, d_data, stream, group_count, size);
 }
 
 }

@@ -803,44 +803,11 @@ host_vector<Scalar> &h_data
 
 
 	device_vector<Bit<bsize> > stream(emax_size.x * emax_size.y * emax_size.z);
-	host_vector<Bit<bsize> > cpu_stream;
+	encode<Int, UInt, Scalar, bsize>(nx, ny, nz, data, stream, group_count, size);
 
-	block_size = dim3(4, 4, 4);
-	grid_size = dim3(nx, ny, nz);
-	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
-	
-	unsigned long long count = group_count;
-	host_vector<unsigned char> g_cnt(10);
-	uint sum = 0;
-	g_cnt[0] = 0;
-	for (int i = 1; i < 10; i++){
-		sum += count & 0xf;
-		g_cnt[i] = sum;
-		count >>= 4;
-	}
-	d_g_cnt = g_cnt;
-#if 0
-	cpu_stream = stream;
-	cpuEncode<Int, UInt, Scalar, bsize>(
-		grid_size,
-		block_size,
-		group_count, size,
-		thrust::raw_pointer_cast(h_data.data()),
-		thrust::raw_pointer_cast(g_cnt.data()),
-		thrust::raw_pointer_cast(cpu_stream.data()));
-	stream = cpu_stream;
-#else
-	cudaEncode<Int, UInt,Scalar, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int)) * 64 + 4 >> >
-		(
-		group_count, size,
-		thrust::raw_pointer_cast(data.data()),
-		thrust::raw_pointer_cast(d_g_cnt.data()),
-		thrust::raw_pointer_cast(stream.data())
-		);
-	 cudaStreamSynchronize(0);
+	cudaStreamSynchronize(0);
 	ec.chk("cudaEncode");
-	cpu_stream = stream;
-#endif
+
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&millisecs, start, stop);
@@ -854,62 +821,15 @@ host_vector<Scalar> &h_data
 	cudaEventCreate(&stop);
 	
 	cudaEventRecord(start, 0);
-	block_size = dim3(8, 8, 8);
-	grid_size = emax_size;
-	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-	cudaRewind<bsize> << < grid_size, block_size >> >
-		(
-		raw_pointer_cast(stream.data())
-		);
-	ec.chk("cudaRewind");
 
-#if 1
-	block_size = dim3(4, 4, 4);
-	grid_size = dim3(nx, ny, nz);
-	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-	size_t blcksize = block_size.x *block_size.y * block_size.z;
-#else
-	host_vector<size_t> cpu_sidx = d_sidx;
-	host_vector<Int> cpu_q = q;
-	cpuDecodeInvOrder < Int, UInt, bsize, 9 >
-		(
-		raw_pointer_cast(cpu_sidx.data()),
-			raw_pointer_cast(cpu_stream.data()),
-			raw_pointer_cast(cpu_q.data()),
-			group_count);
-	stream = cpu_stream;
-	q = cpu_q;
-#endif
 
-#if 1
-	size_t s_idx[12] = { sizeof(size_t) * 12, blcksize * sizeof(uint), blcksize * sizeof(uint), +blcksize * sizeof(unsigned long long), blcksize * sizeof(uint), blcksize * sizeof(char), blcksize * sizeof(uint), blcksize * sizeof(Word), blcksize * sizeof(UInt), blcksize * sizeof(Int), sizeof(uint), sizeof(int) };
-	thrust::inclusive_scan(s_idx, s_idx + 11, s_idx);
-	const size_t shmem_size = thrust::reduce(s_idx, s_idx + 11);
-	device_vector<size_t> d_sidx(s_idx, s_idx + 11);
+	decode<Int, UInt, Scalar, bsize>(nx, ny, nz, stream, data, group_count);
 
-	cudaDecode<Int, UInt, Scalar, bsize, 11> << < grid_size, block_size, 64 * (4 + 4 + 8 + 4 + 1 + 4 + 8 + 8 + 8) + 4 + 4 >> >
-
-		(
-		raw_pointer_cast(d_sidx.data()),
-		raw_pointer_cast(stream.data()),
-		raw_pointer_cast(data.data()),
-		intprec,
-		group_count);
-	cudaStreamSynchronize(0);
-#else
-	cpuDecode < Int, UInt, Scalar, bsize, 9 >
-		(grid_size, block_size,
-		raw_pointer_cast(cpu_sidx.data()),
-		raw_pointer_cast(cpu_stream.data()),
-		raw_pointer_cast(h_data.data()),
-		group_count);
-	data = h_data;
-#endif
-  ec.chk("cudaDecodeInvOrder");
+  ec.chk("cudaDecode");
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&millisecs, start, stop);
-	ec.chk("cudadecode");
+
 	cout << "decode parallel GPU in time: " << millisecs << endl;
 
 	double tot_sum = 0, max_diff = 0, min_diff = 1e16;

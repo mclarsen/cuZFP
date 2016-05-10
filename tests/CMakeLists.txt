@@ -201,24 +201,6 @@ cudart
 )
 endif()
 
-cuda_compile_ptx(
-  cuda_ptx_files
-	ErrorCheck.cpp
-	${ENC_CUH}
-	${BIT_CUH}
-  test_encode_par.cu
-)
-CUDA_ADD_EXECUTABLE(zfp_test_encode_par
-ErrorCheck.cpp
-${ENC_CUH}
-${BIT_CUH}
-test_encode_par.cu
-)
-TARGET_LINK_LIBRARIES(zfp_test_encode_par
-${LIBOMP}
-
-cudart
-)
 
 if(false)
 
@@ -235,18 +217,6 @@ cudart
 )
 endif()
 
-CUDA_ADD_EXECUTABLE(zfp_test_decode_par
-ErrorCheck.cpp
-${ENC_CUH}
-${DEC_CUH}
-${BIT_CUH}
-test_decode_par.cu
-)
-TARGET_LINK_LIBRARIES(zfp_test_decode_par
-${LIBOMP}
-
-cudart
-)
 
 CUDA_ADD_EXECUTABLE(zfp_test_parallel
 ErrorCheck.cpp
