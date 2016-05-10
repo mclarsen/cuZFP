@@ -21,12 +21,12 @@ using namespace cuZFP;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 512;
-const size_t ny = 512;
-const size_t nz = 512;
+const size_t nx = 32;
+const size_t ny = 32;
+const size_t nz = 32;
 
-uint minbits = 4096;
-uint maxbits = 4096;
+uint minbits = 1024;
+uint maxbits = 1024;
 uint MAXPREC = 64;
 int MINEXP = -1074;
 const double rate = 64;
@@ -478,15 +478,16 @@ Bit<bsize> *stream
 				}
 
 
+				uint rem_sbits = s_emax_bits[0];
 				uint tot_sbits = s_emax_bits[0];
 				uint offset = 0;
-				for (int i = 0; i < intprec; i++){
+				for (int i = 0; i < intprec && tot_sbits < maxbits; i++){
 					if (sh_sbits[i] <= 64){
-						write_outx(sh_bitters, stream[bidx].begin, tot_sbits, offset, i, sh_sbits[i]);
+						write_outx(sh_bitters, stream[bidx].begin, rem_sbits, tot_sbits, offset, i, sh_sbits[i]);
 					}
 					else{
-						write_outx(sh_bitters, stream[bidx].begin, tot_sbits, offset, i, 64);
-						write_outy(sh_bitters, stream[bidx].begin, tot_sbits, offset, i, sh_sbits[i] - 64);
+						write_outx(sh_bitters, stream[bidx].begin, rem_sbits, tot_sbits, offset, i, 64);
+						write_outy(sh_bitters, stream[bidx].begin, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64);
 					}
 				}
 			}
@@ -929,6 +930,99 @@ host_vector<Scalar> &h_data
 
 }
 
+template<class Int, class UInt, class Scalar, uint bsize>
+void cpuTestBitStream
+(
+host_vector<Scalar> &h_data
+)
+{
+	host_vector<int> h_emax;
+	host_vector<UInt> h_p;
+	host_vector<Int> h_q;
+	host_vector<UInt> h_buf(nx*ny*nz);
+	host_vector<Bit<bsize> > h_bits;
+
+
+	dim3 emax_size(nx / 4, ny / 4, nz / 4);
+
+	dim3 block_size(8, 8, 8);
+	dim3 grid_size = emax_size;
+	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
+
+	//const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+
+
+	host_vector<Bit<bsize> > cpu_stream(emax_size.x * emax_size.y * emax_size.z);
+
+	block_size = dim3(4, 4, 4);
+	grid_size = dim3(nx, ny, nz);
+	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
+
+	unsigned long long count = group_count;
+	host_vector<unsigned char> g_cnt(10);
+	uint sum = 0;
+	g_cnt[0] = 0;
+	for (int i = 1; i < 10; i++){
+		sum += count & 0xf;
+		g_cnt[i] = sum;
+		count >>= 4;
+	}
+
+	cpuEncode<Int, UInt, Scalar, bsize>(
+		grid_size,
+		block_size,
+		group_count, size,
+		thrust::raw_pointer_cast(h_data.data()),
+		thrust::raw_pointer_cast(g_cnt.data()),
+		thrust::raw_pointer_cast(cpu_stream.data()));
+
+
+
+	host_vector<Scalar> h_out(nx*ny* nz);
+
+	block_size = dim3(4, 4, 4);
+	grid_size = dim3(nx, ny, nz);
+	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+	size_t blcksize = block_size.x *block_size.y * block_size.z;
+	size_t s_idx[12] = { sizeof(size_t) * 12, blcksize * sizeof(uint), blcksize * sizeof(uint), +blcksize * sizeof(unsigned long long), blcksize * sizeof(uint), blcksize * sizeof(char), blcksize * sizeof(uint), blcksize * sizeof(Word), blcksize * sizeof(UInt), blcksize * sizeof(Int), sizeof(uint), sizeof(int) };
+	thrust::inclusive_scan(s_idx, s_idx + 11, s_idx);
+	const size_t shmem_size = thrust::reduce(s_idx, s_idx + 11);
+
+	cpuDecode < Int, UInt, Scalar, bsize, 9 >
+		(grid_size, block_size,
+		s_idx,
+		raw_pointer_cast(cpu_stream.data()),
+		raw_pointer_cast(h_out.data()),
+		group_count);
+
+
+	double tot_sum = 0, max_diff = 0, min_diff = 1e16;
+
+	for (int i = 0; i < h_data.size(); i++){
+		int k = 0, j = 0;
+		frexp(h_data[i], &j);
+		frexp(h_out[i], &k);
+
+		//if (abs(j - k) > 1){
+		//	cout << i << " " << j << " " << k << " " << h_data[i] << " " << h_out[i] << endl;
+		//	//exit(-1);
+		//}
+		double diff = fabs(h_data[i] - h_out[i]);
+		if (diff > 1)
+			cout << i << " " << j << " " << k << " " << h_data[i] << " " << h_out[i] << endl;
+
+		if (max_diff < diff)
+			max_diff = diff;
+		if (min_diff > diff)
+			min_diff = diff;
+
+		tot_sum += diff;
+	}
+
+	cout << "tot diff: " << tot_sum << " average diff: " << tot_sum / (float)h_data.size() << " max diff: " << max_diff << " min diff: " << min_diff << endl;
+	//gpuValidate<Int, UInt, Scalar, bsize>(h_data, q, data);
+
+}
 int main()
 {
 
@@ -963,7 +1057,7 @@ int main()
 	//    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
 	setupConst<double>(perm, MAXPREC, MINEXP, EBITS);
 	cout << "Begin gpuTestBitStream" << endl;
-	gpuTestBitStream<long long int, unsigned long long int, double, 64>(h_vec_in);
+	cpuTestBitStream<long long int, unsigned long long int, double, 16>(h_vec_in);
 	cout << "Finish gpuTestBitStream" << endl;
 	//    cout << "Begin cpuTestBitStream" << endl;
 	//    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
