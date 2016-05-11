@@ -7,7 +7,11 @@
 /* forward declaration of opaque type */
 typedef struct bitstream bitstream;
 
-extern const size_t stream_word_bits; /* bit stream granularity */
+extern
+#ifdef __cplusplus
+"C"
+#endif
+ const size_t stream_word_bits; /* bit stream granularity */
 
 #ifndef _inline
 #ifdef __cplusplus
