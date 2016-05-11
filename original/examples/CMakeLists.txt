@@ -5,13 +5,13 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR}
 
 ##############################################################################
 # Use one executable only.
-CUDA_ADD_EXECUTABLE(diffusion
+ADD_EXECUTABLE(diffusion
     diffusion.cpp
 )
 TARGET_LINK_LIBRARIES(diffusion
     zfp
 )
-CUDA_ADD_EXECUTABLE(testzfp
+ADD_EXECUTABLE(testzfp
     fields.c
     testzfp.cpp
 )
@@ -19,14 +19,14 @@ TARGET_LINK_LIBRARIES(testzfp
     zfp
 )
 
-CUDA_ADD_EXECUTABLE(zfp_c
+ADD_EXECUTABLE(zfp_c
     zfp.c
 )
 TARGET_LINK_LIBRARIES(zfp_c
     zfp
 )
 
-CUDA_ADD_EXECUTABLE(zfp_cpp
+ADD_EXECUTABLE(zfp_cpp
     zfp.c
 )
 TARGET_LINK_LIBRARIES(zfp_cpp
