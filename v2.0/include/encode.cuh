@@ -433,6 +433,7 @@ Bit<bsize> *stream
 
 	extern __shared__ unsigned char smem[];
 	__shared__ unsigned char *sh_g, *sh_sbits;
+	__shared__ Scalar *sh_data;
 	__shared__ Bitter *sh_bitters;
 	__shared__ uint *s_emax_bits;
 	__shared__ Int *sh_q;
@@ -443,7 +444,8 @@ Bit<bsize> *stream
 	sh_sbits = &smem[64];
 	sh_bitters = (Bitter*)&smem[64 + 64];
 	sh_p = (UInt*)&smem[64 + 64 + 16 * 64];
-	sh_q = (Int*)&sh_p[64];
+	sh_data = (Scalar*)&sh_p[64];
+	sh_q = (Int*)&sh_data[64];
 	s_emax_bits = (uint*)&sh_q[64];
 	sh_emax = (int*)&s_emax_bits[1];
 
@@ -452,7 +454,9 @@ Bit<bsize> *stream
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 
 	uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
-
+  
+	sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
+	
 	Bitter bitter = make_bitter(0, 0);
 	unsigned char sbit = 0;
 	uint kmin = 0;
@@ -461,8 +465,15 @@ Bit<bsize> *stream
 		mx *= 4; my *= 4; mz *= 4;
 		sh_emax[0] = max_exp_block(data, mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
 
-		fixed_point_block<Int, Scalar>(sh_q, data, sh_emax[0], mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
+		//fixed_point_block<Int, Scalar>(sh_q, data, sh_emax[0], mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
+	}
+	__syncthreads();
 
+	//fixed_point
+	Scalar w = LDEXP(1.0, intprec - 2 - sh_emax[0]);
+	sh_q[tid] = (Int)(sh_data[tid] * w);
+
+	if (tid == 0){
 		fwd_xform(sh_q);
 		////fwd_order
 		//for (int i = 0; i < 64; i++){
@@ -564,7 +575,7 @@ void encode
   grid_size = dim3(nx, ny, nz);
   grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
 
-	cudaEncode<Int, UInt, Scalar, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int)) * 64 + 4 >> >
+	cudaEncode<Int, UInt, Scalar, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar)) * 64 + 4 + 4 >> >
 		(
 		group_count, size,
 		d_data,
