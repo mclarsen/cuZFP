@@ -433,19 +433,20 @@ Bit<bsize> *stream
 
 	extern __shared__ unsigned char smem[];
 	__shared__ unsigned char *sh_g, *sh_sbits;
-	__shared__ Scalar *sh_data;
+	__shared__ Scalar *sh_data, *sh_reduce;
 	__shared__ Bitter *sh_bitters;
 	__shared__ uint *s_emax_bits;
 	__shared__ Int *sh_q;
 	__shared__ UInt *sh_p;
 	__shared__ int *sh_emax;
-
+	
 	sh_g = &smem[0];
 	sh_sbits = &smem[64];
 	sh_bitters = (Bitter*)&smem[64 + 64];
 	sh_p = (UInt*)&smem[64 + 64 + 16 * 64];
 	sh_data = (Scalar*)&sh_p[64];
-	sh_q = (Int*)&sh_data[64];
+	sh_reduce = (Scalar*)&sh_data[64];
+	sh_q = (Int*)&sh_reduce[32];
 	s_emax_bits = (uint*)&sh_q[64];
 	sh_emax = (int*)&s_emax_bits[1];
 
@@ -455,19 +456,37 @@ Bit<bsize> *stream
 
 	uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
   
-	sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
-	
 	Bitter bitter = make_bitter(0, 0);
 	unsigned char sbit = 0;
 	uint kmin = 0;
-	if (tid == 0){
-		uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
-		mx *= 4; my *= 4; mz *= 4;
-		sh_emax[0] = max_exp_block(data, mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
 
-		//fixed_point_block<Int, Scalar>(sh_q, data, sh_emax[0], mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
+
+	sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
+
+	//max_exp
+	if (tid < 32)
+		sh_reduce[tid] = max(sh_data[tid], sh_data[tid + 32]);
+	if (tid < 16)
+		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 16]);
+	if (tid < 8)
+		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 8]);
+	if (tid < 4)
+		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 4]);
+	if (tid < 2)
+		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 2]);
+	if (tid == 0){
+		sh_reduce[0] = max(sh_reduce[tid], sh_reduce[tid + 1]);
+		sh_emax[0] = exponent(sh_reduce[0]);
 	}
 	__syncthreads();
+	//if (tid == 0){
+	//	//uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
+	//	//mx *= 4; my *= 4; mz *= 4;
+	//	//sh_emax[0] = max_exp_block(data, mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
+
+	//	//fixed_point_block<Int, Scalar>(sh_q, data, sh_emax[0], mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
+	//}
+	//__syncthreads();
 
 	//fixed_point
 	Scalar w = LDEXP(1.0, intprec - 2 - sh_emax[0]);
@@ -575,7 +594,7 @@ void encode
   grid_size = dim3(nx, ny, nz);
   grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
 
-	cudaEncode<Int, UInt, Scalar, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar)) * 64 + 4 + 4 >> >
+	cudaEncode<Int, UInt, Scalar, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + sizeof(int)) * 64 + 32*sizeof(Scalar) + 4 >> >
 		(
 		group_count, size,
 		d_data,
