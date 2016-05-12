@@ -437,6 +437,7 @@ Bit<bsize> *stream
 	__shared__ uint *s_emax_bits;
 	__shared__ Int *sh_q;
 	__shared__ UInt *sh_p;
+	__shared__ int *sh_emax;
 
 	sh_g = &smem[0];
 	sh_sbits = &smem[64];
@@ -444,6 +445,7 @@ Bit<bsize> *stream
 	sh_p = (UInt*)&smem[64 + 64 + 16 * 64];
 	sh_q = (Int*)&sh_p[64];
 	s_emax_bits = (uint*)&sh_q[64];
+	sh_emax = (int*)&s_emax_bits[1];
 
 	unsigned long long x;
 
@@ -457,22 +459,25 @@ Bit<bsize> *stream
 	if (tid == 0){
 		uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
 		mx *= 4; my *= 4; mz *= 4;
-		int emax = max_exp_block(data, mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
+		sh_emax[0] = max_exp_block(data, mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
 
-		fixed_point_block<Int, Scalar>(sh_q, data, emax, mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
+		fixed_point_block<Int, Scalar>(sh_q, data, sh_emax[0], mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
 
 		fwd_xform(sh_q);
-
-
-		//fwd_order
-		for (int i = 0; i < 64; i++){
-			sh_p[i] = int2uint<Int, UInt>(sh_q[c_perm[i]]);
-		}
+		////fwd_order
+		//for (int i = 0; i < 64; i++){
+		//	sh_p[i] = int2uint<Int, UInt>(sh_q[c_perm[i]]);
+		//}
+	}
+	__syncthreads();
+	//fwd_order
+	sh_p[tid] = int2uint<Int, UInt>(sh_q[c_perm[tid]]);
+	if (tid == 0){
 		s_emax_bits[0] = 1;
-		int maxprec = precision(emax, c_maxprec, c_minexp);
+		int maxprec = precision(sh_emax[0], c_maxprec, c_minexp);
 		kmin = intprec > maxprec ? intprec - maxprec : 0;
 
-		uint e = maxprec ? emax + ebias : 0;
+		uint e = maxprec ? sh_emax[0] + ebias : 0;
 		if (e){
 			//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
 			stream[bidx / 64].begin[0] = 2 * e + 1;
