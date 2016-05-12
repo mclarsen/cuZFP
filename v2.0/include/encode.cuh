@@ -596,7 +596,6 @@ const unsigned long long group_count,
 const uint size
 )
 {
-	thrust::device_vector<UInt> buffer(nx*ny*nz);
 	thrust::device_vector<unsigned char> d_g_cnt;
 
 	thrust::device_vector<Scalar> d_data = h_data;
