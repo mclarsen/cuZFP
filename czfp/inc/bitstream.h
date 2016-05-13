@@ -8,6 +8,9 @@ typedef struct BitStream BitStream;
 
 #ifndef _inline
 
+#if __cplusplus
+extern "C"
+#endif
 /* allocate and initialize bit stream */
 BitStream* stream_create(size_t bytes);
 

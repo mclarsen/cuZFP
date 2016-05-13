@@ -118,7 +118,12 @@ zfp_encode_block_int64_3(BitStream* stream, uint minbits, uint maxbits, uint max
 extern void
 zfp_encode_block_float_3(BitStream* stream, uint minbits, uint maxbits, uint maxprec, int minexp, const float* fblock);
 
-extern void
+
+extern 
+#if __cplusplus
+"C"
+#endif
+void
 zfp_encode_block_double_3(BitStream* stream, uint minbits, uint maxbits, uint maxprec, int minexp, const double* fblock);
 
 extern void
