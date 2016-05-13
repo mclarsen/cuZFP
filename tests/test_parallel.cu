@@ -408,13 +408,13 @@ cuZFP::Bit<bsize> *stream
 				UInt sh_p[64];
 				uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
 				mx *= 4; my *= 4; mz *= 4;
-				int emax = max_exp_block(data, mx, my, mz, 1, blockDim.x * gridDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
+				int emax = cuZFP::max_exp_block(data, mx, my, mz, 1, blockDim.x * gridDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
 
 				//	uint sz = gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4;
 				//	uint sy = gridDim.x*blockDim.x * 4;
 				//	uint sx = 1;
-				fixed_point_block(sh_q, data, emax, mx, my, mz, 1, blockDim.x * gridDim.x, gridDim.x  * gridDim.y * blockDim.x * blockDim.y);
-				fwd_xform(sh_q);
+				cuZFP::fixed_point_block(sh_q, data, emax, mx, my, mz, 1, blockDim.x * gridDim.x, gridDim.x  * gridDim.y * blockDim.x * blockDim.y);
+				cuZFP::fwd_xform(sh_q);
 
 
 				//fwd_order
@@ -436,7 +436,7 @@ cuZFP::Bit<bsize> *stream
 				s_emax_bits[0] = 1;
 				//maxprec, minexp, EBITS
 				//	uint k = threadIdx.x + blockDim.x * blockIdx.x;
-				int maxprec = precision(emax, MAXPREC, MINEXP);
+				int maxprec = cuZFP::precision(emax, MAXPREC, MINEXP);
 				int ebits = EBITS + 1;
 				const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 
@@ -483,7 +483,7 @@ cuZFP::Bit<bsize> *stream
 					unsigned char h = sh_g[min(tid + 1, intprec - 1)];
 
 
-					encodeBitplane(count, x[tid], g, h, g_cnt, bitter[tid], sbit[tid]);
+					cuZFP::encodeBitplane(count, x[tid], g, h, g_cnt, bitter[tid], sbit[tid]);
 					sh_bitters[63 - tid] = bitter[tid];
 					sh_sbits[63 - tid] = sbit[tid];
 				}
@@ -650,7 +650,7 @@ const unsigned long long orig_count
 				stream[idx].read_bit();
 				uint ebits = EBITS + 1;
 				s_emax[0] = stream[idx].read_bits(ebits - 1) - ebias;
-				int maxprec = precision(s_emax[0], MAXPREC, MINEXP);
+				int maxprec = cuZFP::precision(s_emax[0], MAXPREC, MINEXP);
 				s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
 
 
@@ -696,7 +696,7 @@ const unsigned long long orig_count
 				uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
 				mx *= 4; my *= 4; mz *= 4;
 
-				inv_xform(s_q);
+				cuZFP::inv_xform(s_q);
 				cuZFP::inv_cast<Int, Scalar>(s_q, out, s_emax[0], mx, my, mz, 1, gridDim.x*blockDim.x, gridDim.x*blockDim.x * gridDim.y*blockDim.y);
 
 			}
@@ -987,10 +987,10 @@ int main()
 	//    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
 	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS);
 	cout << "Begin gpuTestBitStream" << endl;
-	gpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
+	cpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
 	cout << "Finish gpuTestBitStream" << endl;
 
-	BitStream* stream = stream_create(nx*ny*nz * BSIZE);
+	BitStream* stream = stream_create(nx*ny*nz * BSIZE * sizeof(unsigned long long));
 
 	int m = 0;
 	for (int z = 0; z < nz; z += 4){
