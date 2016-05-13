@@ -463,6 +463,7 @@ Bit<bsize> *stream
 
 	sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
 
+	__syncthreads();
 	//max_exp
 	if (tid < 32)
 		sh_reduce[tid] = max(sh_data[tid], sh_data[tid + 32]);
