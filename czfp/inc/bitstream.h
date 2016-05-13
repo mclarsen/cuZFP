@@ -8,7 +8,7 @@ typedef struct BitStream BitStream;
 
 #ifndef _inline
 
-#if __cplusplus
+#ifdef __cplusplus
 extern "C"
 #endif
 /* allocate and initialize bit stream */
@@ -33,8 +33,15 @@ uint64 stream_read_bits(BitStream* stream, uint n);
 uint64 stream_write_bits(BitStream* stream, uint64 value, uint n);
 
 /* rewind stream to beginning */
+#ifdef __cplusplus
+extern "C"
+#endif
+
 void stream_rewind(BitStream* stream);
 
+#ifdef __cplusplus
+extern "C"
+#endif
 /* flush out any remaining buffered bits */
 void stream_flush(BitStream* stream);
 
