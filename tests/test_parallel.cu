@@ -992,8 +992,53 @@ int main()
 
 	BitStream* stream = stream_create(nx*ny*nz * BSIZE);
 
-	zfp_encode_block_double_3(stream, minbits, MAXBITS, MAXPREC, MINEXP, thrust::raw_pointer_cast(h_vec_in.data()));
+	int m = 0;
+	for (int z = 0; z < nz; z += 4){
+		for (int y = 0; y < ny; y += 4){
+			for (int x = 0; x < nx; x += 4){
+				double b[64];
+				m = 0;
 
+				for (int i = 0; i < 4; i++){
+					for (int j = 0; j < 4; j++){
+						for (int k = 0; k < 4; k++, m++){
+							b[m] = h_vec_in[(z + i)*nx*ny + (y + j)*nx + x + k];
+						}
+					}
+				}
+
+				zfp_encode_block_double_3(stream, minbits, MAXBITS, MAXPREC, MINEXP, b);
+			}
+		}
+	}
+	stream_flush(stream);
+
+	host_vector<double> h_out(nx*ny*nz);
+	stream_rewind(stream);
+	for (int z = 0; z < nz; z += 4){
+		for (int y = 0; y < ny; y += 4){
+			for (int x = 0; x < nx; x += 4){
+				m = 0;
+				double b[64];
+				zfp_decode_block_double_3(stream, minbits, MAXBITS, MAXPREC, MINEXP, b);
+				for (int i = 0; i < 4; i++){
+					for (int j = 0; j < 4; j++){
+						for (int k = 0; k < 4; k++, m++){
+							h_out[(z+i)*nx*ny + (y+j)*nx + x + k] = b[m];
+						}
+					}
+				}
+			} 
+		}
+	}
+
+	double tot_sum = 0;
+	for (int i = 0; i < nx*ny*nz; i++){
+		double diff = fabs(h_vec_in[i] - h_out[i]);
+		tot_sum += diff;
+	}
+
+	cout << "tot diff: " << tot_sum << " average diff: " << tot_sum / (float)h_out.size() << endl;// " max diff: " << max_diff << " min diff: " << min_diff << endl;
 
 	//    cout << "Begin cpuTestBitStream" << endl;
 	//    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
