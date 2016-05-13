@@ -94,7 +94,7 @@ LINK_DIRECTORIES(
 	"/usr/lib"
 	"/usr/local/lib"
         ${CUTIL_LIB_DIRECTORY}
-
+	"${CMAKE_CURRENT_SOURCE_DIR}/../czfp/lib"
 )
 #set(CMAKE_C_FLAGS ${CMAKE_C_FLAGS} "-pg -march=native -msse2")
 
@@ -227,6 +227,6 @@ test_parallel.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_parallel
 ${LIBOMP}
-
+zfp
 cudart
 )

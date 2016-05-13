@@ -14,17 +14,16 @@
 #include "ErrorCheck.h"
 #include "include/encode.cuh"
 #include "include/decode.cuh"
+#include "../czfp/inc/zfp.h"
 
 using namespace thrust;
 using namespace std;
-using namespace cuZFP;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 512;
-const size_t ny = 512;
-const size_t nz = 512;
-
+const size_t nx = 64;
+const size_t ny = 64;
+const size_t nz = 64;
 
 
 //BSIZE is the length of the array in class Bit
@@ -170,7 +169,7 @@ const dim3 &blockDim,
 const dim3 &gridDim,
 const Scalar *data,
 UInt *p,
-Bit<bsize> *stream
+cuZFP::Bit<bsize> *stream
 
 )
 {
@@ -205,7 +204,7 @@ Bit<bsize> *stream
 							//fwd_order
 							for (int i = 0; i < 64; i++){
 								uint idx = eidx * 64 + i;
-								p[idx] = int2uint<Int, UInt>(sh_q[(threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64 + perm[i]]);
+								p[idx] = cuZFP::int2uint<Int, UInt>(sh_q[(threadIdx.x + threadIdx.y * 4 + threadIdx.z * 16) * 64 + perm[i]]);
 							}
 						}
 					}
@@ -226,7 +225,7 @@ static void
 inv_order(const UInt* ublock, Int* iblock, const unsigned char* perm, uint n)
 {
 	do
-		iblock[*perm++] = uint2int<UInt>(*ublock++);
+		iblock[*perm++] = cuZFP::uint2int<UInt>(*ublock++);
 	while (--n);
 }
 
@@ -252,7 +251,7 @@ UInt *buffer
 )
 {
 	for (uint i = 0; i < 64; i++)
-		buffer[i] = int2uint<Int, UInt>(q[perm[i]]);
+		buffer[i] = cuZFP::int2uint<Int, UInt>(q[perm[i]]);
 }
 
 
@@ -263,7 +262,7 @@ const unsigned long long count,
 uint size,
 const UInt* data,
 const unsigned char *g_cnt,
-Bit<bsize> *stream
+cuZFP::Bit<bsize> *stream
 )
 {
 
@@ -382,7 +381,7 @@ const unsigned long long count,
 uint size,
 const Scalar* data,
 const unsigned char *g_cnt,
-Bit<bsize> *stream
+cuZFP::Bit<bsize> *stream
 )
 {
 
@@ -420,7 +419,7 @@ Bit<bsize> *stream
 
 				//fwd_order
 				for (int i = 0; i < 64; i++){
-					sh_p[i] = int2uint<Int, UInt>(sh_q[perm[i]]);
+					sh_p[i] = cuZFP::int2uint<Int, UInt>(sh_q[perm[i]]);
 				}
 
 
@@ -510,7 +509,7 @@ template<class Int, class UInt, uint bsize, uint num_sidx>
 void cpuDecodeInvOrder
 (
 size_t *sidx,
-Bit<bsize> *stream,
+cuZFP::Bit<bsize> *stream,
 
 Int *data,
 
@@ -567,7 +566,7 @@ const unsigned long long orig_count
 					s_data[tid] = 0;
 				}
 
-				insert_bit<bsize>(
+				cuZFP::insert_bit<bsize>(
 					stream[idx],
 					s_idx_g,
 					s_idx_n,
@@ -581,7 +580,7 @@ const unsigned long long orig_count
 				for (int tid = 0; tid < 64; tid++){
 
 					for (uint k = s_kmin[0]; k < intprec; k++){
-						decodeBitstream<UInt, bsize>(
+						cuZFP::decodeBitstream<UInt, bsize>(
 							stream[idx],
 							s_idx_g[k],
 							s_idx_n[k],
@@ -594,7 +593,7 @@ const unsigned long long orig_count
 							tid, k);
 					}
 
-					data[perm[tid] + bidx] = uint2int<Int, UInt>(s_data[tid]);
+					data[perm[tid] + bidx] = cuZFP::uint2int<Int, UInt>(s_data[tid]);
 				}
 			}
 		}
@@ -607,7 +606,7 @@ void cpuDecode
 dim3 gridDim,
 dim3 blockDim,
 size_t *sidx,
-Bit<bsize> *stream,
+cuZFP::Bit<bsize> *stream,
 
 Scalar *out,
 const unsigned long long orig_count
@@ -660,7 +659,7 @@ const unsigned long long orig_count
 					s_data[tid] = 0;
 				}
 
-				insert_bit<bsize>(
+				cuZFP::insert_bit<bsize>(
 					stream[idx],
 					s_idx_g,
 					s_idx_n,
@@ -674,7 +673,7 @@ const unsigned long long orig_count
 				for (int tid = 0; tid < 64; tid++){
 
 					for (uint k = s_kmin[0]; k < intprec; k++){
-						decodeBitstream<UInt, bsize>(
+						cuZFP::decodeBitstream<UInt, bsize>(
 							stream[idx],
 							s_idx_g[k],
 							s_idx_n[k],
@@ -687,7 +686,7 @@ const unsigned long long orig_count
 							tid, k);
 					}
 
-					s_q[perm[tid]] = uint2int<Int, UInt>(s_data[tid]);
+					s_q[perm[tid]] = cuZFP::uint2int<Int, UInt>(s_data[tid]);
 
 
 
@@ -698,7 +697,7 @@ const unsigned long long orig_count
 				mx *= 4; my *= 4; mz *= 4;
 
 				inv_xform(s_q);
-				inv_cast<Int, Scalar>(s_q, out, s_emax[0], mx, my, mz, 1, gridDim.x*blockDim.x, gridDim.x*blockDim.x * gridDim.y*blockDim.y);
+				cuZFP::inv_cast<Int, Scalar>(s_q, out, s_emax[0], mx, my, mz, 1, gridDim.x*blockDim.x, gridDim.x*blockDim.x * gridDim.y*blockDim.y);
 
 			}
 		}
@@ -723,17 +722,17 @@ device_vector<Scalar> &data
 				int idx = z*nx*ny + y*nx + x;
 				host_vector<Int> q2(64);
 				host_vector<UInt> buf(64);
-				Bit<bsize> loc_stream;
-				int emax2 = max_exp_block<Scalar>(raw_pointer_cast(h_p.data()), x, y, z, 1, nx, nx*ny);
+				cuZFP::Bit<bsize> loc_stream;
+				int emax2 = cuZFP::max_exp_block<Scalar>(raw_pointer_cast(h_p.data()), x, y, z, 1, nx, nx*ny);
 				fixed_point_block(raw_pointer_cast(q2.data()), raw_pointer_cast(h_p.data()), emax2, x, y, z, 1, nx, nx*ny);
 				fwd_xform(raw_pointer_cast(q2.data()));
 				reorder<Int, UInt>(raw_pointer_cast(q2.data()), raw_pointer_cast(buf.data()));
-				encode_ints<UInt>(loc_stream, raw_pointer_cast(buf.data()), minbits, MAXBITS, precision(emax2, maxprec, minexp), group_count, size);
+				cuZFP::encode_ints<UInt>(loc_stream, raw_pointer_cast(buf.data()), minbits, MAXBITS, precision(emax2, maxprec, minexp), group_count, size);
 
 				loc_stream.rewind();
 				UInt dec[64];
 
-				decode_ints<UInt, bsize>(loc_stream, dec, minbits, MAXBITS, precision(emax2, maxprec, minexp), group_count, size);
+				cuZFP::decode_ints<UInt, bsize>(loc_stream, dec, minbits, MAXBITS, precision(emax2, maxprec, minexp), group_count, size);
 
 
 				Int iblock[64];
@@ -776,7 +775,7 @@ host_vector<Scalar> &h_data
 	host_vector<UInt> h_p;
 	host_vector<Int> h_q;
 	host_vector<UInt> h_buf(nx*ny*nz);
-	host_vector<Bit<bsize> > h_bits;
+	host_vector<cuZFP::Bit<bsize> > h_bits;
 	device_vector<unsigned char> d_g_cnt;
 
   device_vector<Scalar> data;
@@ -802,8 +801,8 @@ host_vector<Scalar> &h_data
 
 
 
-	device_vector<Bit<bsize> > stream(emax_size.x * emax_size.y * emax_size.z);
-	encode<Int, UInt, Scalar, bsize>(nx, ny, nz, data, stream, group_count, size);
+	device_vector<cuZFP::Bit<bsize> > stream(emax_size.x * emax_size.y * emax_size.z);
+	cuZFP::encode<Int, UInt, Scalar, bsize>(nx, ny, nz, data, stream, group_count, size);
 
 	cudaStreamSynchronize(0);
 	ec.chk("cudaEncode");
@@ -823,7 +822,7 @@ host_vector<Scalar> &h_data
 	cudaEventRecord(start, 0);
 
 
-	decode<Int, UInt, Scalar, bsize>(nx, ny, nz, stream, data, group_count);
+	cuZFP::decode<Int, UInt, Scalar, bsize>(nx, ny, nz, stream, data, group_count);
 
   ec.chk("cudaDecode");
 	cudaEventRecord(stop, 0);
@@ -871,7 +870,7 @@ host_vector<Scalar> &h_data
 	host_vector<UInt> h_p;
 	host_vector<Int> h_q;
 	host_vector<UInt> h_buf(nx*ny*nz);
-	host_vector<Bit<bsize> > h_bits;
+	host_vector<cuZFP::Bit<bsize> > h_bits;
 
 
 	dim3 emax_size(nx / 4, ny / 4, nz / 4);
@@ -883,7 +882,7 @@ host_vector<Scalar> &h_data
 	//const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 
 
-	host_vector<Bit<bsize> > cpu_stream(emax_size.x * emax_size.y * emax_size.z);
+	host_vector<cuZFP::Bit<bsize> > cpu_stream(emax_size.x * emax_size.y * emax_size.z);
 
 	block_size = dim3(4, 4, 4);
 	grid_size = dim3(nx, ny, nz);
@@ -990,6 +989,12 @@ int main()
 	cout << "Begin gpuTestBitStream" << endl;
 	gpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
 	cout << "Finish gpuTestBitStream" << endl;
+
+	BitStream* stream = stream_create(nx*ny*nz * BSIZE);
+
+	zfp_encode_block_double_3(stream, minbits, MAXBITS, MAXPREC, MINEXP, thrust::raw_pointer_cast(h_vec_in.data()));
+
+
 	//    cout << "Begin cpuTestBitStream" << endl;
 	//    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
 	//    cout << "End cpuTestBitStream" << endl;
