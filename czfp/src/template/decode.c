@@ -139,15 +139,24 @@ _t2(zfp_decode_block, Int, DIMS)(BitStream* stream, uint minbits, uint maxbits, 
   _t2(inv_xform, Int, DIMS)(iblock);
 }
 
+// maximum number of bit planes to encode
+static uint
+precision(int maxexp, uint maxprec, int minexp)
+{
+	return MIN(maxprec, MAX(0, maxexp - minexp + 8));
+}
+
 /* decode contiguous floating-point block */
 void
 _t2(zfp_decode_block, Scalar, DIMS)(BitStream* stream, uint minbits, uint maxbits, uint maxprec, int minexp, Scalar* fblock)
 {
   _cache_align(Int iblock[BLOCK_SIZE]);
   /* decode common exponent */
-  int emax = stream_read_bits(stream, EBITS) - EBIAS;
+	stream_read_bit(stream);
+	uint ebits = EBITS + 1;
+	int emax = stream_read_bits(stream, ebits-1) - EBIAS;
   /* decode integer block */
-  _t2(zfp_decode_block, Int, DIMS)(stream, minbits - EBITS, maxbits - EBITS, _t2(precision, Scalar, DIMS)(emax, maxprec, minexp), iblock);
+	_t2(zfp_decode_block, Int, DIMS)(stream, minbits - EBITS, maxbits - ebits, _t2(precision, Scalar, DIMS)(emax, maxprec, minexp), iblock);
   /* perform inverse block-floating-point transform */
   _t1(inv_cast, Scalar)(iblock, fblock, BLOCK_SIZE, emax);
 }

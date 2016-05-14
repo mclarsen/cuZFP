@@ -166,6 +166,13 @@ _t2(zfp_encode_block, Int, DIMS)(BitStream* stream, uint minbits, uint maxbits, 
   _t1(encode_ints, UInt)(stream, minbits, maxbits, maxprec, ublock, BLOCK_SIZE, GROUP_SIZE);
 }
 
+// maximum number of bit planes to encode
+static uint
+precision(int maxexp, uint maxprec, int minexp)
+{
+	return MIN(maxprec, MAX(0, maxexp - minexp + 8));
+}
+
 /* encode contiguous floating-point block */
 void
 _t2(zfp_encode_block, Scalar, DIMS)(BitStream* stream, uint minbits, uint maxbits, uint maxprec, int minexp, const Scalar* fblock)
@@ -176,7 +183,9 @@ _t2(zfp_encode_block, Scalar, DIMS)(BitStream* stream, uint minbits, uint maxbit
   /* perform forward block-floating-point transform */
   _t1(fwd_cast, Scalar)(iblock, fblock, BLOCK_SIZE, emax);
   /* encode common exponent */
-  stream_write_bits(stream, emax + EBIAS, EBITS);
+	uint e = maxprec ? emax + EBIAS : 0;
+	int ebits = EBITS + 1;
+  stream_write_bits(stream, 2*e+1, EBITS + 1);
   /* encode integer block */
-  _t2(zfp_encode_block, Int, DIMS)(stream, minbits - EBITS, maxbits - EBITS, _t2(precision, Scalar, DIMS)(emax, maxprec, minexp), iblock);
+	_t2(zfp_encode_block, Int, DIMS)(stream, minbits - ebits, maxbits - ebits, _t2(precision, Scalar, DIMS)(emax, maxprec, minexp), iblock);
 }

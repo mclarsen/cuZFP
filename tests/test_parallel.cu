@@ -814,6 +814,16 @@ host_vector<Scalar> &h_data
 
 	cout << "encode GPU in time: " << millisecs << endl;
 
+	host_vector<cuZFP::Bit<bsize>> cpu_stream;
+	cpu_stream = stream;
+	UInt sum = 0;
+	for (int i = 0; i < cpu_stream.size(); i++){
+		for (int j = 0; j < bsize; j++){
+			sum += cpu_stream[i].begin[j];
+		}
+	}
+	cout << "encode UInt sum: " << sum << endl;
+
   cudaMemset(thrust::raw_pointer_cast(data.data()), 0, sizeof(Scalar)*data.size());
 
 	cudaEventCreate(&start);
@@ -856,6 +866,8 @@ host_vector<Scalar> &h_data
 	}
 
 	cout << "tot diff: " << tot_sum << " average diff: " << tot_sum / (float)h_data.size() << " max diff: " << max_diff << " min diff: " << min_diff << endl;
+	cout << "sum: " << thrust::reduce(h_data.begin(), h_data.end()) << " " << thrust::reduce(h_out.begin(), h_out.end()) << endl;
+
 	//gpuValidate<Int, UInt, Scalar, bsize>(h_data, q, data);
 
 }
@@ -906,7 +918,13 @@ host_vector<Scalar> &h_data
 		thrust::raw_pointer_cast(g_cnt.data()),
 		thrust::raw_pointer_cast(cpu_stream.data()));
 
-
+	unsigned long long stream_sum = 0;
+	for (int i = 0; i < cpu_stream.size(); i++){
+		for (int j = 0; j < BSIZE; j++){
+			stream_sum += cpu_stream[i].begin[j];
+		}
+	}
+	cout << "encode UInt sum: " << stream_sum << endl;
 
 	host_vector<Scalar> h_out(nx*ny* nz);
 
@@ -950,6 +968,7 @@ host_vector<Scalar> &h_data
 	}
 
 	cout << "tot diff: " << tot_sum << " average diff: " << tot_sum / (float)h_data.size() << " max diff: " << max_diff << " min diff: " << min_diff << endl;
+	cout << "sum: " << thrust::reduce(h_data.begin(), h_data.end()) << " " << thrust::reduce(h_out.begin(), h_out.end()) << endl;
 	//gpuValidate<Int, UInt, Scalar, bsize>(h_data, q, data);
 
 }
@@ -957,19 +976,19 @@ int main()
 {
 
   host_vector<double> h_vec_in(nx*ny*nz);
-  //for (int z=0; z<nz; z++){
-  //  for (int y=0; y<ny; y++){
-  //    for (int x=0; x<nx; x++){
-  //      if (x == 0)
-  //        h_vec_in[z*nx*ny + y*nx + x] = 10;
-  //      else if(x == nx - 1)
-  //        h_vec_in[z*nx*ny + y*nx + x] = 0;
-  //      else
-  //        h_vec_in[z*nx*ny + y*nx + x] = 5;
+  for (int z=0; z<nz; z++){
+    for (int y=0; y<ny; y++){
+      for (int x=0; x<nx; x++){
+        if (x == 0)
+          h_vec_in[z*nx*ny + y*nx + x] = 10;
+        else if(x == nx - 1)
+          h_vec_in[z*nx*ny + y*nx + x] = 0;
+        else
+          h_vec_in[z*nx*ny + y*nx + x] = 5;
 
-  //    }
-  //  }
-  //}
+      }
+    }
+  }
   //device_vector<double> d_vec_in;
   //d_vec_in = h_vec_in;
 
@@ -987,8 +1006,15 @@ int main()
 	//    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
 	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS);
 	cout << "Begin gpuTestBitStream" << endl;
-	cpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
+	gpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
 	cout << "Finish gpuTestBitStream" << endl;
+
+	cout << "Begin cpuTestBitStream" << endl;
+	cpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
+	cout << "Finish cpuTestBitStream" << endl;
+
+
+	cout << "Begin alpha test" << endl;
 
 	BitStream* stream = stream_create(nx*ny*nz * BSIZE * sizeof(unsigned long long));
 
@@ -1011,6 +1037,8 @@ int main()
 			}
 		}
 	}
+
+	//cout << "sum UInt " << thrust::reduce(stream->begin, stream->end) << endl;
 	stream_flush(stream);
 
 	host_vector<double> h_out(nx*ny*nz);
@@ -1032,14 +1060,14 @@ int main()
 		}
 	}
 
-	double tot_sum = 0;
+	double tot_diff = 0;
 	for (int i = 0; i < nx*ny*nz; i++){
 		double diff = fabs(h_vec_in[i] - h_out[i]);
-		tot_sum += diff;
+		tot_diff += diff;
 	}
 
-	cout << "tot diff: " << tot_sum << " average diff: " << tot_sum / (float)h_out.size() << endl;// " max diff: " << max_diff << " min diff: " << min_diff << endl;
-
+	cout << "tot diff: " << tot_diff << " average diff: " << tot_diff / (float)h_out.size() << endl;// " max diff: " << max_diff << " min diff: " << min_diff << endl;
+	cout << "sum : " << thrust::reduce(h_vec_in.begin(), h_vec_in.end()) << " " << thrust::reduce(h_out.begin(), h_out.end()) << endl;
 	//    cout << "Begin cpuTestBitStream" << endl;
 	//    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
 	//    cout << "End cpuTestBitStream" << endl;
