@@ -669,7 +669,7 @@ const unsigned long long orig_count
 			s_bit_buffer,
 			s_bit_cnt,
 			s_bit_rmn_bits,
-			c_maxbits, intprec, s_kmin[0], orig_count);
+			c_maxbits - ebits, intprec, s_kmin[0], orig_count);
 	}	__syncthreads();
 
 	for (uint k = s_kmin[0]; k < intprec; k++){
