@@ -636,6 +636,8 @@ const unsigned long long orig_count
 	UInt *s_data = (UInt*)&smem[s_sidx[7]];
 	Int *s_iblock = (Int*)&smem[s_sidx[8]];
 	uint *s_kmin = (uint*)&smem[s_sidx[9]];
+	
+	int *s_emax = (int*)&s_kmin[1];
 
 #else
 	uint *s_idx_n = (uint*)&smem[0];
@@ -652,12 +654,11 @@ const unsigned long long orig_count
 	s_bit_rmn_bits[tid] = 0;
 	__syncthreads();
 
-	int emax = 0;
 	if (tid == 0){
 		stream[idx].read_bit();
 		uint ebits = c_ebits + 1;
-		emax = stream[idx].read_bits(ebits - 1) - ebias;
-		int maxprec = precision(emax, c_maxprec, c_minexp);
+		s_emax[0] = stream[idx].read_bits(ebits - 1) - ebias;
+		int maxprec = precision(s_emax[0], c_maxprec, c_minexp);
 		s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
 
 		insert_bit<bsize>(
@@ -692,10 +693,15 @@ const unsigned long long orig_count
 		uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
 		mx *= 4; my *= 4; mz *= 4;
 		inv_xform(s_iblock);
-		inv_cast<Int, Scalar>(s_iblock, out, emax, mx, my, mz, 1, gridDim.x*blockDim.x, gridDim.x*blockDim.x * gridDim.y*blockDim.y);
+		//inv_cast<Int, Scalar>(s_iblock, out, emax, mx, my, mz, 1, gridDim.x*blockDim.x, gridDim.x*blockDim.x * gridDim.y*blockDim.y);
 
 
 	}
+	__syncthreads();
+
+	//inv_cast
+	Scalar s = dequantize<Int, Scalar>(1, s_emax[0]);
+	out[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)] = (Scalar) (s * s_iblock[tid]);
 }
 template<class Int, class UInt, class Scalar, uint bsize>
 void decode
@@ -728,7 +734,7 @@ void decode
 	const size_t shmem_size = thrust::reduce(s_idx, s_idx + 11);
 	thrust::device_vector<size_t> d_sidx(s_idx, s_idx + 11);
 
-	cudaDecode<Int, UInt, Scalar, bsize, 11> << < grid_size, block_size, 64 * (4 + 4 + 8 + 4 + 1 + 4 + 8 + 8 + 8) + 4 + 4 >> >
+	cudaDecode<Int, UInt, Scalar, bsize, 11> << < grid_size, block_size, 64 * (4 + 4 + 8 + 4 + 1 + 4 + 8 + 8 + 8) + 4 + 4 + 4 >> >
 
 		(
 		raw_pointer_cast(d_sidx.data()),
