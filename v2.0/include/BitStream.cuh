@@ -60,7 +60,7 @@ public:
 
     // write single bit (must be 0 or 1)
     __device__ __host__
-    void
+    uint
     write_bit(uint bit)
     {
       buffer += (Word)bit << bits;
@@ -69,6 +69,7 @@ public:
         buffer = 0;
         bits = 0;
       }
+			return bit;
     }
 
 
