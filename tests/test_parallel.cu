@@ -14,7 +14,8 @@
 #include "ErrorCheck.h"
 #include "include/encode.cuh"
 #include "include/decode.cuh"
-#include "../czfp/inc/zfp.h"
+
+#include "zfparray3.h"
 
 using namespace thrust;
 using namespace std;
@@ -38,7 +39,7 @@ uint minbits = 1024;
 uint MAXBITS = 1024;
 uint MAXPREC = 64;
 int MINEXP = -1074;
-const double rate = 64;
+const double rate = 16;
 size_t  blksize = 0;
 unsigned long long group_count = 0x46acca631ull;
 uint size = 64;
@@ -1016,7 +1017,23 @@ int main()
 
 	cout << "Begin alpha test" << endl;
 
-	BitStream* stream = stream_create(nx*ny*nz * BSIZE * sizeof(unsigned long long));
+
+	zfp_field* field = zfp_field_alloc();
+	zfp_field_set_type(field, zfp::codec<double>::type);
+	zfp_field_set_pointer(field, thrust::raw_pointer_cast(h_vec_in.data()));
+	zfp_field_set_size_3d(field, nx, ny, nz);
+	zfp_stream* stream = zfp_stream_open(0);
+	uint n = zfp_field_size(field, NULL);
+	uint dims = zfp_field_dimensionality(field);
+	zfp_type type = zfp_field_type(field);
+
+	// allocate memory for compressed data
+	double new_rate = zfp_stream_set_rate(stream, rate, type, dims, 0);
+	size_t bufsize = zfp_stream_maximum_size(stream, field);
+	uchar* buffer = new uchar[bufsize];
+	bitstream* s = stream_open(buffer, bufsize);
+	zfp_stream_set_bit_stream(stream, s);
+	zfp_stream_rewind(stream);
 
 	int m = 0;
 	for (int z = 0; z < nz; z += 4){
@@ -1033,22 +1050,22 @@ int main()
 					}
 				}
 
-				zfp_encode_block_double_3(stream, minbits, MAXBITS, MAXPREC, MINEXP, b);
+				zfp_encode_block_double_3(stream, b);
 			}
 		}
 	}
 
 	//cout << "sum UInt " << thrust::reduce(stream->begin, stream->end) << endl;
-	stream_flush(stream);
+	stream_flush(s);
 
 	host_vector<double> h_out(nx*ny*nz);
-	stream_rewind(stream);
+	stream_rewind(s);
 	for (int z = 0; z < nz; z += 4){
 		for (int y = 0; y < ny; y += 4){
 			for (int x = 0; x < nx; x += 4){
 				m = 0;
 				double b[64];
-				zfp_decode_block_double_3(stream, minbits, MAXBITS, MAXPREC, MINEXP, b);
+				zfp_decode_block_double_3(stream, b);
 				for (int i = 0; i < 4; i++){
 					for (int j = 0; j < 4; j++){
 						for (int k = 0; k < 4; k++, m++){

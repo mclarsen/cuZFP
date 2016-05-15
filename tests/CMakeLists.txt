@@ -87,6 +87,8 @@ INCLUDE_DIRECTORIES(
 	"/usr/local/include"
 	"/usr/include"
     "../${ZFP_PARALLEL_VERSION}/"
+	"${CMAKE_CURRENT_SOURCE_DIR}/../v0.5/inc"
+	"${CMAKE_CURRENT_SOURCE_DIR}/../v0.5/array"
 )
 
 message("${CMAKE_CURRENT_SOURCE_DIR}/../")
@@ -94,7 +96,7 @@ LINK_DIRECTORIES(
 	"/usr/lib"
 	"/usr/local/lib"
         ${CUTIL_LIB_DIRECTORY}
-	"${CMAKE_CURRENT_SOURCE_DIR}/../czfp/lib"
+	"${CMAKE_CURRENT_SOURCE_DIR}/../v0.5/lib"
 )
 #set(CMAKE_C_FLAGS ${CMAKE_C_FLAGS} "-pg -march=native -msse2")
 
