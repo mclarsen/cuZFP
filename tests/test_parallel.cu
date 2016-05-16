@@ -407,6 +407,9 @@ cuZFP::Bit<bsize> *stream
 
 				Int sh_q[64];
 				UInt sh_p[64];
+				uint sh_m[64], sh_cnt[64], sh_n[64], sh_bits[64];
+				unsigned char sh_sbits[64];
+
 				uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
 				mx *= 4; my *= 4; mz *= 4;
 				int emax = cuZFP::max_exp_block(data, mx, my, mz, 1, blockDim.x * gridDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
@@ -426,12 +429,10 @@ cuZFP::Bit<bsize> *stream
 
 				uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
 
-				unsigned long long x[64];
+				unsigned long long x[64], y[64];
 				Bitter bitter[64];
-				unsigned char sbit[64];
 				for (int i = 0; i < 64; i++){
 					bitter[i] = make_bitter(0, 0);
-					sbit[i] = 0;
 				}
 				uint s_emax_bits[1];
 				s_emax_bits[0] = 1;
@@ -445,81 +446,80 @@ cuZFP::Bit<bsize> *stream
 				//printf("%d %d %d %d\n", emax, maxprec, ebits, e);
 				if (e){
 					//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
-					//stream[bidx].begin[0] = 2 * e + 1;
-					stream[bidx].write_bits(2 * e + 1, ebits);
+					stream[bidx].begin[0] = 2 * e + 1;
+					//stream[bidx].write_bits(2 * e + 1, ebits);
 					s_emax_bits[0] = ebits;
 				}
 				//				const uint kmin = intprec > MAXPREC ? intprec - MAXPREC : 0;
 
 				//unsigned long long x[64];
 				uint bits = MAXBITS - s_emax_bits[0];
-				for (int tid = intprec, n = 0; bits && tid-- > kmin;) {
+
+#pragma omp parallel for
+				for (int tid = 0; tid<64; tid++){
 					/* step 1: extract bit plane #k to x */
 					x[tid] = 0;
 					for (int i = 0; i < size; i++)
 						x[tid] += (uint64)((sh_p[i] >> tid) & 1u) << i;
-					/* step 2: encode first n bits of bit plane */
-					uint m = MIN(n, bits);
-					bits -= m;
-					x[tid] = stream[bidx].write_bits(x[tid], m);
-					/* step 3: unary run-length encode remainder of bit plane */
-					for (; n < size && bits && (bits--, stream[bidx].write_bit(!!x[tid])); x[tid] >>= 1, n++)
-						for (; n < size - 1 && bits && (bits--, !stream[bidx].write_bit(x[tid] & 1u)); x[tid] >>= 1, n++)
-							;
+					y[tid] = x[tid];
 				}
 
-				//unsigned long long y[64];
-				//for (int tid = 0; tid < 64; tid++){
-				//	/* extract bit plane k to x[k] */
-				//	y[tid] = 0;
-				//	for (uint i = 0; i < size; i++)
-				//		y[tid] += ((sh_p[i] >> tid) & (unsigned long long)1) << i;
-				//	x[tid] = y[tid];
-				//}
+#pragma omp parallel for
+				for (int tid = 0; tid < 64; tid++){
+					sh_m[tid] = 0;
+					sh_n[tid] = size;
+				}
 
-				//char sh_g[64], sh_sbits[64];
-				//Bitter sh_bitters[64];
+				for (int tid = intprec, n = 0; bits && tid-- > kmin;) {
+					/* step 2: encode first n bits of bit plane */
+					sh_n[tid] = n;
+					sh_cnt[tid] = 0;
+					sh_m[tid] = MIN(n, bits);
+					bits -= sh_m[tid];
+					//x[tid] = stream[bidx].write_bits(x[tid], sh_m[tid]);
+					x[tid] >>= sh_m[tid];
+					//y[tid] >>= sh_m[tid];
+					/* step 3: unary run-length encode remainder of bit plane */
+					for (; n < size && bits && (bits--, !!x[tid]); x[tid] >>= 1, sh_cnt[tid]++,n++)
+						for (; n < size - 1 && bits && (bits--, !(x[tid] & 1u)); x[tid] >>= 1, sh_cnt[tid]++, n++)
+							;
+					sh_bits[tid] = bits;
+				}
 
-				///* count number of positive group tests g[k] among 3*d in d dimensions */
-				//for (int tid = 0; tid < 64; tid++){
-				//	sh_g[tid] = 0;
-				//	for (unsigned long long c = count; y[tid]; y[tid] >>= c & 0xfu, c >>= 4)
-				//		sh_g[tid]++;
-				//}
+				Bitter sh_bitters[64];
+				for (int tid = 0; tid < 64; tid++){
+					sh_sbits[tid] = 0;
+				}
 
+#pragma omp parallel for
+				for (int tid = 0; tid < 64; tid++) {
+					/* step 2: encode first n bits of bit plane */
+					unsigned char sbits = 0;
+					//y[tid] = stream[bidx].write_bits(y[tid], sh_m[tid]);
+					y[tid] = write_bitters(bitter[tid], make_bitter(y[tid], 0), sh_m[tid], sbits);
+					uint n = sh_n[tid];
 
-				//unsigned char cur = sh_g[intprec - 1];
+					/* step 3: unary run-length encode remainder of bit plane */
+					for (; n < size && sh_bits[tid] && (sh_bits[tid]-- && write_bitter(bitter[tid], !!y[tid], sbits)); y[tid] >>= 1, n++)
+						for (; n < size - 1 && sh_bits[tid] && (sh_bits[tid]-- && !write_bitter(bitter[tid], y[tid] & 1u, sbits)); y[tid] >>= 1, n++)
+							;
 
-				//for (int i = intprec - 1; i-- > kmin;) {
-				//	if (cur < sh_g[i])
-				//		cur = sh_g[i];
-				//	else if (cur > sh_g[i])
-				//		sh_g[i] = cur;
-				//}
+					sh_bitters[63 - tid] = bitter[tid];
+					sh_sbits[63 - tid] = sbits;
+				}
 
-				//for (int tid = 0; tid < 64; tid++){
-				//	unsigned char g = sh_g[tid];
-				//	unsigned char h = sh_g[min(tid + 1, intprec - 1)];
-
-
-				//	cuZFP::encodeBitplane(count, x[tid], g, h, g_cnt, bitter[tid], sbit[tid]);
-				//	sh_bitters[63 - tid] = bitter[tid];
-				//	sh_sbits[63 - tid] = sbit[tid];
-				//}
-
-
-				//uint rem_sbits = s_emax_bits[0];
-				//uint tot_sbits = s_emax_bits[0];
-				//uint offset = 0;
-				//for (int i = 0; i < intprec && tot_sbits < MAXBITS; i++){
-				//	if (sh_sbits[i] <= 64){
-				//		write_outx(sh_bitters, stream[bidx].begin, rem_sbits, tot_sbits, offset, i, sh_sbits[i]);
-				//	}
-				//	else{
-				//		write_outx(sh_bitters, stream[bidx].begin, rem_sbits, tot_sbits, offset, i, 64);
-				//		write_outy(sh_bitters, stream[bidx].begin, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64);
-				//	}
-				//}
+				uint rem_sbits = s_emax_bits[0];
+				uint tot_sbits = s_emax_bits[0];
+				uint offset = 0;
+				for (int i = 0; i < intprec && tot_sbits < MAXBITS; i++){
+					if (sh_sbits[i] <= 64){
+						write_outx(sh_bitters, stream[bidx].begin, rem_sbits, tot_sbits, offset, i, sh_sbits[i]);
+					}
+					else{
+						write_outx(sh_bitters, stream[bidx].begin, rem_sbits, tot_sbits, offset, i, 64);
+						write_outy(sh_bitters, stream[bidx].begin, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64);
+					}
+				}
 			}
 		}
 	}

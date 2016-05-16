@@ -35,6 +35,15 @@ write_bitter(Bitter &bitters, Bitter bit, unsigned char &sbits)
 	bitters.x += val.x;
 	bitters.y += val.y;
 }
+__device__ __host__
+uint
+write_bitter(Bitter &bitters, uint bit, unsigned char &sbits)
+{
+	Bitter val = lshiftull2(make_bitter(bit,0), sbits++);
+	bitters.x += val.x;
+	bitters.y += val.y;
+	return bit;
+}
 
 __device__ __host__
 void
