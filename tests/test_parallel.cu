@@ -467,7 +467,7 @@ cuZFP::Bit<bsize> *stream
 #pragma omp parallel for
 				for (int tid = 0; tid < 64; tid++){
 					sh_m[tid] = 0;
-					sh_n[tid] = size;
+					sh_n[tid] = 0;
 					sh_sbits[tid] = 0;
 					sh_bits[tid] = 0;
 				}
@@ -477,11 +477,11 @@ cuZFP::Bit<bsize> *stream
 					//get the index of the first 'one' in the bit plane
 					for (int i = 0; i < 64; i++){
 						if (!!(x[tid] >> i))
-							sh_m[tid] = i + 1;
+							sh_n[tid] = i + 1;
 					}
 				}
 				for (int i = 0; i < 63; i++){
-					sh_m[i] = sh_m[i + 1];
+					sh_m[i] = sh_n[i + 1];
 				}
 
 				//make sure that m increases isotropically
