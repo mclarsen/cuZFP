@@ -22,9 +22,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 64;
-const size_t ny = 64;
-const size_t nz = 64;
+const size_t nx = 256;
+const size_t ny = 256;
+const size_t nz = 256;
 
 
 //BSIZE is the length of the array in class Bit
@@ -407,7 +407,8 @@ cuZFP::Bit<bsize> *stream
 
 				Int sh_q[64];
 				UInt sh_p[64];
-				uint sh_m[64], sh_cnt[64], sh_n[64], sh_bits[64];
+				uint sh_m[64], sh_n[64], sh_bits[64];
+				Bitter sh_bitters[64];
 				unsigned char sh_sbits[64];
 
 				uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
@@ -453,7 +454,6 @@ cuZFP::Bit<bsize> *stream
 				//				const uint kmin = intprec > MAXPREC ? intprec - MAXPREC : 0;
 
 				//unsigned long long x[64];
-				uint bits = MAXBITS - s_emax_bits[0];
 
 #pragma omp parallel for
 				for (int tid = 0; tid<64; tid++){
@@ -464,31 +464,61 @@ cuZFP::Bit<bsize> *stream
 					y[tid] = x[tid];
 				}
 
+				uint sh_bit_sum[64];
+				uint sh_zero_cnt[64];
+
 #pragma omp parallel for
 				for (int tid = 0; tid < 64; tid++){
 					sh_m[tid] = 0;
 					sh_n[tid] = size;
-				}
-
-				for (int tid = intprec, n = 0; bits && tid-- > kmin;) {
-					/* step 2: encode first n bits of bit plane */
-					sh_n[tid] = n;
-					sh_cnt[tid] = 0;
-					sh_m[tid] = MIN(n, bits);
-					bits -= sh_m[tid];
-					//x[tid] = stream[bidx].write_bits(x[tid], sh_m[tid]);
-					x[tid] >>= sh_m[tid];
-					//y[tid] >>= sh_m[tid];
-					/* step 3: unary run-length encode remainder of bit plane */
-					for (; n < size && bits && (bits--, !!x[tid]); x[tid] >>= 1, sh_cnt[tid]++,n++)
-						for (; n < size - 1 && bits && (bits--, !(x[tid] & 1u)); x[tid] >>= 1, sh_cnt[tid]++, n++)
-							;
-					sh_bits[tid] = bits;
-				}
-
-				Bitter sh_bitters[64];
-				for (int tid = 0; tid < 64; tid++){
 					sh_sbits[tid] = 0;
+					sh_bit_sum[tid] = 0;
+					sh_zero_cnt[tid] = 0;
+				}
+
+#pragma omp parallel for
+				for (int tid = 0; tid < 64; tid++){
+					//get the index of the first 'one' in the bit plane
+					for (int i = 0; i < 64; i++){
+						if (!!(x[tid] >> i))
+							sh_m[tid] = i + 1;
+					}
+				}
+				for (int i = 0; i < 63; i++){
+					sh_m[i] = sh_m[i + 1];
+				}
+
+				//make sure that m increases isotropically
+				for (int i = intprec - 1; i-- > 0;){
+					if (sh_m[i] < sh_m[i + 1])
+						sh_m[i] = sh_m[i + 1];
+				}				
+
+				//compute the number of bits used per thread
+#pragma omp parallel for
+				for (int tid = 0; tid < 64; tid++) {
+					int bits = 128;
+					int n = 0;
+					/* step 2: encode first n bits of bit plane */
+					bits -= sh_m[tid];
+					x[tid] >>= sh_m[tid];
+					x[tid] = (sh_m[tid] != 64) * x[tid];
+					n = sh_m[tid];
+					/* step 3: unary run-length encode remainder of bit plane */
+					for (; n < size && bits && (bits--, !!x[tid]); x[tid] >>= 1, n++)
+						for (; n < size - 1 && bits && (bits--, !(x[tid] & 1u)); x[tid] >>= 1, n++)
+							;
+					sh_sbits[tid] = bits;
+				}
+
+				//number of bits read per thread
+#pragma omp parallel for
+				for (int tid = 0; tid < 64; tid++){
+					sh_sbits[tid] = (128 - sh_sbits[tid]);
+				}
+#pragma omp parallel for
+				for (int tid = 0; tid < 64; tid++){
+					sh_n[tid] = min(sh_m[tid], sh_sbits[tid]);
 				}
 
 #pragma omp parallel for
