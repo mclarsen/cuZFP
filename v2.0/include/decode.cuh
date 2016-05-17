@@ -605,7 +605,6 @@ template<class Int, class UInt, class Scalar, uint bsize, uint num_sidx>
 __global__
 void cudaDecode
 (
-size_t *sidx,
 Bit<bsize> *stream,
 
 Scalar *out,
@@ -622,22 +621,26 @@ const unsigned long long orig_count
 
 	extern __shared__ unsigned char smem[];
 #if 1
-	size_t *s_sidx = (size_t*)&smem[0];
-	if (tid < num_sidx)
-		s_sidx[tid] = sidx[tid];
-	__syncthreads();
-	uint *s_idx_n = (uint*)&smem[s_sidx[0]];
-	uint *s_idx_g = (uint*)&smem[s_sidx[1]];
-	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[s_sidx[2]];
-	uint *s_bit_rmn_bits = (uint*)&smem[s_sidx[3]];
-	char *s_bit_offset = (char*)&smem[s_sidx[4]];
-	uint *s_bit_bits = (uint*)&smem[s_sidx[5]];
-	Word *s_bit_buffer = (Word*)&smem[s_sidx[6]];
-	UInt *s_data = (UInt*)&smem[s_sidx[7]];
-	Int *s_iblock = (Int*)&smem[s_sidx[8]];
-	uint *s_kmin = (uint*)&smem[s_sidx[9]];
+	__shared__ uint *s_idx_n, *s_idx_g, *s_bit_rmn_bits, *s_bit_bits, *s_kmin;
+	__shared__ unsigned long long *s_bit_cnt;
+	__shared__ char *s_bit_offset;
+	__shared__ Word *s_bit_buffer;
+	__shared__ UInt *s_data;
+	__shared__ Int *s_iblock;
+	__shared__ int *s_emax;
+
+	s_idx_n = (uint*)&smem[0];
+	s_idx_g = (uint*)&s_idx_n[64];
+	s_bit_cnt = (unsigned long long*)&s_idx_g[64];
+	s_bit_rmn_bits = (uint*)&s_bit_cnt[64];
+	s_bit_offset = (char*)&s_bit_rmn_bits[64];
+	s_bit_bits = (uint*)&s_bit_offset[64];
+	s_bit_buffer = (Word*)&s_bit_bits[64];
+	s_data = (UInt*)&s_bit_buffer[64];
+	s_iblock = (Int*)&s_data[64];
+	s_kmin = (uint*)&s_iblock[64];
 	
-	int *s_emax = (int*)&s_kmin[1];
+	s_emax = (int*)&s_kmin[1];
 
 #else
 	uint *s_idx_n = (uint*)&smem[0];
@@ -652,6 +655,7 @@ const unsigned long long orig_count
 	s_idx_g[tid] = 0;
 	s_data[tid] = 0;
 	s_bit_rmn_bits[tid] = 0;
+	s_bit_cnt[tid] = 0;
 	__syncthreads();
 
 	if (tid == 0){
@@ -660,32 +664,37 @@ const unsigned long long orig_count
 		s_emax[0] = stream[idx].read_bits(ebits - 1) - ebias;
 		int maxprec = precision(s_emax[0], c_maxprec, c_minexp);
 		s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
+		uint bits = c_maxbits - ebits;
+		for (uint k = intprec, n = 0; k-- > 0;){
+			//					idx_n[k] = n;
+			//					bit_rmn_bits[k] = bits;
+			uint m = MIN(n, bits);
+			bits -= m;
+			s_bit_cnt[k] = stream[idx].read_bits(m);
+			for (; n < 64 && bits && (bits--, stream[idx].read_bit()); s_bit_cnt[k] += (unsigned long long)1 << n++)
+				for (; n < 64 - 1 && bits && (bits--, !stream[idx].read_bit()); n++)
+					;
+		}
 
-		insert_bit<bsize>(
-			stream[idx],
-			s_idx_g,
-			s_idx_n,
-			s_bit_bits,
-			s_bit_offset,
-			s_bit_buffer,
-			s_bit_cnt,
-			s_bit_rmn_bits,
-			c_maxbits - ebits, intprec, s_kmin[0], orig_count);
 	}	__syncthreads();
 
-	for (uint k = s_kmin[0]; k < intprec; k++){
-		decodeBitstream<UInt, bsize>(
-			stream[idx],
-			s_idx_g[k],
-			s_idx_n[k],
-			s_bit_cnt[k],
-			s_bit_rmn_bits[k],
-			s_bit_bits[k],
-			s_bit_offset[k],
-			s_bit_buffer[k],
-			s_data[tid],
-			tid, k);
-	}
+	for (int i = 0; i<64; i++)
+		s_data[tid] += (UInt)((s_bit_cnt[i] >> tid) & 1u) << i;
+	
+
+	//for (uint k = s_kmin[0]; k < intprec; k++){
+	//	decodeBitstream<UInt, bsize>(
+	//		stream[idx],
+	//		s_idx_g[k],
+	//		s_idx_n[k],
+	//		s_bit_cnt[k],
+	//		s_bit_rmn_bits[k],
+	//		s_bit_bits[k],
+	//		s_bit_offset[k],
+	//		s_bit_buffer[k],
+	//		s_data[tid],
+	//		tid, k);
+	//}
 
 	s_iblock[c_perm[tid]] = uint2int<Int, UInt>(s_data[tid]);
 	__syncthreads();
@@ -728,16 +737,9 @@ void decode
   block_size = dim3(4, 4, 4);
   grid_size = dim3(nx, ny, nz);
   grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-  size_t blcksize = block_size.x *block_size.y * block_size.z;
-	size_t s_idx[12] = { sizeof(size_t) * 12, blcksize * sizeof(uint), blcksize * sizeof(uint), +blcksize * sizeof(unsigned long long), blcksize * sizeof(uint), blcksize * sizeof(char), blcksize * sizeof(uint), blcksize * sizeof(Word), blcksize * sizeof(UInt), blcksize * sizeof(Int), sizeof(uint), sizeof(int) };
-	thrust::inclusive_scan(s_idx, s_idx + 11, s_idx);
-	const size_t shmem_size = thrust::reduce(s_idx, s_idx + 11);
-	thrust::device_vector<size_t> d_sidx(s_idx, s_idx + 11);
 
-	cudaDecode<Int, UInt, Scalar, bsize, 11> << < grid_size, block_size, 64 * (4 + 4 + 8 + 4 + 1 + 4 + 8 + 8 + 8) + 4 + 4 + 4 >> >
-
+	cudaDecode<Int, UInt, Scalar, bsize, 11> << < grid_size, block_size, 64 * (4 + 4 + 8 + 4 + 1 + 4 + 8 + 8 + 8) + 8 + 4 + 4 >> >
 		(
-		raw_pointer_cast(d_sidx.data()),
 		raw_pointer_cast(stream.data()),
 		d_data,
 		intprec,
