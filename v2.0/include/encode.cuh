@@ -438,8 +438,9 @@ Bit<bsize> *stream
 	__shared__ uint *s_emax_bits;
 	__shared__ Int *sh_q;
 	__shared__ UInt *sh_p;
+	__shared__ uint *sh_m, *sh_n;
 	__shared__ int *sh_emax;
-	
+
 	sh_g = &smem[0];
 	sh_sbits = &smem[64];
 	sh_bitters = (Bitter*)&smem[64 + 64];
@@ -447,8 +448,11 @@ Bit<bsize> *stream
 	sh_data = (Scalar*)&sh_p[64];
 	sh_reduce = (Scalar*)&sh_data[64];
 	sh_q = (Int*)&sh_reduce[32];
-	s_emax_bits = (uint*)&sh_q[64];
+	sh_m = (uint*)&sh_q[64];
+	sh_n = (uint*)&sh_m[64];
+	s_emax_bits = (uint*)&sh_n[64];
 	sh_emax = (int*)&s_emax_bits[1];
+
 
 	unsigned long long x;
 
@@ -524,31 +528,57 @@ Bit<bsize> *stream
 	x = y;
 
 	__syncthreads();
-	/* count number of positive group tests g[k] among 3*d in d dimensions */
-	sh_g[tid] = 0;
-	for (unsigned long long c = count; y; y >>= c & 0xfu, c >>= 4)
-		sh_g[tid]++;
+	sh_m[tid] = 0;
+	sh_n[tid] = 0;
 
-	__syncthreads();
-	if (tid == 0){
-		unsigned char cur = sh_g[intprec - 1];
+	//temporarily use sh_n as a buffer
+	uint *sh_test = sh_n;
+	for (int i = 0; i < 64; i++){
+		if (!!(x >> i))
+			sh_n[tid] = i + 1;
+	}
 
-		for (int i = intprec - 1; i-- > kmin;) {
-			if (cur < sh_g[i])
-				cur = sh_g[i];
-			else if (cur > sh_g[i])
-				sh_g[i] = cur;
-		}
+	if (tid < 63){
+		sh_m[tid] = sh_n[tid + 1];
 	}
 
 	__syncthreads();
-	//	g[k] = sh_g[threadIdx.x];
+	if (tid == 0){
+		for (int i = intprec - 1; i-- > 0;){
+			if (sh_m[i] < sh_m[i + 1])
+				sh_m[i] = sh_m[i + 1];
+		}
+	}
+	__syncthreads();
 
-	unsigned char g = sh_g[tid];
-	unsigned char h = sh_g[min(tid + 1, intprec - 1)];
+	int bits = 128;
+	int n = 0;
+	/* step 2: encode first n bits of bit plane */
+	bits -= sh_m[tid];
+	x >>= sh_m[tid];
+	x = (sh_m[tid] != 64) * x;
+	n = sh_m[tid];
+	/* step 3: unary run-length encode remainder of bit plane */
+	for (; n < size && bits && (bits--, !!x); x >>= 1, n++)
+		for (; n < size - 1 && bits && (bits--, !(x & 1u)); x >>= 1, n++)
+			;
+	__syncthreads();
+
+	bits = (128 - bits);
+	sh_n[tid] = min(sh_m[tid], bits);
+
+	/* step 2: encode first n bits of bit plane */
+	//y[tid] = stream[bidx].write_bits(y[tid], sh_m[tid]);
+	y = write_bitters(bitter, make_bitter(y, 0), sh_m[tid], sbit);
+	n = sh_n[tid];
+
+	/* step 3: unary run-length encode remainder of bit plane */
+	for (; n < size && bits && (bits-- && write_bitter(bitter, !!y, sbit)); y >>= 1, n++)
+		for (; n < size - 1 && bits && (bits-- && !write_bitter(bitter, y & 1u, sbit)); y >>= 1, n++)
+			;
+	__syncthreads();
 
 
-	encodeBitplane(count, x, g, h, g_cnt, bitter, sbit);
 	sh_bitters[63 - tid] = bitter;
 	sh_sbits[63 - tid] = sbit;
 
@@ -595,7 +625,7 @@ void encode
   grid_size = dim3(nx, ny, nz);
   grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
 
-	cudaEncode<Int, UInt, Scalar, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + sizeof(int)) * 64 + 32*sizeof(Scalar) + 4 >> >
+	cudaEncode<Int, UInt, Scalar, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3*sizeof(int)) * 64 + 32*sizeof(Scalar) + 4 >> >
 		(
 		group_count, size,
 		d_data,
@@ -638,6 +668,23 @@ const uint size
 
 	encode<Int, UInt, Scalar, bsize>(nx, ny, nz, d_data, stream, group_count, size);
 }
+template<class Int, class UInt, class Scalar, uint bsize>
+void encode
+(
+int nx, int ny, int nz,
+const thrust::host_vector<Scalar> &h_data,
+thrust::host_vector<cuZFP::Bit<bsize> > &stream,
+const unsigned long long group_count,
+const uint size
+)
+{
+	thrust::device_vector<cuZFP::Bit<bsize> > d_stream = stream;
+
+	encode<Int, UInt, Scalar, bsize>(nx, ny, nz, h_data, d_stream, group_count, size);
+
+	stream = d_stream;
+}
 
 }
+
 #endif
