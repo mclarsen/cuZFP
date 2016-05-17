@@ -22,9 +22,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 256;
-const size_t ny = 256;
-const size_t nz = 256;
+const size_t nx = 64;
+const size_t ny = 64;
+const size_t nz = 64;
 
 
 //BSIZE is the length of the array in class Bit
@@ -464,16 +464,12 @@ cuZFP::Bit<bsize> *stream
 					y[tid] = x[tid];
 				}
 
-				uint sh_bit_sum[64];
-				uint sh_zero_cnt[64];
-
 #pragma omp parallel for
 				for (int tid = 0; tid < 64; tid++){
 					sh_m[tid] = 0;
 					sh_n[tid] = size;
 					sh_sbits[tid] = 0;
-					sh_bit_sum[tid] = 0;
-					sh_zero_cnt[tid] = 0;
+					sh_bits[tid] = 0;
 				}
 
 #pragma omp parallel for
@@ -508,17 +504,17 @@ cuZFP::Bit<bsize> *stream
 					for (; n < size && bits && (bits--, !!x[tid]); x[tid] >>= 1, n++)
 						for (; n < size - 1 && bits && (bits--, !(x[tid] & 1u)); x[tid] >>= 1, n++)
 							;
-					sh_sbits[tid] = bits;
+					sh_bits[tid] = bits;
 				}
 
 				//number of bits read per thread
-#pragma omp parallel for
+//#pragma omp parallel for
 				for (int tid = 0; tid < 64; tid++){
-					sh_sbits[tid] = (128 - sh_sbits[tid]);
+					sh_bits[tid] = (128 - sh_bits[tid]);
 				}
 #pragma omp parallel for
 				for (int tid = 0; tid < 64; tid++){
-					sh_n[tid] = min(sh_m[tid], sh_sbits[tid]);
+					sh_n[tid] = min(sh_m[tid], sh_bits[tid]);
 				}
 
 #pragma omp parallel for
@@ -1083,7 +1079,7 @@ int main()
 	//    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
 	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS);
 	cout << "Begin gpuTestBitStream" << endl;
-	gpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
+	//gpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
 	cout << "Finish gpuTestBitStream" << endl;
 
 	cout << "Begin cpuTestBitStream" << endl;
