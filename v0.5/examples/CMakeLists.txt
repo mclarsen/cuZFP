@@ -24,6 +24,7 @@ ADD_EXECUTABLE(zfp_c
 )
 TARGET_LINK_LIBRARIES(zfp_c
     zfp
+    m
 )
 
 ADD_EXECUTABLE(zfp_cpp
@@ -31,5 +32,6 @@ ADD_EXECUTABLE(zfp_cpp
 )
 TARGET_LINK_LIBRARIES(zfp_cpp
     zfp
+    m
 )
 
