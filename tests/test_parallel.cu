@@ -22,9 +22,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 512;
-const size_t ny = 512;
-const size_t nz = 512;
+const size_t nx = 64;
+const size_t ny = 64;
+const size_t nz = 64;
 
 
 //BSIZE is the length of the array in class Bit
@@ -401,16 +401,58 @@ const unsigned long long orig_count
 
 				unsigned long long x[64];
 
+
+        int *sh_idx = new int[16*64];
+        for (int i=0; i<1024; i++){
+          sh_idx[i] = -1;
+        }
+        uint cnt = 0;
+        for (int i=0; i<1024; i++){
+          if ((stream[idx].read_bit() & 1u))
+            sh_idx[cnt++] = i;
+        }
+
+        for (int tid = 0; tid < 64; tid++){
+          stream[idx].rewind();
+          stream[idx].read_bit();
+          s_emax[0] = stream[idx].read_bits(ebits - 1) - ebias;
+        }
+
 				/* decode one bit plane at a time from MSB to LSB */
+        cnt = 0;
+        uint new_n = 0, new_bits = bits;
 				for (uint tid = intprec, n = 0; bits && tid-- > s_kmin[0];) {
 					/* decode first n bits of bit plane #k */
 					uint m = MIN(n, bits);
 					bits -= m;
+          new_bits -= m;
 					x[tid] = stream[idx].read_bits(m);
 					/* unary run-length decode remainder of bit plane */
-					for (; n < size && bits && (bits--, stream[idx].read_bit()); x[tid] += (uint64)1 << n++)
-						for (; n < size - 1 && bits && (bits--, !stream[idx].read_bit()); n++)
-							;
+          for (; n < size && bits && (new_bits--, bits--, stream[idx].read_bit()); x[tid] += (uint64)1 << n++, new_n++){
+            int wtf[64];
+            for (int i=0; i<64; i++){
+              wtf[i] = 0;
+            }
+            int wtf_cnt =0;
+            for (; n < size - 1 && bits && (bits--, wtf[wtf_cnt++] = !stream[idx].read_bit()); n++)
+              ;
+            if (new_n < size - 1 && new_bits && (new_bits--, wtf[0])){
+              while (sh_idx[cnt] < (1024 - (new_bits - s_emax[0]))){
+                cnt++;
+              }
+              int num_bits = min(size-1 - new_n,sh_idx[cnt] - sh_idx[cnt-1]) - 1;
+              //stream[idx].read_bits(num_bits);
+              //uint chk = stream[idx].read_bit();
+              new_n += num_bits + wtf[wtf_cnt-1];
+              new_bits -= num_bits;
+            }
+            n = new_n;
+            bits = new_bits;
+//            if (n != new_n || new_bits != bits){
+//              cout << n << " " << new_n << " " << bits << " " << new_bits << " " << blockIdx.x * gridDim.x << " " << blockIdx.y*gridDim.y << " " << blockIdx.z * gridDim.z << endl;
+//              exit(0);
+//            }
+          }
 					/* deposit bit plane from x */
 					for (int i = 0; x[tid]; i++, x[tid] >>= 1)
 						s_data[i] += (UInt)(x[tid] & 1u) << tid;
@@ -680,7 +722,7 @@ int main()
 	cout << "Finish gpuTestBitStream" << endl;
 
 	cout << "Begin cpuTestBitStream" << endl;
-  //cpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
+  cpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
 	cout << "Finish cpuTestBitStream" << endl;
 
 
