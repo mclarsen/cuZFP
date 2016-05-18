@@ -7,11 +7,10 @@
 
 namespace cuZFP{
 
-template<uint bsize>
+template<uint bsize, uint BITSIZE = sizeof(unsigned long long) * CHAR_BIT>
 class Bit
 {
 public:
-	int emax;
     uint bits;   // number of buffered bits (0 <= bits < wsize)
     Word buffer; // buffer for incoming/outgoing bits
     char offset;   // pointer to next word to be read/written
@@ -21,7 +20,6 @@ public:
 
     __device__ __host__
     Bit(){
-			emax = 0;
         bits = 0;
         buffer = 0;
         offset = 0;
@@ -32,13 +30,11 @@ public:
         end = begin + bsize;
 
 
-        x = 0;
     }
 
     __device__ __host__
     Bit(const Bit &bs)
     {
-			emax = bs.emax;
         bits = bs.bits;
         buffer = bs.buffer;
         offset = bs.offset;
@@ -46,8 +42,6 @@ public:
             begin[i] = bs.begin[i];
         }
         end = begin + bsize;
-
-        x = bs.x;
     }
 
     // byte size of stream
@@ -78,12 +72,12 @@ public:
     unsigned long long
     write_bits(unsigned long long value, uint n)
     {
-      if (n == bitsize(value)) {
+      if (n == BITSIZE) {
         if (!bits)
           begin[offset++] = value;
         else {
           begin[offset++] = buffer + (value << bits);
-          buffer = value >> (bitsize(value) - bits);
+          buffer = value >> (BITSIZE - bits);
         }
         return 0;
       }
@@ -158,7 +152,7 @@ public:
     #elif 1
       unsigned long long value;
       /* because shifts by 64 are not possible, treat n = 64 specially */
-      if (n == bitsize(value)) {
+      if (n == BITSIZE) {
         if (!bits)
           value = begin[offset++];//*ptr++;
         else {
