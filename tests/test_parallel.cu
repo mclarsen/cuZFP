@@ -402,12 +402,12 @@ const unsigned long long orig_count
 				unsigned long long x[64];
 
 
-        int *sh_idx = new int[16*64];
-        for (int i=0; i<1024; i++){
+        int *sh_idx = new int[bsize*64];
+        for (int i=0; i<bsize * 64; i++){
           sh_idx[i] = -1;
         }
         uint cnt = 0;
-        for (int i=0; i<1024; i++){
+				for (int i = 0; i<bsize * 64; i++){
           if ((stream[idx].read_bit() & 1u))
             sh_idx[cnt++] = i;
         }
