@@ -420,30 +420,29 @@ const unsigned long long orig_count
 
 				/* decode one bit plane at a time from MSB to LSB */
         cnt = 0;
-        uint new_n = 0, new_bits = bits;
+				//uint new_n = 0;
 				uint bits_cnt = ebits;
 				for (uint tid = intprec, n = 0; bits && tid-- > s_kmin[0];) {
 					/* decode first n bits of bit plane #k */
 					uint m = MIN(n, bits);
 					bits -= m;
-          new_bits -= m;
 					bits_cnt += m;
 					x[tid] = stream[idx].read_bits(m);
 					/* unary run-length decode remainder of bit plane */
-					for (; n < size && bits && (new_bits--, bits--, bits_cnt++, stream[idx].read_bit()); x[tid] += (uint64)1 << n++, new_n++){
-						uint tmp_bits = stream[idx].bits;
-						Word tmp_buffer = stream[idx].buffer;
-						char tmp_offset = stream[idx].offset;
+					for (; n < size && bits && (bits--, bits_cnt++, stream[idx].read_bit()); x[tid] += (uint64)1 << n++){
 						int num_bits = 0;
 						uint chk = 0;
-            for (; n < size - 1 && bits && (bits--, !stream[idx].read_bit()); n++)
-              ;
 
-						stream[idx].bits = tmp_bits;
-						stream[idx].buffer = tmp_buffer;
-						stream[idx].offset = tmp_offset;
+						//uint tmp_bits = stream[idx].bits;
+						//Word tmp_buffer = stream[idx].buffer;
+						//char tmp_offset = stream[idx].offset;
+            //for (; n < size - 1 && bits && (bits--, !stream[idx].read_bit()); n++)
+            //  ;
+						//stream[idx].bits = tmp_bits;
+						//stream[idx].buffer = tmp_buffer;
+						//stream[idx].offset = tmp_offset;
 
-						while (new_n < size - 1 && new_bits && (new_bits--, bits_cnt++, !stream[idx].read_bit())){
+						while (n < size - 1 && bits && (bits--, bits_cnt++, !stream[idx].read_bit())){
 							//the number of bits read in one go: 
 							//this can be affected by running out of bits in the block (variable bits)
 							// and how much is encoded per number (variable n)
@@ -462,21 +461,21 @@ const unsigned long long orig_count
 							//the one bit as two positions previous
 							num_bits -= 2;
 
-							num_bits = min(num_bits, (size - 1) - new_n - 1);
+							num_bits = min(num_bits, (size - 1) - n - 1);
 
 							bits_cnt += num_bits;
 							if (num_bits > 0){
 								stream[idx].read_bits(num_bits);
-								new_bits -= num_bits;
-								new_n += num_bits;
+								bits -= num_bits;
+								n += num_bits;
 							}
 
-							new_n++;
+							n++;
 						}
-            if (n != new_n || new_bits != bits){
-               cout << n << " " << new_n << " " << bits << " " << new_bits << " " << blockIdx.x * gridDim.x << " " << blockIdx.y*gridDim.y << " " << blockIdx.z * gridDim.z << endl;
-              exit(0);
-            }
+            //if (n != new_n || new_bits != bits){
+            //   cout << n << " " << new_n << " " << bits << " " << new_bits << " " << blockIdx.x * gridDim.x << " " << blockIdx.y*gridDim.y << " " << blockIdx.z * gridDim.z << endl;
+            //  exit(0);
+            //}
           }
 					/* deposit bit plane from x */
 					for (int i = 0; x[tid]; i++, x[tid] >>= 1)
@@ -712,7 +711,7 @@ host_vector<Scalar> &h_data
 int main()
 {
 	host_vector<double> h_vec_in(nx*ny*nz);
-#if 1
+#if 0
   for (int z=0; z<nz; z++){
     for (int y=0; y<ny; y++){
       for (int x=0; x<nx; x++){
