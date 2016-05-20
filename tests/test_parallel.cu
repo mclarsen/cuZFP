@@ -404,7 +404,7 @@ const unsigned long long orig_count
 
         int *sh_idx = new int[bsize*64];
 				int *sh_tmp_idx = new int[bsize * 64];
-				int *sh_tmp_cmpt = new int[bsize * 64];
+
 
 				for (int tid = 0; tid < 64; tid++){
 					for (int i = 0; i < 16; i++){
@@ -440,7 +440,7 @@ const unsigned long long orig_count
 
 				for (int tid = 0; tid < 64; tid++){
 					if (tid < sh_cnt[0])
-						sh_tmp_cmpt[tid] = sh_tmp_idx[tid];
+						sh_idx[tid] = sh_tmp_idx[tid];
 				}
 
 				for (int i = 1; i < bsize; i++){
@@ -448,30 +448,18 @@ const unsigned long long orig_count
 						if (tid == 0)
 							sh_cnt[i] += sh_cnt[i - 1];
 						if (tid < sh_cnt[i]){
-							sh_tmp_cmpt[sh_cnt[i - 1] + tid] = sh_tmp_idx[i * 64 + tid];
+							sh_idx[sh_cnt[i - 1] + tid] = sh_tmp_idx[i * 64 + tid];
 						}
 					}
 				}
 
-			
-				int cnt = 0;
-				for (int i = 0; i<bsize * 64 - ebits; i++){
-          if ((stream[idx].read_bit() & 1u))
-            sh_idx[cnt++] = i;
-        }
 
-				for (int i = 0; i < sh_cnt[bsize-1]; i++){
-					if (sh_tmp_cmpt[i] != sh_idx[i]){
-						cout << i << " " << sh_tmp_cmpt[i] << " " << sh_idx[i] << endl;
-						exit(-1);
-					}
-				}
 				stream[idx].rewind();
 				stream[idx].read_bit();
 				s_emax[0] = stream[idx].read_bits(ebits - 1) - ebias;
 
 				/* decode one bit plane at a time from MSB to LSB */
-        cnt = 0;
+        int cnt = 0;
 				//uint new_n = 0;
 				uint bits_cnt = ebits;
 				for (uint tid = intprec, n = 0; bits && tid-- > s_kmin[0];) {
