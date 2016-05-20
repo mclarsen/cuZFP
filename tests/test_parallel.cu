@@ -403,20 +403,72 @@ const unsigned long long orig_count
 
 
         int *sh_idx = new int[bsize*64];
-        for (int i=0; i<bsize * 64; i++){
-          sh_idx[i] = -1;
-        }
-        uint cnt = 0;
-				for (int i = 0; i<bsize * 64; i++){
+				int *sh_tmp_idx = new int[bsize * 64];
+				int *sh_tmp_cmpt = new int[bsize * 64];
+
+				for (int tid = 0; tid < 64; tid++){
+					for (int i = 0; i < 16; i++){
+						sh_idx[i * 64 + tid] = -1;
+						sh_tmp_idx[i * 64 + tid] = -1;
+					}
+				}
+
+				int sh_cnt[bsize];
+				int beg_idx[bsize];
+				for (int tid = 0; tid < 64; tid++){
+					if (tid < bsize){
+						beg_idx[tid] = 0;
+						if (tid == 0)
+							beg_idx[tid] = ebits;
+						sh_cnt[tid] = 0;
+						for (int i = beg_idx[tid]; i < 64; i++){
+							if ((stream[idx].begin[tid] >> i) & 1u){
+								sh_tmp_idx[tid * 64 + sh_cnt[tid]++] = tid*64 + i;
+							}
+						}
+					}
+				}
+
+				//fix blocks since they are off by ebits
+				for (int i = 0; i < bsize; i++){
+					for (int tid = 0; tid < 64; tid++){
+						if (tid < sh_cnt[i]){
+							sh_tmp_idx[i*64 + tid] -= ebits;
+						}
+					}
+				}
+
+				for (int tid = 0; tid < 64; tid++){
+					if (tid < sh_cnt[0])
+						sh_tmp_cmpt[tid] = sh_tmp_idx[tid];
+				}
+
+				for (int i = 1; i < bsize; i++){
+					for (int tid = 0; tid < 64; tid++){
+						if (tid == 0)
+							sh_cnt[i] += sh_cnt[i - 1];
+						if (tid < sh_cnt[i]){
+							sh_tmp_cmpt[sh_cnt[i - 1] + tid] = sh_tmp_idx[i * 64 + tid];
+						}
+					}
+				}
+
+			
+				int cnt = 0;
+				for (int i = 0; i<bsize * 64 - ebits; i++){
           if ((stream[idx].read_bit() & 1u))
             sh_idx[cnt++] = i;
         }
 
-        for (int tid = 0; tid < 64; tid++){
-          stream[idx].rewind();
-          stream[idx].read_bit();
-          s_emax[0] = stream[idx].read_bits(ebits - 1) - ebias;
-        }
+				for (int i = 0; i < sh_cnt[bsize-1]; i++){
+					if (sh_tmp_cmpt[i] != sh_idx[i]){
+						cout << i << " " << sh_tmp_cmpt[i] << " " << sh_idx[i] << endl;
+						exit(-1);
+					}
+				}
+				stream[idx].rewind();
+				stream[idx].read_bit();
+				s_emax[0] = stream[idx].read_bits(ebits - 1) - ebias;
 
 				/* decode one bit plane at a time from MSB to LSB */
         cnt = 0;
