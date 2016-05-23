@@ -417,7 +417,9 @@ unsigned char &sbits
 
 template<class Int, class UInt, class Scalar, uint bsize>
 __global__
-void cudaEncode
+void
+__launch_bounds__(64)
+cudaEncode
 (
 const unsigned long long count,
 uint size,
@@ -433,7 +435,7 @@ Bit<bsize> *stream
 
 	extern __shared__ unsigned char smem[];
 	__shared__ unsigned char *sh_g, *sh_sbits;
-	__shared__ Scalar *sh_data, *sh_reduce;
+  __shared__ Scalar *sh_data, *sh_reduce;
 	__shared__ Bitter *sh_bitters;
 	__shared__ uint *s_emax_bits;
 	__shared__ Int *sh_q;
@@ -445,8 +447,8 @@ Bit<bsize> *stream
 	sh_sbits = &smem[64];
 	sh_bitters = (Bitter*)&smem[64 + 64];
 	sh_p = (UInt*)&smem[64 + 64 + 16 * 64];
-	sh_data = (Scalar*)&sh_p[64];
-	sh_reduce = (Scalar*)&sh_data[64];
+  sh_data = (Scalar*)&sh_p[64];
+  sh_reduce = (Scalar*)&sh_data[64];
 	sh_q = (Int*)&sh_reduce[32];
 	sh_m = (uint*)&sh_q[64];
 	sh_n = (uint*)&sh_m[64];
@@ -465,7 +467,7 @@ Bit<bsize> *stream
 	uint kmin = 0;
 
 
-	sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
+  sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
 
 	__syncthreads();
 	//max_exp
@@ -524,7 +526,7 @@ Bit<bsize> *stream
 	/* extract bit plane k to x[k] */
 	unsigned long long y = 0;
 	for (uint i = 0; i < size; i++)
-		y += ((sh_p[i] >> tid) & (unsigned long long)1) << i;
+    y += ((sh_p[i] >> tid) & (unsigned long long)1) << i;
 	x = y;
 
 	__syncthreads();

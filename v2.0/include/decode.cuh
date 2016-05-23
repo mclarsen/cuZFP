@@ -603,7 +603,9 @@ const unsigned long long orig_count
 
 template<class Int, class UInt, class Scalar, uint bsize, uint num_sidx>
 __global__
-void cudaDecode
+void
+__launch_bounds__(64)
+cudaDecode
 (
 Bit<bsize> *stream,
 
@@ -621,23 +623,13 @@ const unsigned long long orig_count
 
 	extern __shared__ unsigned char smem[];
 #if 1
-	__shared__ uint *s_idx_n, *s_idx_g, *s_bit_rmn_bits, *s_bit_bits, *s_kmin;
+  __shared__ uint *s_kmin;
 	__shared__ unsigned long long *s_bit_cnt;
-	__shared__ char *s_bit_offset;
-	__shared__ Word *s_bit_buffer;
-	__shared__ UInt *s_data;
 	__shared__ Int *s_iblock;
 	__shared__ int *s_emax;
 
-	s_idx_n = (uint*)&smem[0];
-	s_idx_g = (uint*)&s_idx_n[64];
-	s_bit_cnt = (unsigned long long*)&s_idx_g[64];
-	s_bit_rmn_bits = (uint*)&s_bit_cnt[64];
-	s_bit_offset = (char*)&s_bit_rmn_bits[64];
-	s_bit_bits = (uint*)&s_bit_offset[64];
-	s_bit_buffer = (Word*)&s_bit_bits[64];
-	s_data = (UInt*)&s_bit_buffer[64];
-	s_iblock = (Int*)&s_data[64];
+  s_bit_cnt = (unsigned long long*)&smem[0];
+  s_iblock = (Int*)&s_bit_cnt[64];
 	s_kmin = (uint*)&s_iblock[64];
 	
 	s_emax = (int*)&s_kmin[1];
@@ -652,11 +644,9 @@ const unsigned long long orig_count
 	Word *s_bit_buffer = (Word*)&smem[64 * (4 + 4 + 8 + 4 + 1 + 4)];
 	UInt *s_data = (UInt*)&smem[64 * (4 + 4 + 8 + 4 + 1 + 4 + 8)];
 #endif
-	s_idx_g[tid] = 0;
-	s_data[tid] = 0;
-	s_bit_rmn_bits[tid] = 0;
-	s_bit_cnt[tid] = 0;
-	__syncthreads();
+  UInt l_data = 0;
+  s_bit_cnt[tid] = 0;
+  __syncthreads();
 
 	if (tid == 0){
 		stream[idx].read_bit();
@@ -678,8 +668,9 @@ const unsigned long long orig_count
 
 	}	__syncthreads();
 
+#pragma unroll 64
 	for (int i = 0; i<64; i++)
-		s_data[tid] += (UInt)((s_bit_cnt[i] >> tid) & 1u) << i;
+    l_data += (UInt)((s_bit_cnt[i] >> tid) & 1u) << i;
 	
 
 	//for (uint k = s_kmin[0]; k < intprec; k++){
@@ -696,7 +687,7 @@ const unsigned long long orig_count
 	//		tid, k);
 	//}
 
-	s_iblock[c_perm[tid]] = uint2int<Int, UInt>(s_data[tid]);
+  s_iblock[c_perm[tid]] = uint2int<Int, UInt>(l_data);
 	__syncthreads();
 	if (tid == 0){
 		uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
@@ -738,7 +729,7 @@ void decode
   grid_size = dim3(nx, ny, nz);
   grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
 
-	cudaDecode<Int, UInt, Scalar, bsize, 11> << < grid_size, block_size, 64 * (4 + 4 + 8 + 4 + 1 + 4 + 8 + 8 + 8) + 8 + 4 + 4 >> >
+  cudaDecode<Int, UInt, Scalar, bsize, 11> << < grid_size, block_size, 64 * (8 + 8) + 4 + 4 >> >
 		(
 		raw_pointer_cast(stream.data()),
 		d_data,
