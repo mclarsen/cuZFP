@@ -14,8 +14,6 @@
 #define FREXP(x, e) frexp(x, e)
 #define FABS(x) fabs(x)
 
-const int ebias = 1023;
-
 namespace cuZFP{
 
 // map two's complement signed integer to negabinary unsigned integer
@@ -44,9 +42,9 @@ exponent(Scalar x)
     int e;
     FREXP(x, &e);
     // clamp exponent in case x is denormalized
-    return MAX(e, 1 - ebias);
+    return MAX(e, 1 - c_ebias);
   }
-  return -ebias;
+	return -c_ebias;
 }
 
 template<class T, bool mult_only>
@@ -514,7 +512,7 @@ Bit<bsize> *stream
 		int maxprec = precision(sh_emax[0], c_maxprec, c_minexp);
 		kmin = intprec > maxprec ? intprec - maxprec : 0;
 
-		uint e = maxprec ? sh_emax[0] + ebias : 0;
+		uint e = maxprec ? sh_emax[0] + c_ebias : 0;
 		if (e){
 			//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
 			stream[bidx / 64].begin[0] = 2 * e + 1;

@@ -16,5 +16,6 @@ __constant__ uint c_sizeof_scalar;
 __constant__ uint c_maxprec;
 __constant__ int c_minexp;
 __constant__ int c_ebits;
+__constant__ int c_ebias;
 
 #endif
