@@ -425,7 +425,7 @@ const unsigned long long count,
 uint size,
 const Scalar* data,
 const unsigned char *g_cnt,
-Bit<bsize> *stream
+Word *blocks
 )
 {
 	//	int mx = threadIdx.x + blockDim.x*blockIdx.x;
@@ -459,13 +459,12 @@ Bit<bsize> *stream
 	unsigned long long x;
 
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
-
-	uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*blockDim.x*blockDim.y*blockDim.z;
+  uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
+  uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
   
 	Bitter bitter = make_bitter(0, 0);
 	unsigned char sbit = 0;
 	uint kmin = 0;
-
 
   sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
 
@@ -517,7 +516,7 @@ Bit<bsize> *stream
 		uint e = maxprec ? sh_emax[0] + ebias : 0;
 		if (e){
 			//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
-			stream[bidx / 64].begin[0] = 2 * e + 1;
+      blocks[idx * bsize] = 2 * e + 1;
 			s_emax_bits[0] = c_ebits + 1;
 		}
 	}
@@ -591,11 +590,11 @@ Bit<bsize> *stream
 		uint offset = 0;
 		for (int i = 0; i < intprec && tot_sbits < c_maxbits; i++){
 			if (sh_sbits[i] <= 64){
-				write_outx(sh_bitters, stream[bidx / 64].begin, rem_sbits, tot_sbits, offset, i, sh_sbits[i]);
+        write_outx<bsize>(sh_bitters, blocks + idx * bsize, rem_sbits, tot_sbits, offset, i, sh_sbits[i]);
 			}
 			else{
-				write_outx(sh_bitters, stream[bidx / 64].begin, rem_sbits, tot_sbits, offset, i, 64);
-				write_outy(sh_bitters, stream[bidx / 64].begin, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64);
+        write_outx<bsize>(sh_bitters, blocks + idx * bsize, rem_sbits, tot_sbits, offset, i, 64);
+        write_outy<bsize>(sh_bitters, blocks + idx * bsize, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64);
 			}
 		}
 	}
@@ -605,7 +604,7 @@ void encode
 (
 	int nx, int ny, int nz,
 	const Scalar *d_data,
-	thrust::device_vector<cuZFP::Bit<bsize> > &stream,
+  thrust::device_vector<Word> &stream,
   const unsigned long long group_count,
   const uint size
 )
@@ -642,7 +641,7 @@ void encode
 (
 int nx, int ny, int nz,
 thrust::device_vector<Scalar> &d_data,
-thrust::device_vector<cuZFP::Bit<bsize> > &stream,
+thrust::device_vector<Word > &stream,
 const unsigned long long group_count,
 const uint size
 )
@@ -659,7 +658,7 @@ void encode
 (
 int nx, int ny, int nz,
 const thrust::host_vector<Scalar> &h_data,
-thrust::device_vector<cuZFP::Bit<bsize> > &stream,
+thrust::device_vector<Word> &stream,
 const unsigned long long group_count,
 const uint size
 )
@@ -675,12 +674,12 @@ void encode
 (
 int nx, int ny, int nz,
 const thrust::host_vector<Scalar> &h_data,
-thrust::host_vector<cuZFP::Bit<bsize> > &stream,
+thrust::host_vector<Word> &stream,
 const unsigned long long group_count,
 const uint size
 )
 {
-	thrust::device_vector<cuZFP::Bit<bsize> > d_stream = stream;
+  thrust::device_vector<Word > d_stream = stream;
 
 	encode<Int, UInt, Scalar, bsize>(nx, ny, nz, h_data, d_stream, group_count, size);
 

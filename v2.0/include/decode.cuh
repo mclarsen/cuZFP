@@ -143,7 +143,61 @@ uint2int(UInt x)
 }
 
 
-
+__host__ __device__
+int
+read_bit(char &offset, uint &bits, Word &buffer, const Word *begin)
+{
+  uint bit;
+  if (!bits) {
+    buffer = begin[offset++];
+    bits = wsize;
+  }
+  bits--;
+  bit = (uint)buffer & 1u;
+  buffer >>= 1;
+  return bit;
+}
+/* read 0 <= n <= 64 bits */
+__host__ __device__
+unsigned long long
+read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
+{
+#if 0
+  /* read bits in LSB to MSB order */
+  uint64 value = 0;
+  for (uint i = 0; i < n; i++)
+    value += (uint64)stream_read_bit(stream) << i;
+  return value;
+#elif 1
+  unsigned long long value;
+  /* because shifts by 64 are not possible, treat n = 64 specially */
+  if (n == bitsize(value)) {
+    if (!bits)
+      value = begin[offset++];//*ptr++;
+    else {
+      value = buffer;
+      buffer = begin[offset++];//*ptr++;
+      value += buffer << bits;
+      buffer >>= n - bits;
+    }
+  }
+  else {
+    value = buffer;
+    if (bits < n) {
+      /* not enough bits buffered; fetch wsize more */
+      buffer = begin[offset++];//*ptr++;
+      value += buffer << bits;
+      buffer >>= n - bits;
+      bits += wsize;
+    }
+    else
+      buffer >>= n;
+    value -= buffer << n;
+    bits -= n;
+  }
+  return value;
+#endif
+}
 
 /* decompress sequence of unsigned integers */
 template<class Int, class UInt>
@@ -201,31 +255,20 @@ exit:
   return maxbits - bits;
 }
 
-template<uint bsize>
-__global__
-void cudaRewind
-(
-Bit<bsize> * stream
-)
-{
-	int x = threadIdx.x + blockDim.x*blockIdx.x;
-	int y = threadIdx.y + blockDim.y*blockIdx.y;
-	int z = threadIdx.z + blockDim.z*blockIdx.z;
-	int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
-
-	stream[idx].rewind();
-}
-
 template<class UInt, uint bsize>
 __device__ __host__
 uint
-decode_ints(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
+decode_ints(Word *block, UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
 {
 	uint intprec = CHAR_BIT * (uint)sizeof(UInt);
 	uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 	uint bits = maxbits;
 	uint i, k, m, n, test;
 	unsigned long long x;
+
+  char offset = 0;
+  uint sbits = 0;
+  Word buffer = 0;
 
 	/* initialize data array to all zeros */
 	for (i = 0; i < size; i++)
@@ -240,14 +283,14 @@ decode_ints(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uint ma
 				/* decode bit k for the next set of m values */
 				m = MIN(m, bits);
 				bits -= m;
-				for (x = stream.read_bits(m); m; m--, x >>= 1)
+        for (x = read_bits(m, offset, sbits, buffer, block); m; m--, x >>= 1)
 					*p++ += (UInt)(x & 1u) << k;
 				/* continue with next bit plane if there are no more groups */
 				if (!count || !bits)
 					break;
 				/* perform group test */
 				bits--;
-				test = stream.read_bit();
+        test = read_bit(offset, sbits, buffer, block);
 				/* continue with next bit plane if there are no more significant bits */
 				if (!test || !bits)
 					break;
@@ -262,7 +305,7 @@ decode_ints(Bit<bsize> & stream, UInt* data, uint minbits, uint maxbits, uint ma
 	/* read at least minbits bits */
 	while (bits > maxbits - minbits) {
 		bits--;
-		stream.read_bit();
+    read_bit(offset, sbits, buffer, block);
 	}
 
 	return maxbits - bits;
@@ -347,259 +390,7 @@ Int *p
 }
 
 
-__host__ __device__
-int
-read_bit(char &offset, uint &bits, Word &buffer, const Word *begin)
-{
-	uint bit;
-	if (!bits) {
-		buffer = begin[offset++];
-		bits = wsize;
-	}
-	bits--;
-	bit = (uint)buffer & 1u;
-	buffer >>= 1;
-	return bit;
-}
-/* read 0 <= n <= 64 bits */
-__host__ __device__
-unsigned long long
-read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
-{
-#if 0
-	/* read bits in LSB to MSB order */
-	uint64 value = 0;
-	for (uint i = 0; i < n; i++)
-		value += (uint64)stream_read_bit(stream) << i;
-	return value;
-#elif 1
-	unsigned long long value;
-	/* because shifts by 64 are not possible, treat n = 64 specially */
-	if (n == bitsize(value)) {
-		if (!bits)
-			value = begin[offset++];//*ptr++;
-		else {
-			value = buffer;
-			buffer = begin[offset++];//*ptr++;
-			value += buffer << bits;
-			buffer >>= n - bits;
-		}
-	}
-	else {
-		value = buffer;
-		if (bits < n) {
-			/* not enough bits buffered; fetch wsize more */
-			buffer = begin[offset++];//*ptr++;
-			value += buffer << bits;
-			buffer >>= n - bits;
-			bits += wsize;
-		}
-		else
-			buffer >>= n;
-		value -= buffer << n;
-		bits -= n;
-	}
-	return value;
-#endif
-}
 
-
-//__shared__ uint s_bits[64 * 64];
-//__shared__ Word s_buffer[64 * 64];
-
-//__shared__ uint s_idx_n[64];
-//__shared__ uint s_idx_g[64];
-
-template<class UInt, uint bsize>
-__host__ __device__
-void decodeBitstream
-(
-const Bit<bsize> &stream,
-
-uint idx_g,
-uint idx_n,
-unsigned long long count,
-uint new_bits,
-uint bits,
-char offset,
-Word buffer,
-
-UInt &data,
-
-const uint tid,
-const uint k
-)
-{
-
-
-	for (uint i = 0, m = idx_n, n = 0; i < idx_g + 1; i++){
-		/* decode bit k for the next set of m values */
-		m = MIN(m, new_bits);
-		new_bits -= m;
-
-		unsigned long long x = read_bits(m, offset, bits, buffer, stream.begin);
-		x >>= tid - n;
-		n += m;
-		data += (UInt)(x & 1u) << k;
-
-		/* continue with next bit plane if there are no more groups */
-		//if (!count || !new_bits)
-		//	break;
-		/* perform group test */
-		new_bits--;
-		uint test = read_bit(offset, bits, buffer, stream.begin);
-		/* cache[k] with next bit plane if there are no more significant bits */
-		//if (!test || !new_bits)
-		//	break;
-		/* decode next group of m values */
-		m = count & 0xfu;
-		count >>= 4;
-	}
-}
-
-template<class UInt, uint bsize, uint num_sidx>
-__global__
-void cudaDecodeBitstream
-(
-const size_t *sidx,
-Bit<bsize> *stream,
-const uint *idx_g,
-const uint *idx_n,
-const uint *bit_bits,
-const char *bit_offset,
-const Word *bit_buffer,
-const unsigned long long *bit_cnt,
-const uint *bit_rmn_bits,
-
-UInt *data,
-
-const uint maxbits,
-const uint intprec,
-const uint kmin,
-const unsigned long long orig_count
-)
-{
-
-	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
-	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
-	uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
-
-	extern __shared__ unsigned char smem[];
-#if 1
-	size_t *s_sidx = (size_t*)&smem[0];
-	if (tid < num_sidx)
-		s_sidx[tid] = sidx[tid];
-	__syncthreads();
-
-  UInt *s_data = (UInt*)&smem[s_sidx[0]];
-	uint *s_idx_n = (uint*)&smem[s_sidx[1]];
-	uint *s_idx_g = (uint*)&smem[s_sidx[2]];
-	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[s_sidx[3]];
-	uint *s_bit_rmn_bits = (uint*)&smem[s_sidx[4]];
-
-#else
-	UInt *s_data = (UInt*)smem;
-	uint *s_idx_n = (uint*)&smem[64 * 8];
-	uint *s_idx_g = (uint*)&smem[64 * 8 + 64 * 4];
-	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[64 * 8 + 64 * 4 + 64 * 4];
-	uint *s_bit_rmn_bits = (uint*)&smem[64 * 8 + 64 * 4 + 64 * 4 + 64 * 8];
-#endif
-	s_bit_rmn_bits[tid] = bit_rmn_bits[bidx + tid];
-	s_bit_cnt[tid] = bit_cnt[bidx + tid];
-	s_idx_n[tid] = idx_n[bidx + tid];
-	s_idx_g[tid] = idx_g[bidx + tid];
-	s_data[tid] = 0;
-	
-	char l_offset[64];
-	uint l_bits[64];
-	Word l_buffer[64];
-	for (int k = 0; k < 64; k++){
-		l_offset[k] = bit_offset[bidx + k];
-		l_bits[k] = bit_bits[bidx + k];
-		l_buffer[k] = bit_buffer[bidx + k];
-	}
-	__syncthreads();
-	for (uint k = kmin; k < intprec; k++){
-//		unsigned long long count = bit_cnt[k];
-//		uint new_bits = bit_rmn_bits[k];
-
-		decodeBitstream<UInt, bsize>(
-			stream[idx],
-			s_idx_g[k],
-			s_idx_n[k],
-			s_bit_cnt[k],
-			s_bit_rmn_bits[k],
-			l_bits[k],
-			l_offset[k],
-			l_buffer[k],
-			s_data[tid],
-			maxbits, intprec, tid, k);
-	}
-	data[bidx + tid] = s_data[tid];
-}
-
-
-template<uint bsize>
-__device__ __host__
-void insert_bit
-(
-Bit<bsize> &stream,
-uint *idx_g,
-uint *idx_n,
-uint *bit_bits,
-char *bit_offset,
-Word *bit_buffer,
-unsigned long long *bit_cnt,
-uint *bit_rmn_bits,
-
-const uint maxbits,
-const uint intprec,
-const uint kmin,
-const unsigned long long orig_count
-)
-{
-	uint bits = maxbits;
-	unsigned long long count = orig_count;
-
-	/* input one bit plane at a time from MSB to LSB */
-	for (uint k = intprec, n = 0; k-- > kmin;) {
-		/* decode bit plane k */
-		idx_n[k] = n;
-		bit_rmn_bits[k] = bits;
-		bit_cnt[k] = count;
-
-		bit_bits[k] = stream.bits;
-		bit_offset[k] = stream.offset;
-		bit_buffer[k] = stream.buffer;
-		for (uint m = n;; idx_g[k]++) {
-
-			if (bits){
-				/* decode bit k for the next set of m values */
-				m = MIN(m, bits);
-				bits -= m;
-				unsigned long long x = stream.read_bits(m);
-				/* continue with next bit plane if there are no more groups */
-				if (!count || !bits){
-
-					break;
-				}
-				/* perform group test */
-				bits--;
-				uint test = stream.read_bit();
-				/* continue with next bit plane if there are no more significant bits */
-				if (!test || !bits){
-					break;
-				}
-				/* decode next group of m values */
-				m = count & 0xfu;
-				count >>= 4;
-				n += m;
-			}
-			else
-				break;
-		}
-	}
-}
 
 template<class Int, class UInt, class Scalar, uint bsize, uint num_sidx>
 __global__
@@ -607,7 +398,7 @@ void
 __launch_bounds__(64)
 cudaDecode
 (
-Bit<bsize> *stream,
+Word *blocks,
 
 Scalar *out,
 
@@ -617,9 +408,9 @@ const unsigned long long orig_count
 )
 {
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
-	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
-	uint bdim = blockDim.x*blockDim.y*blockDim.z;
-	uint bidx = idx*bdim;
+  uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
+  uint bdim = blockDim.x*blockDim.y*blockDim.z;
+  uint bidx = idx*bdim;
 
 	extern __shared__ unsigned char smem[];
 #if 1
@@ -649,20 +440,25 @@ const unsigned long long orig_count
   __syncthreads();
 
 	if (tid == 0){
-		stream[idx].read_bit();
-		uint ebits = c_ebits + 1;
-		s_emax[0] = stream[idx].read_bits(ebits - 1) - ebias;
+    //Bit<bsize> stream(blocks + idx * bsize);
+    uint sbits = 0;
+    Word buffer = 0;
+    char offset = 0;
+
+    read_bit(offset, sbits, buffer, blocks + idx*bsize);
+    uint ebits = c_ebits + 1;
+    s_emax[0] = read_bits(ebits - 1,offset, sbits, buffer, blocks + idx*bsize) - ebias;
 		int maxprec = precision(s_emax[0], c_maxprec, c_minexp);
 		s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
-		uint bits = c_maxbits - ebits;
+    uint bits = c_maxbits - ebits;
 		for (uint k = intprec, n = 0; k-- > 0;){
 			//					idx_n[k] = n;
 			//					bit_rmn_bits[k] = bits;
 			uint m = MIN(n, bits);
 			bits -= m;
-			s_bit_cnt[k] = stream[idx].read_bits(m);
-			for (; n < 64 && bits && (bits--, stream[idx].read_bit()); s_bit_cnt[k] += (unsigned long long)1 << n++)
-				for (; n < 64 - 1 && bits && (bits--, !stream[idx].read_bit()); n++)
+      s_bit_cnt[k] = read_bits(m,offset, sbits, buffer, blocks + idx*bsize);
+      for (; n < 64 && bits && (bits--, read_bit(offset, sbits, buffer, blocks + idx*bsize)); s_bit_cnt[k] += (unsigned long long)1 << n++)
+        for (; n < 64 - 1 && bits && (bits--, !read_bit(offset, sbits, buffer, blocks + idx*bsize)); n++)
 					;
 		}
 
@@ -707,7 +503,7 @@ template<class Int, class UInt, class Scalar, uint bsize>
 void decode
 (
 	int nx, int ny, int nz,
-	thrust::device_vector<cuZFP::Bit<bsize> > &stream,
+  thrust::device_vector<Word > &stream,
 	Scalar *d_data,
   unsigned long long group_count
 )
@@ -715,18 +511,9 @@ void decode
   //ErrorCheck ec;
   dim3 emax_size(nx / 4, ny / 4, nz / 4);
 
-  dim3 block_size = dim3(8, 8, 8);
-  dim3 grid_size = emax_size;
-  grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-  cuZFP::cudaRewind<bsize> << < grid_size, block_size >> >
-    (
-    raw_pointer_cast(stream.data())
-    );
-  //ec.chk("cudaRewind");
 
-
-  block_size = dim3(4, 4, 4);
-  grid_size = dim3(nx, ny, nz);
+  dim3 block_size = dim3(4, 4, 4);
+  dim3 grid_size = dim3(nx, ny, nz);
   grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
 
   cudaDecode<Int, UInt, Scalar, bsize, 11> << < grid_size, block_size, 64 * (8 + 8) + 4 + 4 >> >
@@ -747,14 +534,14 @@ template<class Int, class UInt, class Scalar, uint bsize>
 void decode
 (
 int nx, int ny, int nz,
-thrust::device_vector<cuZFP::Bit<bsize> > &stream,
+thrust::device_vector<Word > &block,
 thrust::device_vector<Scalar> &d_data,
 unsigned long long group_count
 )
 {
 	decode<Int, UInt, Scalar, bsize>(
 		nx, ny, nz, 
-		stream, 
+    block,
 		thrust::raw_pointer_cast(d_data.data()),
 		group_count
 		);

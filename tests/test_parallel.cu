@@ -22,9 +22,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 64;
-const size_t ny = 64;
-const size_t nz = 64;
+const size_t nx = 512;
+const size_t ny = 512;
+const size_t nz = 512;
 
 
 //BSIZE is the length of the array in class Bit
@@ -187,7 +187,7 @@ const unsigned long long count,
 uint size,
 const Scalar* data,
 const unsigned char *g_cnt,
-cuZFP::Bit<bsize> *stream
+Word *block
 )
 {
 
@@ -196,7 +196,6 @@ cuZFP::Bit<bsize> *stream
 	for (blockIdx.z = 0; blockIdx.z < gridDim.z; blockIdx.z++){
 		for (blockIdx.y = 0; blockIdx.y < gridDim.y; blockIdx.y++){
 			for (blockIdx.x = 0; blockIdx.x <gridDim.x; blockIdx.x++){
-
 
 				Int sh_q[64];
 				UInt sh_p[64];
@@ -223,6 +222,8 @@ cuZFP::Bit<bsize> *stream
 
 				uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
 
+        //cuZFP::Bit<bsize> stream(block + bidx*bsize);
+
 				unsigned long long x[64], y[64];
 				Bitter bitter[64];
 				for (int i = 0; i < 64; i++){
@@ -240,7 +241,7 @@ cuZFP::Bit<bsize> *stream
 				//printf("%d %d %d %d\n", emax, maxprec, ebits, e);
 				if (e){
 					//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
-					stream[bidx].begin[0] = 2 * e + 1;
+          block[bidx*bsize] = 2 * e + 1;
 					//stream[bidx].write_bits(2 * e + 1, ebits);
 					s_emax_bits[0] = ebits;
 				}
@@ -332,11 +333,12 @@ cuZFP::Bit<bsize> *stream
 				uint offset = 0;
 				for (int i = 0; i < intprec && tot_sbits < MAXBITS; i++){
 					if (sh_sbits[i] <= 64){
-						write_outx(sh_bitters, stream[bidx].begin, rem_sbits, tot_sbits, offset, i, sh_sbits[i]);
+            write_outx<bsize>(sh_bitters, block + bidx*bsize, rem_sbits, tot_sbits, offset, i, sh_sbits[i]);
 					}
 					else{
-						write_outx(sh_bitters, stream[bidx].begin, rem_sbits, tot_sbits, offset, i, 64);
-						write_outy(sh_bitters, stream[bidx].begin, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64);
+            write_outx<bsize>(sh_bitters, block + bidx*bsize, rem_sbits, tot_sbits, offset, i, 64);
+            if (tot_sbits < MAXBITS)
+              write_outy<bsize>(sh_bitters, block + bidx*bsize, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64);
 					}
 				}
 			}
@@ -350,7 +352,7 @@ void cpuDecode
 dim3 gridDim,
 dim3 blockDim,
 size_t *sidx,
-cuZFP::Bit<bsize> *stream,
+Word *block,
 
 Scalar *out,
 const unsigned long long orig_count
@@ -367,6 +369,7 @@ const unsigned long long orig_count
 				uint bdim = blockDim.x*blockDim.y*blockDim.z;
 				uint bidx = idx*bdim;
 
+        cuZFP::Bit<bsize> stream(block + idx * bsize);
 				size_t s_sidx[64];// = (size_t*)&smem[0];
 				//if (tid < num_sidx)
 				for (int tid = 0; tid < num_sidx; tid++){
@@ -386,11 +389,11 @@ const unsigned long long orig_count
 				uint s_kmin[1];
 				int s_emax[1];
 
-				stream[idx].rewind();
+        //stream[idx].rewind();
 
-				stream[idx].read_bit();
+        stream.read_bit();
 				uint ebits = EBITS + 1;
-				s_emax[0] = stream[idx].read_bits(ebits - 1) - ebias;
+        s_emax[0] = stream.read_bits(ebits - 1) - ebias;
 				int maxprec = cuZFP::precision(s_emax[0], MAXPREC, MINEXP);
 				s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
 
@@ -422,7 +425,7 @@ const unsigned long long orig_count
 							beg_idx[tid] = ebits;
 						sh_cnt[tid] = 0;
 						for (int i = beg_idx[tid]; i < 64; i++){
-							if ((stream[idx].begin[tid] >> i) & 1u){
+              if ((stream.begin[tid] >> i) & 1u){
 								sh_tmp_idx[tid * 64 + sh_cnt[tid]++] = tid*64 + i;
 							}
 						}
@@ -454,9 +457,9 @@ const unsigned long long orig_count
 				}
 
 
-				stream[idx].rewind();
-				stream[idx].read_bit();
-				s_emax[0] = stream[idx].read_bits(ebits - 1) - ebias;
+        stream.rewind();
+        stream.read_bit();
+        s_emax[0] = stream.read_bits(ebits - 1) - ebias;
 
 				/* decode one bit plane at a time from MSB to LSB */
         int cnt = 0;
@@ -467,9 +470,9 @@ const unsigned long long orig_count
 					uint m = MIN(n, bits);
 					bits -= m;
 					bits_cnt += m;
-					x[tid] = stream[idx].read_bits(m);
+          x[tid] = stream.read_bits(m);
 					/* unary run-length decode remainder of bit plane */
-					for (; n < size && bits && (bits--, bits_cnt++, stream[idx].read_bit()); x[tid] += (uint64)1 << n++){
+          for (; n < size && bits && (bits--, bits_cnt++, stream.read_bit()); x[tid] += (uint64)1 << n++){
 						int num_bits = 0;
 						uint chk = 0;
 
@@ -482,7 +485,7 @@ const unsigned long long orig_count
 						//stream[idx].buffer = tmp_buffer;
 						//stream[idx].offset = tmp_offset;
 
-						while (n < size - 1 && bits && (bits--, bits_cnt++, !stream[idx].read_bit())){
+            while (n < size - 1 && bits && (bits--, bits_cnt++, !stream.read_bit())){
 							//the number of bits read in one go: 
 							//this can be affected by running out of bits in the block (variable bits)
 							// and how much is encoded per number (variable n)
@@ -505,7 +508,7 @@ const unsigned long long orig_count
 
 							bits_cnt += num_bits;
 							if (num_bits > 0){
-								stream[idx].read_bits(num_bits);
+                stream.read_bits(num_bits);
 								bits -= num_bits;
 								n += num_bits;
 							}
@@ -577,8 +580,8 @@ host_vector<Scalar> &h_data
 
 
 
-	device_vector<cuZFP::Bit<bsize> > stream(emax_size.x * emax_size.y * emax_size.z);
-	cuZFP::encode<Int, UInt, Scalar, bsize>(nx, ny, nz, data, stream, group_count, size);
+  device_vector<Word > block(emax_size.x * emax_size.y * emax_size.z * bsize);
+  cuZFP::encode<Int, UInt, Scalar, bsize>(nx, ny, nz, data, block, group_count, size);
 
 	cudaStreamSynchronize(0);
 	ec.chk("cudaEncode");
@@ -590,13 +593,11 @@ host_vector<Scalar> &h_data
 
 	cout << "encode GPU in time: " << millisecs << endl;
 
-  thrust::host_vector<cuZFP::Bit<bsize> > cpu_stream;
-	cpu_stream = stream;
+  thrust::host_vector<Word > cpu_block;
+  cpu_block = block;
 	UInt sum = 0;
-	for (int i = 0; i < cpu_stream.size(); i++){
-		for (int j = 0; j < bsize; j++){
-			sum += cpu_stream[i].begin[j];
-		}
+  for (int i = 0; i < cpu_block.size(); i++){
+    sum += cpu_block[i];
 	}
 	cout << "encode UInt sum: " << sum << endl;
 
@@ -608,7 +609,7 @@ host_vector<Scalar> &h_data
 	cudaEventRecord(start, 0);
 
 
-	cuZFP::decode<Int, UInt, Scalar, bsize>(nx, ny, nz, stream, data, group_count);
+  cuZFP::decode<Int, UInt, Scalar, bsize>(nx, ny, nz, block, data, group_count);
 
   ec.chk("cudaDecode");
 	cudaEventRecord(stop, 0);
@@ -658,7 +659,7 @@ host_vector<Scalar> &h_data
 	host_vector<UInt> h_p;
 	host_vector<Int> h_q;
 	host_vector<UInt> h_buf(nx*ny*nz);
-	host_vector<cuZFP::Bit<bsize> > h_bits;
+  host_vector<Word > h_bits;
 
 
 	dim3 emax_size(nx / 4, ny / 4, nz / 4);
@@ -670,7 +671,7 @@ host_vector<Scalar> &h_data
 	//const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 
 
-	host_vector<cuZFP::Bit<bsize> > cpu_stream(emax_size.x * emax_size.y * emax_size.z);
+  host_vector<Word > cpu_block(emax_size.x * emax_size.y * emax_size.z * bsize);
 
 	block_size = dim3(4, 4, 4);
 	grid_size = dim3(nx, ny, nz);
@@ -692,15 +693,13 @@ host_vector<Scalar> &h_data
 		group_count, size,
 		thrust::raw_pointer_cast(h_data.data()),
 		thrust::raw_pointer_cast(g_cnt.data()),
-		thrust::raw_pointer_cast(cpu_stream.data()));
+    thrust::raw_pointer_cast(cpu_block.data()));
 
-	unsigned long long stream_sum = 0;
-	for (int i = 0; i < cpu_stream.size(); i++){
-		for (int j = 0; j < BSIZE; j++){
-			stream_sum += cpu_stream[i].begin[j];
-		}
+  unsigned long long block_sum = 0;
+  for (int i = 0; i < cpu_block.size(); i++){
+    block_sum += cpu_block[i];
 	}
-	cout << "encode UInt sum: " << stream_sum << endl;
+  cout << "encode UInt sum: " << block_sum << endl;
 
 	host_vector<Scalar> h_out(nx*ny* nz);
 
@@ -715,7 +714,7 @@ host_vector<Scalar> &h_data
 	cpuDecode < Int, UInt, Scalar, bsize, 9 >
 		(grid_size, block_size,
 		s_idx,
-		raw_pointer_cast(cpu_stream.data()),
+    raw_pointer_cast(cpu_block.data()),
 		raw_pointer_cast(h_out.data()),
 		group_count);
 
@@ -786,7 +785,7 @@ int main()
 	cout << "Finish gpuTestBitStream" << endl;
 
 	cout << "Begin cpuTestBitStream" << endl;
-  cpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
+  //cpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
 	cout << "Finish cpuTestBitStream" << endl;
 
 
