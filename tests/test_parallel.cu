@@ -44,6 +44,7 @@ size_t  blksize = 0;
 unsigned long long group_count = 0x46acca631ull;
 uint size = 64;
 int EBITS = 11;                     /* number of exponent bits */
+const int EBIAS = 1023;
 
 
 static const unsigned char
@@ -142,7 +143,9 @@ void setupConst(const unsigned char *perm,
 	uint maxbits_,
 	uint maxprec_,
 	int minexp_,
-	int ebits_)
+	int ebits_,
+	int ebias_
+	)
 {
 	ErrorCheck ec;
 	ec.chk("setupConst start");
@@ -155,6 +158,7 @@ void setupConst(const unsigned char *perm,
 	cudaMemcpyToSymbol(c_maxprec, &maxprec_, sizeof(uint)); ec.chk("setupConst: c_maxprec");
 	cudaMemcpyToSymbol(c_minexp, &minexp_, sizeof(int)); ec.chk("setupConst: c_minexp");
 	cudaMemcpyToSymbol(c_ebits, &ebits_, sizeof(int)); ec.chk("setupConst: c_ebits");
+	cudaMemcpyToSymbol(c_ebias, &ebias_, sizeof(int)); ec.chk("setupConst: c_ebias");
 
 	ec.chk("setupConst finished");
 
@@ -237,7 +241,7 @@ Word *block
 				int ebits = EBITS + 1;
 				const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 
-				uint e = maxprec ? emax + ebias : 0;
+				uint e = maxprec ? emax + EBIAS : 0;
 				//printf("%d %d %d %d\n", emax, maxprec, ebits, e);
 				if (e){
 					//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
@@ -393,7 +397,7 @@ const unsigned long long orig_count
 
         stream.read_bit();
 				uint ebits = EBITS + 1;
-        s_emax[0] = stream.read_bits(ebits - 1) - ebias;
+				s_emax[0] = stream[idx].read_bits(ebits - 1) - EBIAS;
 				int maxprec = cuZFP::precision(s_emax[0], MAXPREC, MINEXP);
 				s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
 
@@ -456,10 +460,6 @@ const unsigned long long orig_count
 					}
 				}
 
-
-        stream.rewind();
-        stream.read_bit();
-        s_emax[0] = stream.read_bits(ebits - 1) - ebias;
 
 				/* decode one bit plane at a time from MSB to LSB */
         int cnt = 0;
@@ -778,8 +778,8 @@ int main()
 	d_vec_in.clear();
 	d_vec_in.shrink_to_fit();
 #endif
-	//    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
-	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS);
+	cudaDeviceSetCacheConfig(cudaFuncCachePreferEqual);
+	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS, EBIAS);
 	cout << "Begin gpuTestBitStream" << endl;
   gpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
 	cout << "Finish gpuTestBitStream" << endl;

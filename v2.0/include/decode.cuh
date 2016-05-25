@@ -447,7 +447,7 @@ const unsigned long long orig_count
 
     read_bit(offset, sbits, buffer, blocks + idx*bsize);
     uint ebits = c_ebits + 1;
-    s_emax[0] = read_bits(ebits - 1,offset, sbits, buffer, blocks + idx*bsize) - ebias;
+    s_emax[0] = read_bits(ebits - 1,offset, sbits, buffer, blocks + idx*bsize) - c_ebias;
 		int maxprec = precision(s_emax[0], c_maxprec, c_minexp);
 		s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
     uint bits = c_maxbits - ebits;
