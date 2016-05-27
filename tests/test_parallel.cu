@@ -45,6 +45,7 @@ unsigned long long group_count = 0x46acca631ull;
 uint size = 64;
 int EBITS = 11;                     /* number of exponent bits */
 const int EBIAS = 1023;
+const int intprec = 64;
 
 
 static const unsigned char
@@ -581,7 +582,7 @@ host_vector<Scalar> &h_data
 
 
   device_vector<Word > block(emax_size.x * emax_size.y * emax_size.z * bsize);
-  cuZFP::encode<Int, UInt, Scalar, bsize>(nx, ny, nz, data, block, group_count, size);
+  cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, data, block, group_count, size);
 
 	cudaStreamSynchronize(0);
 	ec.chk("cudaEncode");
@@ -609,7 +610,7 @@ host_vector<Scalar> &h_data
 	cudaEventRecord(start, 0);
 
 
-  cuZFP::decode<Int, UInt, Scalar, bsize>(nx, ny, nz, block, data, group_count);
+	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, block, data, group_count);
 
   ec.chk("cudaDecode");
 	cudaEventRecord(stop, 0);
@@ -778,7 +779,7 @@ int main()
 	d_vec_in.clear();
 	d_vec_in.shrink_to_fit();
 #endif
-	cudaDeviceSetCacheConfig(cudaFuncCachePreferEqual);
+	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS, EBIAS);
 	cout << "Begin gpuTestBitStream" << endl;
   gpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);

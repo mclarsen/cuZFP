@@ -346,7 +346,7 @@ precision(int maxexp, uint maxprec, int minexp)
   return MIN(maxprec, MAX(0, maxexp - minexp + 8));
 }
 
-template<class UInt>
+template<class UInt, int intprec>
  __host__
 static void
 encode_ints_old(BitStream* stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
@@ -533,7 +533,7 @@ encode_group_test(unsigned long long *x, uint *g, const UInt* data, uint minbits
      }
 }
 
-template<class UInt, uint bsize>
+template<class UInt, uint bsize, int intprec>
 __device__ __host__
 void encode_bit_plane(const unsigned long long *x, const uint *g, Bit<bsize> & stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count)
 {
@@ -629,7 +629,7 @@ void encode_bitplane
         break;
     }
 }
-template<class UInt, uint bsize>
+template<class UInt, uint bsize, uint intprec>
 __device__ __host__
 static void
 encode_ints(Bit<bsize> & stream, const UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)

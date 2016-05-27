@@ -8,7 +8,6 @@
 typedef unsigned long long Word;
 
 static const uint wsize = bitsize(Word);
-const int intprec = 64;
 
 __constant__ unsigned char c_perm[64];
 __constant__ uint c_maxbits;

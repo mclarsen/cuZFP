@@ -82,7 +82,7 @@ void setFREXP
 }
 
 // block-floating-point transform to signed integers
-template<class Int, class Scalar>
+template<class Int, class Scalar, int intprec>
 int fwd_cast(Int* q, const Scalar* p, uint sx, uint sy, uint sz)
 {
   // compute maximum exponent
@@ -140,7 +140,7 @@ int max_exp_block(const Scalar *p, uint mx, uint my, uint mz, uint sx, uint sy, 
 
 
 //gather from p into q
-template<class Int, class Scalar>
+template<class Int, class Scalar, int intprec>
 __host__  __device__
 void  fixed_point_block(Int *q, const Scalar *p, int emax, uint mx, uint my, uint mz, uint sx, uint sy, uint sz)
 {
@@ -172,7 +172,7 @@ int max_exp_flat(const Scalar *p, uint begin_idx, uint end_idx)
 }
 
 //gather from p into q
-template<class Int, class Scalar>
+template<class Int, class Scalar, int intprec>
 __host__  __device__
 void  fixed_point_flat(Int *q, const Scalar *p, int emax, uint begin_idx, uint end_idx)
 {
@@ -189,10 +189,10 @@ void  fixed_point_flat(Int *q, const Scalar *p, int emax, uint begin_idx, uint e
 }
 
 // lifting transform of 4-vector
-template <class Int>
+template <class Int, uint s>
 __device__ __host__
 static void
-fwd_lift(Int* p, uint s)
+fwd_lift(Int* p)
 {
   Int x = *p; p += s;
   Int y = *p; p += s;
@@ -221,9 +221,12 @@ __device__ __host__
 static void
 fwd_xform_zy(Int* p)
 {
-    for (uint z = 0; z < 4; z++)
-      for (uint y = 0; y < 4; y++)
-        fwd_lift(p + 4 * y + 16 * z, 1);
+
+	fwd_lift<Int,1>(p + 4 * threadIdx.x + 16 * threadIdx.z);
+
+	//for (uint z = 0; z < 4; z++)
+	//	for (uint y = 4; y-- > 0;)
+ //       fwd_lift<Int, 1>(p + 4 * y + 16 * z);
 
 }
 // forward decorrelating transform
@@ -232,9 +235,10 @@ __device__ __host__
 static void
 fwd_xform_xz(Int* p)
 {
-    for (uint x = 0; x < 4; x++)
-      for (uint z = 0; z < 4; z++)
-        fwd_lift(p + 16 * z + 1 * x, 4);
+	fwd_lift<Int, 4>(p + 16 * threadIdx.z + 1 * threadIdx.x);
+	//for (uint x = 4; x-- > 0;)
+    //  for (uint z = 4; z-- > 0;)
+				//fwd_lift<Int, 4>(p + 16 * z + 1 * x);
 
 }
 // forward decorrelating transform
@@ -243,21 +247,29 @@ __device__ __host__
 static void
 fwd_xform_yx(Int* p)
 {
-    for (uint y = 0; y < 4; y++)
-      for (uint x = 0; x < 4; x++)
-        fwd_lift(p + 1 * x + 4 * y, 16);
+	fwd_lift<Int, 16>(p + 1 * threadIdx.x + 4 * threadIdx.z);
+	//for (uint y = 4; y-- > 0;)
+ //     for (uint x = 4; x-- > 0;)
+	//			fwd_lift<Int, 16>(p + 1 * x + 4 * y);
 
 }
 
 // forward decorrelating transform
 template<class Int>
-__device__ __host__
+__device__ 
 static void
 fwd_xform(Int* p)
 {
-    fwd_xform_zy(p);
-    fwd_xform_xz(p);
-    fwd_xform_yx(p);
+  fwd_xform_zy(p);
+	__syncthreads();
+	fwd_xform_xz(p);
+	__syncthreads();
+	fwd_xform_yx(p);
+//	if (tid == 0){
+////    fwd_xform_zy(p, tid);
+//		fwd_xform_yx(p);
+//
+//	}
 }
 
 template<class Int, class UInt>
@@ -415,7 +427,7 @@ unsigned char &sbits
   }
 }
 
-template<class Int, class UInt, class Scalar, uint bsize>
+template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 __global__
 void
 __launch_bounds__(64)
@@ -498,14 +510,9 @@ Word *blocks
   Scalar w = LDEXP(1.0, intprec - 2 - sh_emax[0]);
   sh_q[tid] = (Int)(sh_data[tid] * w);
 
-  if (tid == 0){
-    fwd_xform(sh_q);
-    ////fwd_order
-    //for (int i = 0; i < 64; i++){
-    //	sh_p[i] = int2uint<Int, UInt>(sh_q[c_perm[i]]);
-    //}
-  }
-  __syncthreads();
+
+	fwd_xform(sh_q);
+	__syncthreads();
   //fwd_order
   sh_p[tid] = int2uint<Int, UInt>(sh_q[c_perm[tid]]);
   if (tid == 0){
@@ -599,7 +606,7 @@ Word *blocks
     }
   }
 }
-template<class Int, class UInt, class Scalar, uint bsize>
+template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 void encode
 (
   int nx, int ny, int nz,
@@ -626,7 +633,7 @@ void encode
   grid_size = dim3(nx, ny, nz);
   grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
 
-  cudaEncode<Int, UInt, Scalar, bsize> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3*sizeof(int)) * 64 + 32*sizeof(Scalar) + 4 >> >
+	cudaEncode<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 >> >
     (
     group_count, size,
     d_data,
@@ -636,7 +643,7 @@ void encode
   cudaStreamSynchronize(0);
 }
 
-template<class Int, class UInt, class Scalar, uint bsize>
+template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 void encode
 (
 int nx, int ny, int nz,
@@ -646,14 +653,14 @@ const unsigned long long group_count,
 const uint size
 )
 {
-  encode<Int, UInt, Scalar, bsize>(nx, ny, nz,
+  encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz,
     thrust::raw_pointer_cast(d_data.data()),
     stream,
     group_count,
     size);
 }
 
-template<class Int, class UInt, class Scalar, uint bsize>
+template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 void encode
 (
 int nx, int ny, int nz,
@@ -667,9 +674,9 @@ const uint size
 
   thrust::device_vector<Scalar> d_data = h_data;
 
-  encode<Int, UInt, Scalar, bsize>(nx, ny, nz, d_data, stream, group_count, size);
+  encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, d_data, stream, group_count, size);
 }
-template<class Int, class UInt, class Scalar, uint bsize>
+template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 void encode
 (
 int nx, int ny, int nz,
@@ -681,7 +688,7 @@ const uint size
 {
   thrust::device_vector<Word > d_stream = stream;
 
-  encode<Int, UInt, Scalar, bsize>(nx, ny, nz, h_data, d_stream, group_count, size);
+  encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, h_data, d_stream, group_count, size);
 
   stream = d_stream;
 }

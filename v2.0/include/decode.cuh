@@ -52,10 +52,10 @@ inv_cast(const Int* p, Scalar* q, int emax, uint mx, uint my, uint mz, uint sx, 
 }
 
 /* inverse lifting transform of 4-vector */
-template<class Int>
+template<class Int, uint s>
 __host__ __device__
 static void
-inv_lift(Int* p, uint s)
+inv_lift(Int* p)
 {
 	Int x, y, z, w;
 	x = *p; p += s;
@@ -84,53 +84,59 @@ inv_lift(Int* p, uint s)
 
 /* transform along z */
 template<class Int>
-__host__ __device__
+ __device__
 static void
 inv_xform_yx(Int* p)
 {
-	uint x, y;
-	for (y = 0; y < 4; y++)
-		for (x = 0; x < 4; x++)
-			inv_lift(p + 1 * x + 4 * y, 16);
+	inv_lift<Int, 16>(p + 1 * threadIdx.x + 4 * threadIdx.z);
+	//uint x, y;
+	//for (y = 0; y < 4; y++)
+	//	for (x = 0; x < 4; x++)
+	//		inv_lift(p + 1 * x + 4 * y, 16);
 
 }
 
 /* transform along y */
 template<class Int>
-__host__ __device__
+ __device__
 static void
 inv_xform_xz(Int* p)
 {
-	uint x, z;
-	for (x = 0; x < 4; x++)
-		for (z = 0; z < 4; z++)
-			inv_lift(p + 16 * z + 1 * x, 4);
+	inv_lift<Int, 4>(p + 16 * threadIdx.z + 1 * threadIdx.x);
+	//uint x, z;
+	//for (x = 0; x < 4; x++)
+	//	for (z = 0; z < 4; z++)
+	//		inv_lift(p + 16 * z + 1 * x, 4);
 
 }
 
 /* transform along x */
 template<class Int>
-__host__ __device__
+ __device__
 static void
 inv_xform_zy(Int* p)
 {
-	uint y, z;
-	for (z = 0; z < 4; z++)
-		for (y = 0; y < 4; y++)
-			inv_lift(p + 4 * y + 16 * z, 1);
+	inv_lift<Int, 1>(p + 4 * threadIdx.x + 16 * threadIdx.z);
+	//uint y, z;
+	//for (z = 0; z < 4; z++)
+	//	for (y = 0; y < 4; y++)
+	//		inv_lift(p + 4 * y + 16 * z, 1);
 
 }
 
 /* inverse decorrelating 3D transform */
 template<class Int>
-__host__ __device__
+ __device__
 static void
 inv_xform(Int* p)
 {
 
 	inv_xform_yx(p);
+	__syncthreads();
 	inv_xform_xz(p);
+	__syncthreads();
 	inv_xform_zy(p);
+	__syncthreads();
 }
 
 /* map two's complement signed integer to negabinary unsigned integer */
@@ -158,6 +164,7 @@ read_bit(char &offset, uint &bits, Word &buffer, const Word *begin)
   return bit;
 }
 /* read 0 <= n <= 64 bits */
+template<uint BITSIZE = sizeof(unsigned long long) * CHAR_BIT>
 __host__ __device__
 unsigned long long
 read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
@@ -171,7 +178,7 @@ read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
 #elif 1
   unsigned long long value;
   /* because shifts by 64 are not possible, treat n = 64 specially */
-  if (n == bitsize(value)) {
+	if (n == BITSIZE) {
     if (!bits)
       value = begin[offset++];//*ptr++;
     else {
@@ -392,7 +399,7 @@ Int *p
 
 
 
-template<class Int, class UInt, class Scalar, uint bsize, uint num_sidx>
+template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 __global__
 void
 __launch_bounds__(64)
@@ -402,7 +409,6 @@ Word *blocks,
 
 Scalar *out,
 
-const uint intprec,
 const unsigned long long orig_count
 
 )
@@ -420,7 +426,7 @@ const unsigned long long orig_count
 	__shared__ int *s_emax;
 
   s_bit_cnt = (unsigned long long*)&smem[0];
-  s_iblock = (Int*)&s_bit_cnt[64];
+  s_iblock = (Int*)&s_bit_cnt[0];
 	s_kmin = (uint*)&s_iblock[64];
 	
 	s_emax = (int*)&s_kmin[1];
@@ -436,7 +442,6 @@ const unsigned long long orig_count
 	UInt *s_data = (UInt*)&smem[64 * (4 + 4 + 8 + 4 + 1 + 4 + 8)];
 #endif
   UInt l_data = 0;
-  s_bit_cnt[tid] = 0;
   __syncthreads();
 
 	if (tid == 0){
@@ -468,38 +473,17 @@ const unsigned long long orig_count
 	for (int i = 0; i<64; i++)
     l_data += (UInt)((s_bit_cnt[i] >> tid) & 1u) << i;
 	
-
-	//for (uint k = s_kmin[0]; k < intprec; k++){
-	//	decodeBitstream<UInt, bsize>(
-	//		stream[idx],
-	//		s_idx_g[k],
-	//		s_idx_n[k],
-	//		s_bit_cnt[k],
-	//		s_bit_rmn_bits[k],
-	//		s_bit_bits[k],
-	//		s_bit_offset[k],
-	//		s_bit_buffer[k],
-	//		s_data[tid],
-	//		tid, k);
-	//}
-
+	__syncthreads();
   s_iblock[c_perm[tid]] = uint2int<Int, UInt>(l_data);
 	__syncthreads();
-	if (tid == 0){
-		uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
-		mx *= 4; my *= 4; mz *= 4;
-		inv_xform(s_iblock);
-		//inv_cast<Int, Scalar>(s_iblock, out, emax, mx, my, mz, 1, gridDim.x*blockDim.x, gridDim.x*blockDim.x * gridDim.y*blockDim.y);
-
-
-	}
+	inv_xform(s_iblock);
 	__syncthreads();
 
 	//inv_cast
-	Scalar s = dequantize<Int, Scalar>(1, s_emax[0]);
-	out[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)] = (Scalar) (s * s_iblock[tid]);
+	out[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)] = dequantize<Int, Scalar>(1, s_emax[0]);
+	out[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)] *= (Scalar)(s_iblock[tid]);
 }
-template<class Int, class UInt, class Scalar, uint bsize>
+template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 void decode
 (
 	int nx, int ny, int nz,
@@ -516,11 +500,10 @@ void decode
   dim3 grid_size = dim3(nx, ny, nz);
   grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
 
-  cudaDecode<Int, UInt, Scalar, bsize, 11> << < grid_size, block_size, 64 * (8 + 8) + 4 + 4 >> >
+  cudaDecode<Int, UInt, Scalar, bsize, intprec> << < grid_size, block_size, 64 * (8) + 4 + 4 >> >
 		(
 		raw_pointer_cast(stream.data()),
 		d_data,
-		intprec,
 		group_count);
 	cudaStreamSynchronize(0);
   //ec.chk("cudaInvXformCast");
@@ -530,7 +513,7 @@ void decode
   //  cudaEventElapsedTime(&millisecs, start, stop);
   //ec.chk("cudadecode");
 }
-template<class Int, class UInt, class Scalar, uint bsize>
+template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 void decode
 (
 int nx, int ny, int nz,
@@ -539,7 +522,7 @@ thrust::device_vector<Scalar> &d_data,
 unsigned long long group_count
 )
 {
-	decode<Int, UInt, Scalar, bsize>(
+	decode<Int, UInt, Scalar, bsize, intprec>(
 		nx, ny, nz, 
     block,
 		thrust::raw_pointer_cast(d_data.data()),
