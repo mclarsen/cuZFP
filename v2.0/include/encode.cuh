@@ -430,7 +430,7 @@ unsigned char &sbits
 template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 __global__
 void
-__launch_bounds__(64)
+__launch_bounds__(64,5)
 cudaEncode
 (
 const unsigned long long count,
