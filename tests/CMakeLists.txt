@@ -89,6 +89,7 @@ INCLUDE_DIRECTORIES(
     "../${ZFP_PARALLEL_VERSION}/"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../v0.5/inc"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../v0.5/array"
+	"${CMAKE_CURRENT_SOURCE_DIR}/../cub-1.5.2/"
 )
 
 message("${CMAKE_CURRENT_SOURCE_DIR}/../")
@@ -219,7 +220,16 @@ cudart
 )
 endif()
 
-
+cuda_compile_ptx(
+  cuda_ptx_files
+	ErrorCheck.cpp
+	${ENC_CUH}
+	${BIT_CUH}
+  test_parallel.cu
+)
+add_custom_target(ptx ALL
+    DEPENDS ${cuda_ptx_files} test_parallel.cu
+    SOURCES test_parallel.cu)
 CUDA_ADD_EXECUTABLE(zfp_test_parallel
 ErrorCheck.cpp
 ${ENC_CUH}
@@ -228,6 +238,20 @@ ${BIT_CUH}
 test_parallel.cu
 )
 TARGET_LINK_LIBRARIES(zfp_test_parallel
+${LIBOMP}
+zfp
+cudart
+)
+
+
+CUDA_ADD_EXECUTABLE(test_diffusion
+ErrorCheck.cpp
+${ENC_CUH}
+${DEC_CUH}
+${BIT_CUH}
+test_diffusion.cu
+)
+TARGET_LINK_LIBRARIES(test_diffusion
 ${LIBOMP}
 zfp
 cudart

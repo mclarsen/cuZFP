@@ -1,4 +1,5 @@
 ﻿#include <iostream>
+#include <iomanip>
 #include <thrust/device_vector.h>
 #include <thrust/device_ptr.h>
 #include <thrust/host_vector.h>
@@ -22,9 +23,10 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 512;
-const size_t ny = 512;
-const size_t nz = 512;
+const size_t nx = 64;
+const size_t ny = 64;
+const size_t nz = 64;
+const int nt = 0;
 
 
 //BSIZE is the length of the array in class Bit
@@ -693,123 +695,86 @@ host_vector<Scalar> &h_data
 	//gpuValidate<Int, UInt, Scalar, bsize>(h_data, q, data);
 
 }
-
-template<class Int, class UInt, class Scalar, uint bsize>
-void cpuTestBitStream
+void discrete_solution
 (
-host_vector<Scalar> &h_data
+zfp::array3d &u,
+
+int x0, int y0, int z0,
+const double dx,
+const double dy,
+const double dz,
+const double dt,
+const double k,
+const double tfinal
 )
 {
-	host_vector<int> h_emax;
-	host_vector<UInt> h_p;
-	host_vector<Int> h_q;
-	host_vector<UInt> h_buf(nx*ny*nz);
-  host_vector<Word > h_bits;
+	// initialize u (constructor zero-initializes)
+	//rate = u.rate();
+	u(x0, y0, z0) = 1;
 
+	// iterate until final time
+	std::cerr.precision(6);
+	double t;
+	for (t = 0; t < tfinal; t += dt) {
+		std::cerr << "t=" << std::fixed << t << std::endl;
+		// compute du/dt
+		zfp::array3d du(nx, ny, nz, rate);
+		for (int z = 1; z < nz - 1; z++){
+			for (int y = 1; y < ny - 1; y++) {
+				for (int x = 1; x < nx - 1; x++) {
+					double uxx = (u(x - 1, y, z) - 2 * u(x, y, z) + u(x + 1, y, z)) / (dx * dx);
+					double uyy = (u(x, y - 1, z) - 2 * u(x, y, z) + u(x, y + 1, z)) / (dy * dy);
+					double uzz = (u(x, y, z - 1) - 2 * u(x, y, z) + u(x, y, z + 1)) / (dz * dz);
+					du(x, y, z) = dt * k * (uxx + uyy + uzz);
+				}
+			}
+		}
+		// take forward Euler step
+		for (uint i = 0; i < u.size(); i++)
+			u[i] += du[i];
+	}
+}
+void rme
+(
+	const zfp::array3d &u,
+	int x0,
+	int y0,
+	int z0,
+	const double dx,
+	const double dy,
+	const double dz,
+	const double k,
+	const double pi,
+	double t
+)
+{
 
-	dim3 emax_size(nx / 4, ny / 4, nz / 4);
-
-	dim3 block_size(8, 8, 8);
-	dim3 grid_size = emax_size;
-	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
-
-	//const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
-
-
-  host_vector<Word > cpu_block(emax_size.x * emax_size.y * emax_size.z * bsize);
-
-	block_size = dim3(4, 4, 4);
-	grid_size = dim3(nx, ny, nz);
-	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
-
-	unsigned long long count = group_count;
-	host_vector<unsigned char> g_cnt(10);
-	uint sum = 0;
-	g_cnt[0] = 0;
-	for (int i = 1; i < 10; i++){
-		sum += count & 0xf;
-		g_cnt[i] = sum;
-		count >>= 4;
+	// compute root mean square error with respect to exact solution
+	double e = 0;
+	double sum = 0;
+	for (int z = 1; z < nz - 1; z++){
+		double pz = dz * (z - z0);
+		for (int y = 1; y < ny - 1; y++) {
+			double py = dy * (y - y0);
+			for (int x = 1; x < nx - 1; x++) {
+				double px = dx * (x - x0);
+				double f = u(x, y, z);
+				//http://nptel.ac.in/courses/105103026/34
+				double g = dx * dy * dz * std::exp(-(px * px + py * py + pz * pz) / (4 * k * t)) / powf(4 * pi * k * t, 3.0/2.0);
+				e += (f - g) * (f - g);
+				sum += f;
+			}
+		}
 	}
 
-	cpuEncode<Int, UInt, Scalar, bsize>(
-		grid_size,
-		block_size,
-		group_count, size,
-		thrust::raw_pointer_cast(h_data.data()),
-		thrust::raw_pointer_cast(g_cnt.data()),
-    thrust::raw_pointer_cast(cpu_block.data()));
-
-  unsigned long long block_sum = 0;
-  for (int i = 0; i < cpu_block.size(); i++){
-    block_sum += cpu_block[i];
-	}
-  cout << "encode UInt sum: " << block_sum << endl;
-
-	host_vector<Scalar> h_out(nx*ny* nz);
-
-	block_size = dim3(4, 4, 4);
-	grid_size = dim3(nx, ny, nz);
-	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
-	size_t blcksize = block_size.x *block_size.y * block_size.z;
-	size_t s_idx[12] = { sizeof(size_t) * 12, blcksize * sizeof(uint), blcksize * sizeof(uint), +blcksize * sizeof(unsigned long long), blcksize * sizeof(uint), blcksize * sizeof(char), blcksize * sizeof(uint), blcksize * sizeof(Word), blcksize * sizeof(UInt), blcksize * sizeof(Int), sizeof(uint), sizeof(int) };
-	thrust::inclusive_scan(s_idx, s_idx + 11, s_idx);
-	const size_t shmem_size = thrust::reduce(s_idx, s_idx + 11);
-
-	cpuDecode < Int, UInt, Scalar, bsize, 9 >
-		(grid_size, block_size,
-		s_idx,
-    raw_pointer_cast(cpu_block.data()),
-		raw_pointer_cast(h_out.data()),
-		group_count);
-
-
-	double tot_sum = 0, max_diff = 0, min_diff = 1e16;
-
-	for (int i = 0; i < h_data.size(); i++){
-		int k = 0, j = 0;
-		frexp(h_data[i], &j);
-		frexp(h_out[i], &k);
-
-		//if (abs(j - k) > 1){
-		//	cout << i << " " << j << " " << k << " " << h_data[i] << " " << h_out[i] << endl;
-		//	//exit(-1);
-		//}
-		double diff = fabs(h_data[i] - h_out[i]);
-		//if (diff > 1)
-		//	cout << i << " " << j << " " << k << " " << h_data[i] << " " << h_out[i] << endl;
-
-		if (max_diff < diff)
-			max_diff = diff;
-		if (min_diff > diff)
-			min_diff = diff;
-
-		tot_sum += diff;
-	}
-
-	cout << "tot diff: " << tot_sum << " average diff: " << tot_sum / (float)h_data.size() << " max diff: " << max_diff << " min diff: " << min_diff << endl;
-	cout << "sum: " << thrust::reduce(h_data.begin(), h_data.end()) << " " << thrust::reduce(h_out.begin(), h_out.end()) << endl;
-	//gpuValidate<Int, UInt, Scalar, bsize>(h_data, q, data);
+	e = std::sqrt(e / ((nx - 2) * (ny - 2)));
+	std::cerr.unsetf(std::ios::fixed);
+	std::cerr << "rate=" << rate << " sum=" << std::fixed << sum << " error=" << std::setprecision(6) << std::scientific << e << std::endl;
 
 }
 int main()
 {
 	host_vector<double> h_vec_in(nx*ny*nz);
-#if 0
-  for (int z=0; z<nz; z++){
-    for (int y=0; y<ny; y++){
-      for (int x=0; x<nx; x++){
-        if (x == 0)
-          h_vec_in[z*nx*ny + y*nx + x] = 10;
-        else if(x == nx - 1)
-          h_vec_in[z*nx*ny + y*nx + x] = 0;
-        else
-          h_vec_in[z*nx*ny + y*nx + x] = 5;
-
-      }
-    }
-	}
-#else
 
 	device_vector<double> d_vec_in(nx*ny*nz);
 		thrust::counting_iterator<uint> index_sequence_begin(0);
@@ -822,99 +787,32 @@ int main()
 	h_vec_in = d_vec_in;
 	d_vec_in.clear();
 	d_vec_in.shrink_to_fit();
-#endif
+
 	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS, EBIAS);
 	cout << "Begin gpuTestBitStream" << endl;
   gpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
 	cout << "Finish gpuTestBitStream" << endl;
 
-	cout << "Begin cpuTestBitStream" << endl;
-  //cpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
-	cout << "Finish cpuTestBitStream" << endl;
 
 
-	cout << "Begin alpha test" << endl;
+	// location of point heat source
+	int x0 = (nx - 1) / 2;
+	int y0 = (ny - 1) / 2;
+	int z0 = (nz - 1) / 2;
+	// constants used in the solution
+	const double k = 0.04;
+	const double dx = 2.0 / (std::max(nz,std::max(nx, ny)) - 1);
+	const double dy = 2.0 / (std::max(nz, std::max(nx, ny)) - 1);
+	const double dz = 2.0 / (std::max(nz, std::max(nx, ny)) - 1);
+	const double dt = 0.5 * (dx * dx + dy * dy) / (8 * k);
+	const double tfinal = nt ? nt * dt : 1;
+	const double pi = 3.14159265358979323846;
 
+	zfp::array3d u(nx, ny, nz, rate);
 
-	zfp_field* field = zfp_field_alloc();
-	zfp_field_set_type(field, zfp::codec<double>::type);
-	zfp_field_set_pointer(field, thrust::raw_pointer_cast(h_vec_in.data()));
-	zfp_field_set_size_3d(field, nx, ny, nz);
-	zfp_stream* stream = zfp_stream_open(0);
-	uint n = zfp_field_size(field, NULL);
-	uint dims = zfp_field_dimensionality(field);
-	zfp_type type = zfp_field_type(field);
+	discrete_solution(u, x0, y0, z0, dx,dy,dz,dt,k, tfinal);
 
-	// allocate memory for compressed data
-	double new_rate = zfp_stream_set_rate(stream, rate, type, dims, 0);
-	size_t bufsize = zfp_stream_maximum_size(stream, field);
-	uchar* buffer = new uchar[bufsize];
-	bitstream* s = stream_open(buffer, bufsize);
-	zfp_stream_set_bit_stream(stream, s);
-	zfp_stream_rewind(stream);
+	rme(u, x0, y0, z0, dx, dy, dz, k, pi, tfinal-dt);
 
-  double start_time = omp_get_wtime();
-	int m = 0;
-	for (int z = 0; z < nz; z += 4){
-		for (int y = 0; y < ny; y += 4){
-			for (int x = 0; x < nx; x += 4){
-				double b[64];
-				m = 0;
-
-				for (int i = 0; i < 4; i++){
-					for (int j = 0; j < 4; j++){
-						for (int k = 0; k < 4; k++, m++){
-							b[m] = h_vec_in[(z + i)*nx*ny + (y + j)*nx + x + k];
-						}
-					}
-				}
-
-				zfp_encode_block_double_3(stream, b);
-			}
-		}
-	}
-  double time = omp_get_wtime() - start_time;
-  cout << "encode time: " << time << endl;
-	//cout << "sum UInt " << thrust::reduce(stream->begin, stream->end) << endl;
-	stream_flush(s);
-
-	host_vector<double> h_out(nx*ny*nz);
-	stream_rewind(s);
-  start_time = omp_get_wtime();
-	for (int z = 0; z < nz; z += 4){
-		for (int y = 0; y < ny; y += 4){
-			for (int x = 0; x < nx; x += 4){
-				m = 0;
-				double b[64];
-				zfp_decode_block_double_3(stream, b);
-				for (int i = 0; i < 4; i++){
-					for (int j = 0; j < 4; j++){
-						for (int k = 0; k < 4; k++, m++){
-							h_out[(z+i)*nx*ny + (y+j)*nx + x + k] = b[m];
-						}
-					}
-				}
-			} 
-		}
-	}
-  time = omp_get_wtime() - start_time;
-  cout << "encode time: " << time << endl;
-
-	double tot_diff = 0;
-	for (int i = 0; i < nx*ny*nz; i++){
-		double diff = fabs(h_vec_in[i] - h_out[i]);
-		tot_diff += diff;
-	}
-
-	cout << "tot diff: " << tot_diff << " average diff: " << tot_diff / (float)h_out.size() << endl;// " max diff: " << max_diff << " min diff: " << min_diff << endl;
-	cout << "sum : " << thrust::reduce(h_vec_in.begin(), h_vec_in.end()) << " " << thrust::reduce(h_out.begin(), h_out.end()) << endl;
-	//    cout << "Begin cpuTestBitStream" << endl;
-	//    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
-	//    cout << "End cpuTestBitStream" << endl;
-
-	//cout << "Begin gpuTestHarnessSingle" << endl;
-	//gpuTestharnessSingle<long long, unsigned long long, double, 64>(h_vec_in, d_vec_out, d_vec_in, 0,0,0);
-	//cout << "Begin gpuTestHarnessMulti" << endl;
-	//gpuTestharnessMulti<long long, unsigned long long, double, 64>(d_vec_in);
 }
