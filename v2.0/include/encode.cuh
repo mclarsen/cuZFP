@@ -427,6 +427,160 @@ unsigned char &sbits
   }
 }
 
+template<typename Int, typename UInt, typename Scalar, uint bsize, int intprec>
+__device__
+void encode
+(
+	const Scalar *data,
+	const uint size,
+	unsigned char *smem,
+
+	unsigned char * &sh_sbits,
+	Bitter * &sh_bitters,
+	uint *&s_emax_bits,
+	Word *blocks
+
+)
+{
+	__shared__ unsigned char *sh_g;
+	__shared__ Scalar *sh_data, *sh_reduce;
+	__shared__ int *sh_emax;
+	__shared__ Int *sh_q;
+	__shared__ UInt *sh_p;
+	__shared__ uint *sh_m, *sh_n;
+
+	sh_g = &smem[0];
+	sh_sbits = &smem[64];
+	sh_bitters = (Bitter*)&smem[64 + 64];
+	sh_p = (UInt*)&smem[64 + 64 + 16 * 64];
+	sh_data = (Scalar*)&sh_p[64];
+	sh_reduce = (Scalar*)&sh_data[64];
+	sh_q = (Int*)&sh_reduce[32];
+	sh_m = (uint*)&sh_q[64];
+	sh_n = (uint*)&sh_m[64];
+	s_emax_bits = (uint*)&sh_n[64];
+	sh_emax = (int*)&s_emax_bits[1];
+	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
+	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
+
+	Bitter bitter = make_bitter(0, 0);
+	unsigned char sbit = 0;
+	uint kmin = 0;
+
+	sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
+
+	__syncthreads();
+	//max_exp
+	if (tid < 32)
+		sh_reduce[tid] = max(sh_data[tid], sh_data[tid + 32]);
+	if (tid < 16)
+		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 16]);
+	if (tid < 8)
+		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 8]);
+	if (tid < 4)
+		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 4]);
+	if (tid < 2)
+		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 2]);
+	if (tid == 0){
+		sh_reduce[0] = max(sh_reduce[tid], sh_reduce[tid + 1]);
+		sh_emax[0] = exponent(sh_reduce[0]);
+	}
+	__syncthreads();
+	//if (tid == 0){
+	//	//uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
+	//	//mx *= 4; my *= 4; mz *= 4;
+	//	//sh_emax[0] = max_exp_block(data, mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
+
+	//	//fixed_point_block<Int, Scalar>(sh_q, data, sh_emax[0], mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
+	//}
+	//__syncthreads();
+
+	//fixed_point
+	Scalar w = LDEXP(1.0, intprec - 2 - sh_emax[0]);
+	sh_q[tid] = (Int)(sh_data[tid] * w);
+
+
+	fwd_xform(sh_q);
+	__syncthreads();
+	//fwd_order
+	sh_p[tid] = int2uint<Int, UInt>(sh_q[c_perm[tid]]);
+	if (tid == 0){
+		s_emax_bits[0] = 1;
+		int maxprec = precision(sh_emax[0], c_maxprec, c_minexp);
+		kmin = intprec > maxprec ? intprec - maxprec : 0;
+
+		uint e = maxprec ? sh_emax[0] + ebias : 0;
+		if (e){
+			//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
+			blocks[idx * bsize] = 2 * e + 1;
+			s_emax_bits[0] = c_ebits + 1;
+		}
+	}
+	__syncthreads();
+
+	/* extract bit plane k to x[k] */
+	unsigned long long y = 0;
+	for (uint i = 0; i < size; i++)
+		y += ((sh_p[i] >> tid) & (unsigned long long)1) << i;
+
+	unsigned long long x = y;
+
+	__syncthreads();
+	sh_m[tid] = 0;
+	sh_n[tid] = 0;
+
+	//temporarily use sh_n as a buffer
+	uint *sh_test = sh_n;
+	for (int i = 0; i < 64; i++){
+		if (!!(x >> i))
+			sh_n[tid] = i + 1;
+	}
+
+	if (tid < 63){
+		sh_m[tid] = sh_n[tid + 1];
+	}
+
+	__syncthreads();
+	if (tid == 0){
+		for (int i = intprec - 1; i-- > 0;){
+			if (sh_m[i] < sh_m[i + 1])
+				sh_m[i] = sh_m[i + 1];
+		}
+	}
+	__syncthreads();
+
+	int bits = 128;
+	int n = 0;
+	/* step 2: encode first n bits of bit plane */
+	bits -= sh_m[tid];
+	x >>= sh_m[tid];
+	x = (sh_m[tid] != 64) * x;
+	n = sh_m[tid];
+	/* step 3: unary run-length encode remainder of bit plane */
+	for (; n < size && bits && (bits--, !!x); x >>= 1, n++)
+		for (; n < size - 1 && bits && (bits--, !(x & 1u)); x >>= 1, n++)
+			;
+	__syncthreads();
+
+	bits = (128 - bits);
+	sh_n[tid] = min(sh_m[tid], bits);
+
+	/* step 2: encode first n bits of bit plane */
+	//y[tid] = stream[bidx].write_bits(y[tid], sh_m[tid]);
+	y = write_bitters(bitter, make_bitter(y, 0), sh_m[tid], sbit);
+	n = sh_n[tid];
+
+	/* step 3: unary run-length encode remainder of bit plane */
+	for (; n < size && bits && (bits-- && write_bitter(bitter, !!y, sbit)); y >>= 1, n++)
+		for (; n < size - 1 && bits && (bits-- && !write_bitter(bitter, y & 1u, sbit)); y >>= 1, n++)
+			;
+	__syncthreads();
+
+
+	sh_bitters[63 - tid] = bitter;
+	sh_sbits[63 - tid] = sbit;
+
+}
 template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 __global__
 void
@@ -446,149 +600,28 @@ Word *blocks
   //	int eidx = mz*gridDim.x*blockDim.x*gridDim.y*blockDim.y + my*gridDim.x*blockDim.x + mx;
 
   extern __shared__ unsigned char smem[];
-  __shared__ unsigned char *sh_g, *sh_sbits;
-  __shared__ Scalar *sh_data, *sh_reduce;
-  __shared__ Bitter *sh_bitters;
-  __shared__ uint *s_emax_bits;
-  __shared__ Int *sh_q;
-  __shared__ UInt *sh_p;
-  __shared__ uint *sh_m, *sh_n;
-  __shared__ int *sh_emax;
 
-  sh_g = &smem[0];
-  sh_sbits = &smem[64];
-  sh_bitters = (Bitter*)&smem[64 + 64];
-  sh_p = (UInt*)&smem[64 + 64 + 16 * 64];
-  sh_data = (Scalar*)&sh_p[64];
-  sh_reduce = (Scalar*)&sh_data[64];
-  sh_q = (Int*)&sh_reduce[32];
-  sh_m = (uint*)&sh_q[64];
-  sh_n = (uint*)&sh_m[64];
-  s_emax_bits = (uint*)&sh_n[64];
-  sh_emax = (int*)&s_emax_bits[1];
-
-
-  unsigned long long x;
 
   uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
   uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
   uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
 
-  Bitter bitter = make_bitter(0, 0);
-  unsigned char sbit = 0;
-  uint kmin = 0;
+	unsigned char *sh_sbits;
+	Bitter *sh_bitters;
+	//int *sh_emax;
+	uint *s_emax_bits;
 
-  sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
+	encode<Int, UInt, Scalar, bsize, intprec>(
+		data,
+		size, 
 
-  __syncthreads();
-  //max_exp
-  if (tid < 32)
-    sh_reduce[tid] = max(sh_data[tid], sh_data[tid + 32]);
-  if (tid < 16)
-    sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 16]);
-  if (tid < 8)
-    sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 8]);
-  if (tid < 4)
-    sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 4]);
-  if (tid < 2)
-    sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 2]);
-  if (tid == 0){
-    sh_reduce[0] = max(sh_reduce[tid], sh_reduce[tid + 1]);
-    sh_emax[0] = exponent(sh_reduce[0]);
-  }
-  __syncthreads();
-  //if (tid == 0){
-  //	//uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
-  //	//mx *= 4; my *= 4; mz *= 4;
-  //	//sh_emax[0] = max_exp_block(data, mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
+		smem, 
 
-  //	//fixed_point_block<Int, Scalar>(sh_q, data, sh_emax[0], mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
-  //}
-  //__syncthreads();
-
-  //fixed_point
-  Scalar w = LDEXP(1.0, intprec - 2 - sh_emax[0]);
-  sh_q[tid] = (Int)(sh_data[tid] * w);
-
-
-	fwd_xform(sh_q);
-	__syncthreads();
-  //fwd_order
-  sh_p[tid] = int2uint<Int, UInt>(sh_q[c_perm[tid]]);
-  if (tid == 0){
-    s_emax_bits[0] = 1;
-    int maxprec = precision(sh_emax[0], c_maxprec, c_minexp);
-    kmin = intprec > maxprec ? intprec - maxprec : 0;
-
-    uint e = maxprec ? sh_emax[0] + ebias : 0;
-    if (e){
-      //write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
-      blocks[idx * bsize] = 2 * e + 1;
-      s_emax_bits[0] = c_ebits + 1;
-    }
-  }
-  __syncthreads();
-
-  /* extract bit plane k to x[k] */
-  unsigned long long y = 0;
-  for (uint i = 0; i < size; i++)
-    y += ((sh_p[i] >> tid) & (unsigned long long)1) << i;
-  x = y;
-
-  __syncthreads();
-  sh_m[tid] = 0;
-  sh_n[tid] = 0;
-
-  //temporarily use sh_n as a buffer
-  uint *sh_test = sh_n;
-  for (int i = 0; i < 64; i++){
-    if (!!(x >> i))
-      sh_n[tid] = i + 1;
-  }
-
-  if (tid < 63){
-    sh_m[tid] = sh_n[tid + 1];
-  }
-
-  __syncthreads();
-  if (tid == 0){
-    for (int i = intprec - 1; i-- > 0;){
-      if (sh_m[i] < sh_m[i + 1])
-        sh_m[i] = sh_m[i + 1];
-    }
-  }
-  __syncthreads();
-
-  int bits = 128;
-  int n = 0;
-  /* step 2: encode first n bits of bit plane */
-  bits -= sh_m[tid];
-  x >>= sh_m[tid];
-  x = (sh_m[tid] != 64) * x;
-  n = sh_m[tid];
-  /* step 3: unary run-length encode remainder of bit plane */
-  for (; n < size && bits && (bits--, !!x); x >>= 1, n++)
-    for (; n < size - 1 && bits && (bits--, !(x & 1u)); x >>= 1, n++)
-      ;
-  __syncthreads();
-
-  bits = (128 - bits);
-  sh_n[tid] = min(sh_m[tid], bits);
-
-  /* step 2: encode first n bits of bit plane */
-  //y[tid] = stream[bidx].write_bits(y[tid], sh_m[tid]);
-  y = write_bitters(bitter, make_bitter(y, 0), sh_m[tid], sbit);
-  n = sh_n[tid];
-
-  /* step 3: unary run-length encode remainder of bit plane */
-  for (; n < size && bits && (bits-- && write_bitter(bitter, !!y, sbit)); y >>= 1, n++)
-    for (; n < size - 1 && bits && (bits-- && !write_bitter(bitter, y & 1u, sbit)); y >>= 1, n++)
-      ;
-  __syncthreads();
-
-
-  sh_bitters[63 - tid] = bitter;
-  sh_sbits[63 - tid] = sbit;
+		sh_sbits,
+		sh_bitters, 
+		s_emax_bits,
+		blocks
+		);
 
   __syncthreads();
   if (tid == 0){

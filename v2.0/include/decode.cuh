@@ -319,6 +319,57 @@ decode_ints(Word *block, UInt* data, uint minbits, uint maxbits, uint maxprec, u
 
 }
 
+template<typename Int, typename UInt, uint bsize, int intprec>
+__device__ 
+void decode
+(
+	Word *blocks,
+	uint *s_kmin,
+	unsigned long long *s_bit_cnt,
+	Int *s_iblock,
+	int *s_emax
+)
+{
+	UInt l_data = 0;
+
+	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
+	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
+
+	if (tid == 0){
+		//Bit<bsize> stream(blocks + idx * bsize);
+		uint sbits = 0;
+		Word buffer = 0;
+		char offset = 0;
+
+		read_bit(offset, sbits, buffer, blocks + idx*bsize);
+		uint ebits = c_ebits + 1;
+		s_emax[0] = read_bits(ebits - 1, offset, sbits, buffer, blocks + idx*bsize) - c_ebias;
+		int maxprec = precision(s_emax[0], c_maxprec, c_minexp);
+		s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
+		uint bits = c_maxbits - ebits;
+		for (uint k = intprec, n = 0; k-- > 0;){
+			//					idx_n[k] = n;
+			//					bit_rmn_bits[k] = bits;
+			uint m = MIN(n, bits);
+			bits -= m;
+			s_bit_cnt[k] = read_bits(m, offset, sbits, buffer, blocks + idx*bsize);
+			for (; n < 64 && bits && (bits--, read_bit(offset, sbits, buffer, blocks + idx*bsize)); s_bit_cnt[k] += (unsigned long long)1 << n++)
+				for (; n < 64 - 1 && bits && (bits--, !read_bit(offset, sbits, buffer, blocks + idx*bsize)); n++)
+					;
+		}
+
+	}	__syncthreads();
+
+#pragma unroll 64
+	for (int i = 0; i<64; i++)
+		l_data += (UInt)((s_bit_cnt[i] >> tid) & 1u) << i;
+
+	__syncthreads();
+	s_iblock[c_perm[tid]] = uint2int<Int, UInt>(l_data);
+	__syncthreads();
+	inv_xform(s_iblock);
+	__syncthreads();
+}
 template<class Int, class UInt>
 __global__
 void cudaInvOrder
@@ -441,44 +492,9 @@ const unsigned long long orig_count
 	Word *s_bit_buffer = (Word*)&smem[64 * (4 + 4 + 8 + 4 + 1 + 4)];
 	UInt *s_data = (UInt*)&smem[64 * (4 + 4 + 8 + 4 + 1 + 4 + 8)];
 #endif
-  UInt l_data = 0;
   __syncthreads();
 
-	if (tid == 0){
-    //Bit<bsize> stream(blocks + idx * bsize);
-    uint sbits = 0;
-    Word buffer = 0;
-    char offset = 0;
-
-    read_bit(offset, sbits, buffer, blocks + idx*bsize);
-    uint ebits = c_ebits + 1;
-    s_emax[0] = read_bits(ebits - 1,offset, sbits, buffer, blocks + idx*bsize) - c_ebias;
-		int maxprec = precision(s_emax[0], c_maxprec, c_minexp);
-		s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
-    uint bits = c_maxbits - ebits;
-		for (uint k = intprec, n = 0; k-- > 0;){
-			//					idx_n[k] = n;
-			//					bit_rmn_bits[k] = bits;
-			uint m = MIN(n, bits);
-			bits -= m;
-      s_bit_cnt[k] = read_bits(m,offset, sbits, buffer, blocks + idx*bsize);
-      for (; n < 64 && bits && (bits--, read_bit(offset, sbits, buffer, blocks + idx*bsize)); s_bit_cnt[k] += (unsigned long long)1 << n++)
-        for (; n < 64 - 1 && bits && (bits--, !read_bit(offset, sbits, buffer, blocks + idx*bsize)); n++)
-					;
-		}
-
-	}	__syncthreads();
-
-#pragma unroll 64
-	for (int i = 0; i<64; i++)
-    l_data += (UInt)((s_bit_cnt[i] >> tid) & 1u) << i;
-	
-	__syncthreads();
-  s_iblock[c_perm[tid]] = uint2int<Int, UInt>(l_data);
-	__syncthreads();
-	inv_xform(s_iblock);
-	__syncthreads();
-
+	decode<Int, UInt, bsize, intprec>(blocks, s_kmin, s_bit_cnt, s_iblock, s_emax);
 	//inv_cast
 	out[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)] = dequantize<Int, Scalar>(1, s_emax[0]);
 	out[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)] *= (Scalar)(s_iblock[tid]);
