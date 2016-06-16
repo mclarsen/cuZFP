@@ -9,6 +9,7 @@
 #include <thrust/execution_policy.h>
 #include <cuda_runtime.h>
 #include <assert.h>
+#include <algorithm>
 #include <omp.h>
 
 #define KEPLER 0
@@ -16,7 +17,13 @@
 #include "include/encode.cuh"
 #include "include/decode.cuh"
 
+#define WITHOUT_ZFP_COMPRESSION
+#ifdef WITHOUT_ZFP_COMPRESSION
+#include "array3d.h"
+#else
 #include "zfparray3.h"
+using namespace zfp;
+#endif
 
 using namespace thrust;
 using namespace std;
@@ -36,12 +43,12 @@ const int nt = 0;
 //MAXBITS = wsize * BSIZE
 //e.g. if we match bits one-to-one, double -> unsigned long long
 // then BSIZE = 64 and MAXPBITS = 4096
-#define BSIZE  16
-uint minbits = 1024;
-uint MAXBITS = 1024;
+#define BSIZE  64
+uint minbits = BSIZE*64;
+uint MAXBITS = BSIZE*64;
 uint MAXPREC = 64;
 int MINEXP = -1074;
-const double rate = 16;
+const double rate = BSIZE;
 size_t  blksize = 0;
 unsigned long long group_count = 0x46acca631ull;
 uint size = 64;
@@ -397,199 +404,7 @@ Word *block
 	}
 }
 
-template<class Int, class UInt, class Scalar, uint bsize, uint num_sidx>
-void cpuDecode
-(
-dim3 gridDim,
-dim3 blockDim,
-size_t *sidx,
-Word *block,
 
-Scalar *out,
-const unsigned long long orig_count
-
-)
-{
-
-	dim3 blockIdx;
-
-	for (blockIdx.z = 0; blockIdx.z < gridDim.z; blockIdx.z++){
-		for (blockIdx.y = 0; blockIdx.y < gridDim.y; blockIdx.y++){
-			for (blockIdx.x = 0; blockIdx.x < gridDim.x; blockIdx.x++){
-				uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
-				uint bdim = blockDim.x*blockDim.y*blockDim.z;
-				uint bidx = idx*bdim;
-
-        cuZFP::Bit<bsize> stream;
-				size_t s_sidx[64];// = (size_t*)&smem[0];
-				//if (tid < num_sidx)
-				for (int tid = 0; tid < num_sidx; tid++){
-
-					s_sidx[tid] = sidx[tid];
-				}
-
-				uint s_idx_n[64];// = (uint*)&smem[s_sidx[0]];
-				uint s_idx_g[64];// = (uint*)&smem[s_sidx[1]];
-				unsigned long long s_bit_cnt[64];// = (unsigned long long*)&smem[s_sidx[2]];
-				uint s_bit_rmn_bits[64];// = (uint*)&smem[s_sidx[3]];
-				char s_bit_offset[64];// = (char*)&smem[s_sidx[4]];
-				uint s_bit_bits[64];// = (uint*)&smem[s_sidx[5]];
-				Word s_bit_buffer[64];// = (Word*)&smem[s_sidx[6]];
-				UInt s_data[64];// = (UInt*)&smem[s_sidx[7]];
-				Int s_q[64];
-				uint s_kmin[1];
-				int s_emax[1];
-
-        //stream[idx].rewind();
-
-        stream.read_bit();
-				uint ebits = EBITS + 1;
-				s_emax[0] = stream.read_bits(ebits - 1) - EBIAS;
-				int maxprec = cuZFP::precision(s_emax[0], MAXPREC, MINEXP);
-				s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
-
-				for (int tid = 0; tid < size; tid++)
-					s_data[tid] = 0;
-
-				uint bits = MAXBITS - ebits;
-
-				unsigned long long x[64];
-
-
-        int *sh_idx = new int[bsize*64];
-				int *sh_tmp_idx = new int[bsize * 64];
-
-
-				for (int tid = 0; tid < 64; tid++){
-					for (int i = 0; i < 16; i++){
-						sh_idx[i * 64 + tid] = -1;
-						sh_tmp_idx[i * 64 + tid] = -1;
-					}
-				}
-
-				int sh_cnt[bsize];
-				int beg_idx[bsize];
-				for (int tid = 0; tid < 64; tid++){
-					if (tid < bsize){
-						beg_idx[tid] = 0;
-						if (tid == 0)
-							beg_idx[tid] = ebits;
-						sh_cnt[tid] = 0;
-						for (int i = beg_idx[tid]; i < 64; i++){
-              if ((stream.begin[tid] >> i) & 1u){
-								sh_tmp_idx[tid * 64 + sh_cnt[tid]++] = tid*64 + i;
-							}
-						}
-					}
-				}
-
-				//fix blocks since they are off by ebits
-				for (int i = 0; i < bsize; i++){
-					for (int tid = 0; tid < 64; tid++){
-						if (tid < sh_cnt[i]){
-							sh_tmp_idx[i*64 + tid] -= ebits;
-						}
-					}
-				}
-
-				for (int tid = 0; tid < 64; tid++){
-					if (tid < sh_cnt[0])
-						sh_idx[tid] = sh_tmp_idx[tid];
-				}
-
-				for (int i = 1; i < bsize; i++){
-					for (int tid = 0; tid < 64; tid++){
-						if (tid == 0)
-							sh_cnt[i] += sh_cnt[i - 1];
-						if (tid < sh_cnt[i]){
-							sh_idx[sh_cnt[i - 1] + tid] = sh_tmp_idx[i * 64 + tid];
-						}
-					}
-				}
-
-
-				/* decode one bit plane at a time from MSB to LSB */
-        int cnt = 0;
-				//uint new_n = 0;
-				uint bits_cnt = ebits;
-				for (uint tid = intprec, n = 0; bits && tid-- > s_kmin[0];) {
-					/* decode first n bits of bit plane #k */
-					uint m = MIN(n, bits);
-					bits -= m;
-					bits_cnt += m;
-          x[tid] = stream.read_bits(m);
-					/* unary run-length decode remainder of bit plane */
-          for (; n < size && bits && (bits--, bits_cnt++, stream.read_bit()); x[tid] += (uint64)1 << n++){
-						int num_bits = 0;
-						uint chk = 0;
-
-						//uint tmp_bits = stream[idx].bits;
-						//Word tmp_buffer = stream[idx].buffer;
-						//char tmp_offset = stream[idx].offset;
-            //for (; n < size - 1 && bits && (bits--, !stream[idx].read_bit()); n++)
-            //  ;
-						//stream[idx].bits = tmp_bits;
-						//stream[idx].buffer = tmp_buffer;
-						//stream[idx].offset = tmp_offset;
-
-            while (n < size - 1 && bits && (bits--, bits_cnt++, !stream.read_bit())){
-							//the number of bits read in one go: 
-							//this can be affected by running out of bits in the block (variable bits)
-							// and how much is encoded per number (variable n)
-							// and how many zeros there are since the last one bit.
-							// Finally, the last bit isn't read because we'll check it to see 
-							// where we are
-
-							/* fast forward to the next one bit that hasn't been read yet*/
-							while (sh_idx[cnt] < bits_cnt - ebits){
-                cnt++;
-              }
-							cnt--;
-							//compute the raw number of bits between the last one bit and the current one bit
-							num_bits = sh_idx[cnt + 1] - sh_idx[cnt];
-
-							//the one bit as two positions previous
-							num_bits -= 2;
-
-							num_bits = min(num_bits, (size - 1) - n - 1);
-
-							bits_cnt += num_bits;
-							if (num_bits > 0){
-                stream.read_bits(num_bits);
-								bits -= num_bits;
-								n += num_bits;
-							}
-
-							n++;
-						}
-            //if (n != new_n || new_bits != bits){
-            //   cout << n << " " << new_n << " " << bits << " " << new_bits << " " << blockIdx.x * gridDim.x << " " << blockIdx.y*gridDim.y << " " << blockIdx.z * gridDim.z << endl;
-            //  exit(0);
-            //}
-          }
-					/* deposit bit plane from x */
-					for (int i = 0; x[tid]; i++, x[tid] >>= 1)
-						s_data[i] += (UInt)(x[tid] & 1u) << tid;
-
-
-				}
-
-				for (int tid = 0; tid < 64; tid++){
-					s_q[perm[tid]] = cuZFP::uint2int<Int, UInt>(s_data[tid]);
-
-				}
-
-
-				uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
-				mx *= 4; my *= 4; mz *= 4;
-
-				cuZFP::inv_xform(s_q);
-				cuZFP::inv_cast<Int, Scalar>(s_q, out, s_emax[0], mx, my, mz, 1, gridDim.x*blockDim.x, gridDim.x*blockDim.x * gridDim.y*blockDim.y);
-
-			}
-		}
-	}
-}
 
 template<class Int, class UInt, class Scalar, uint bsize>
 void gpuTestBitStream
@@ -697,7 +512,7 @@ host_vector<Scalar> &h_data
 }
 void discrete_solution
 (
-zfp::array3d &u,
+array3d &u,
 
 int x0, int y0, int z0,
 const double dx,
@@ -718,7 +533,7 @@ const double tfinal
 	for (t = 0; t < tfinal; t += dt) {
 		std::cerr << "t=" << std::fixed << t << std::endl;
 		// compute du/dt
-		zfp::array3d du(nx, ny, nz, rate);
+		array3d du(nx, ny, nz, rate);
 		for (int z = 1; z < nz - 1; z++){
 			for (int y = 1; y < ny - 1; y++) {
 				for (int x = 1; x < nx - 1; x++) {
@@ -736,7 +551,7 @@ const double tfinal
 }
 void rme
 (
-	const zfp::array3d &u,
+	const array3d &u,
 	int x0,
 	int y0,
 	int z0,
@@ -809,7 +624,7 @@ int main()
 	const double tfinal = nt ? nt * dt : 1;
 	const double pi = 3.14159265358979323846;
 
-	zfp::array3d u(nx, ny, nz, rate);
+	array3d u(nx, ny, nz, rate);
 
 	discrete_solution(u, x0, y0, z0, dx,dy,dz,dt,k, tfinal);
 
