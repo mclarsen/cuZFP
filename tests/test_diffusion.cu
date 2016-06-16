@@ -17,13 +17,9 @@
 #include "include/encode.cuh"
 #include "include/decode.cuh"
 
-#define WITHOUT_ZFP_COMPRESSION
-#ifdef WITHOUT_ZFP_COMPRESSION
 #include "array3d.h"
-#else
 #include "zfparray3.h"
-using namespace zfp;
-#endif
+
 
 using namespace thrust;
 using namespace std;
@@ -34,6 +30,7 @@ const size_t nx = 64;
 const size_t ny = 64;
 const size_t nz = 64;
 const int nt = 0;
+const double pi = 3.14159265358979323846;
 
 
 //BSIZE is the length of the array in class Bit
@@ -43,7 +40,7 @@ const int nt = 0;
 //MAXBITS = wsize * BSIZE
 //e.g. if we match bits one-to-one, double -> unsigned long long
 // then BSIZE = 64 and MAXPBITS = 4096
-#define BSIZE  64
+#define BSIZE  16
 uint minbits = BSIZE*64;
 uint MAXBITS = BSIZE*64;
 uint MAXPREC = 64;
@@ -192,220 +189,179 @@ struct RandGen
 	}
 };
 
-// forward decorrelating transform
-template<class Int>
-__device__ __host__
-static void
-fwd_xform_zy(Int* p)
-{
-	for (uint z = 0; z < 4; z++)
-		for (uint y = 4; y-- > 0;)
-	       cuZFP::fwd_lift<Int, 1>(p + 4 * y + 16 * z);
-
-}
-// forward decorrelating transform
-template<class Int>
-__device__ __host__
-static void
-fwd_xform_xz(Int* p)
-{
-	for (uint x = 4; x-- > 0;)
-	  for (uint z = 4; z-- > 0;)
-			cuZFP::fwd_lift<Int, 4>(p + 16 * z + 1 * x);
-
-}
-// forward decorrelating transform
-template<class Int>
-__host__
-static void
-fwd_xform_yx(Int* p)
-{
-	for (uint y = 4; y-- > 0;)
-	     for (uint x = 4; x-- > 0;)
-				 cuZFP::fwd_lift<Int, 16>(p + 1 * x + 4 * y);
-
-}
-
-// forward decorrelating transform
-template<class Int>
-__host__
-static void
-fwd_xform(Int* p)
-{
-	fwd_xform_zy(p);
-	fwd_xform_xz(p);
-	fwd_xform_yx(p);
-}
-
-template<class Int, class UInt, class Scalar, uint bsize>
-void cpuEncode
+template<typename Array>
+void rme
 (
-dim3 gridDim, 
-dim3 blockDim,
-const unsigned long long count,
-uint size,
-const Scalar* data,
-const unsigned char *g_cnt,
-Word *block
+const Array &u,
+int x0,
+int y0,
+int z0,
+const double dx,
+const double dy,
+const double dz,
+const double k,
+
+double t
 )
 {
 
-	dim3 blockIdx;
-	
-	for (blockIdx.z = 0; blockIdx.z < gridDim.z; blockIdx.z++){
-		for (blockIdx.y = 0; blockIdx.y < gridDim.y; blockIdx.y++){
-			for (blockIdx.x = 0; blockIdx.x <gridDim.x; blockIdx.x++){
-
-				Int sh_q[64];
-				UInt sh_p[64];
-				uint sh_m[64], sh_n[64];
-				Bitter sh_bitters[64];
-				unsigned char sh_sbits[64];
-
-				uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
-				mx *= 4; my *= 4; mz *= 4;
-				int emax = cuZFP::max_exp_block(data, mx, my, mz, 1, blockDim.x * gridDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
-
-				//	uint sz = gridDim.x*blockDim.x * 4 * gridDim.y*blockDim.y * 4;
-				//	uint sy = gridDim.x*blockDim.x * 4;
-				//	uint sx = 1;
-				cuZFP::fixed_point_block<Int, Scalar, intprec>(sh_q, data, emax, mx, my, mz, 1, blockDim.x * gridDim.x, gridDim.x  * gridDim.y * blockDim.x * blockDim.y);
-				fwd_xform(sh_q);
-
-
-				//fwd_order
-				for (int i = 0; i < 64; i++){
-					sh_p[i] = cuZFP::int2uint<Int, UInt>(sh_q[perm[i]]);
-				}
-
-
-				uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
-
-        //cuZFP::Bit<bsize> stream(block + bidx*bsize);
-
-				unsigned long long x[64], y[64];
-				Bitter bitter[64];
-				for (int i = 0; i < 64; i++){
-					bitter[i] = make_bitter(0, 0);
-				}
-				uint s_emax_bits[1];
-				s_emax_bits[0] = 1;
-				//maxprec, minexp, EBITS
-				//	uint k = threadIdx.x + blockDim.x * blockIdx.x;
-				int maxprec = cuZFP::precision(emax, MAXPREC, MINEXP);
-				int ebits = EBITS + 1;
-				const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
-
-				uint e = maxprec ? emax + EBIAS : 0;
-				//printf("%d %d %d %d\n", emax, maxprec, ebits, e);
-				if (e){
-					//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
-          block[bidx*bsize] = 2 * e + 1;
-					//stream[bidx].write_bits(2 * e + 1, ebits);
-					s_emax_bits[0] = ebits;
-				}
-				//				const uint kmin = intprec > MAXPREC ? intprec - MAXPREC : 0;
-
-				//unsigned long long x[64];
-
-#pragma omp parallel for
-				for (int tid = 0; tid<64; tid++){
-					/* step 1: extract bit plane #k to x */
-					x[tid] = 0;
-					for (int i = 0; i < size; i++)
-						x[tid] += (uint64)((sh_p[i] >> tid) & 1u) << i;
-					y[tid] = x[tid];
-				}
-
-#pragma omp parallel for
-				for (int tid = 0; tid < 64; tid++){
-					sh_m[tid] = 0;
-					sh_n[tid] = 0;
-					sh_sbits[tid] = 0;
-				}
-
-#pragma omp parallel for
-				for (int tid = 0; tid < 64; tid++){
-					//get the index of the first 'one' in the bit plane
-					for (int i = 0; i < 64; i++){
-						if (!!(x[tid] >> i))
-							sh_n[tid] = i + 1;
-					}
-				}
-				for (int i = 0; i < 63; i++){
-					sh_m[i] = sh_n[i + 1];
-				}
-
-				//make sure that m increases isotropically
-				for (int i = intprec - 1; i-- > 0;){
-					if (sh_m[i] < sh_m[i + 1])
-						sh_m[i] = sh_m[i + 1];
-				}				
-
-				//compute the number of bits used per thread
-				int bits[64];
-#pragma omp parallel for
-				for (int tid = 0; tid < 64; tid++) {
-					bits[tid] = 128;
-					int n = 0;
-					/* step 2: encode first n bits of bit plane */
-					bits[tid] -= sh_m[tid];
-					x[tid] >>= sh_m[tid];
-					x[tid] = (sh_m[tid] != 64) * x[tid];
-					n = sh_m[tid];
-					/* step 3: unary run-length encode remainder of bit plane */
-					for (; n < size && bits[tid] && (bits[tid]--, !!x[tid]); x[tid] >>= 1, n++)
-						for (; n < size - 1 && bits[tid] && (bits[tid]--, !(x[tid] & 1u)); x[tid] >>= 1, n++)
-							;
-				}
-
-				//number of bits read per thread
-//#pragma omp parallel for
-				for (int tid = 0; tid < 64; tid++){
-					bits[tid] = (128 - bits[tid]);
-				}
-#pragma omp parallel for
-				for (int tid = 0; tid < 64; tid++){
-					sh_n[tid] = min(sh_m[tid], bits[tid]);
-				}
-
-#pragma omp parallel for
-				for (int tid = 0; tid < 64; tid++) {
-					/* step 2: encode first n bits of bit plane */
-					unsigned char sbits = 0;
-					//y[tid] = stream[bidx].write_bits(y[tid], sh_m[tid]);
-					y[tid] = write_bitters(bitter[tid], make_bitter(y[tid], 0), sh_m[tid], sbits);
-					uint n = sh_n[tid];
-
-					/* step 3: unary run-length encode remainder of bit plane */
-					for (; n < size && bits[tid] && (bits[tid]-- && write_bitter(bitter[tid], !!y[tid], sbits)); y[tid] >>= 1, n++)
-						for (; n < size - 1 && bits[tid] && (bits[tid]-- && !write_bitter(bitter[tid], y[tid] & 1u, sbits)); y[tid] >>= 1, n++)
-							;
-
-					sh_bitters[63 - tid] = bitter[tid];
-					sh_sbits[63 - tid] = sbits;
-				}
-
-				uint rem_sbits = s_emax_bits[0];
-				uint tot_sbits = s_emax_bits[0];
-				uint offset = 0;
-				for (int i = 0; i < intprec && tot_sbits < MAXBITS; i++){
-					if (sh_sbits[i] <= 64){
-            write_outx<bsize>(sh_bitters, block + bidx*bsize, rem_sbits, tot_sbits, offset, i, sh_sbits[i]);
-					}
-					else{
-            write_outx<bsize>(sh_bitters, block + bidx*bsize, rem_sbits, tot_sbits, offset, i, 64);
-            if (tot_sbits < MAXBITS)
-              write_outy<bsize>(sh_bitters, block + bidx*bsize, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64);
-					}
-				}
+	// compute root mean square error with respect to exact solution
+	double e = 0;
+	double sum = 0;
+	for (int z = 1; z < nz - 1; z++){
+		double pz = dz * (z - z0);
+		for (int y = 1; y < ny - 1; y++) {
+			double py = dy * (y - y0);
+			for (int x = 1; x < nx - 1; x++) {
+				double px = dx * (x - x0);
+				double f = u(x, y, z);
+				//http://nptel.ac.in/courses/105103026/34
+				double g = dx * dy * dz * std::exp(-(px * px + py * py + pz * pz) / (4 * k * t)) / powf(4 * pi * k * t, 3.0 / 2.0);
+				e += (f - g) * (f - g);
+				sum += f;
 			}
 		}
 	}
+
+	e = std::sqrt(e / ((nx - 2) * (ny - 2)));
+	std::cerr.unsetf(std::ios::fixed);
+	std::cerr << "rate=" << rate << " sum=" << std::fixed << sum << " error=" << std::setprecision(6) << std::scientific << e << std::endl;
+
 }
 
+__device__
+static inline
+int idx(int x, int y, int z)
+{
+	return x +  y * (blockDim.x * gridDim.x) + z * (blockDim.x * gridDim.x * blockDim.y * gridDim.y);
+}
 
+template<typename Scalar>
+__global__
+void cudaDiffusion
+(
 
+	const Scalar *u,
+	const Scalar dx,
+	const Scalar dy,
+	const Scalar dz,
+	const Scalar dt,
+	const Scalar k,
+	const Scalar tfinal,
+
+	Scalar *du
+	
+)
+{
+	int x = threadIdx.x + blockIdx.x * blockDim.x;
+	int y = threadIdx.y + blockIdx.y * blockDim.y;
+	int z = threadIdx.z + blockIdx.z * blockDim.z;
+
+	Scalar uxx = (u[idx(max(0, x - 1), y, z)] - 2 * u[idx(x, y, z)] + u[idx(min(blockDim.x*gridDim.x - 1, x + 1), y, z)]) / (dx * dx);
+	Scalar uyy = (u[idx(x, max(0, y - 1), z)] - 2 * u[idx(x, y, z)] + u[idx(x, min(blockDim.y*gridDim.y - 1, y + 1), z)]) / (dy * dy);
+	Scalar uzz = (u[idx(x, y, max(0, z - 1))] - 2 * u[idx(x, y, z)] + u[idx(x, y, min(blockDim.z*gridDim.z-1, z + 1))]) / (dz * dz);
+
+	du[idx(x, y, z)] = dt * k * (uxx + uyy + uzz);
+}
+
+template<typename Scalar>
+__global__
+void cudaSum
+(
+
+Scalar *u,
+const Scalar *du
+
+)
+{
+	int x = threadIdx.x + blockIdx.x * blockDim.x;
+	int y = threadIdx.y + blockIdx.y * blockDim.y;
+	int z = threadIdx.z + blockIdx.z * blockDim.z;
+	u[idx(x, y, z)] += du[idx(x, y, z)];
+}
+
+template<typename Scalar>
+void gpu_discrete_solution
+	(
+	const int x0,
+	const int y0,
+	const int z0,
+		const Scalar dx,
+		const Scalar dy,
+		const Scalar dz,
+		const Scalar dt,
+		const Scalar k,
+		const Scalar tfinal,
+
+		array3d &out
+
+		)
+{
+	thrust::host_vector<Scalar> h_u(nx*ny*nz, 0);
+
+	thrust::device_vector<Scalar> u(nx*ny*nz);
+	thrust::device_vector<Scalar> du(nx*ny*nz);
+	ErrorCheck ec;
+
+	cudaEvent_t start, stop;
+	float millisecs;
+
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+	cudaEventRecord(start, 0);
+
+	h_u[x0 + y0 * nx + z0 * nx * ny] = 1; 
+	u = h_u;
+
+	dim3 block_size(4, 4, 4);
+	dim3 grid_size;
+	grid_size.x = nx / block_size.x;
+	grid_size.y = ny / block_size.y;
+	grid_size.z = nz / block_size.z;
+
+	double t;
+	for (t = 0; t < tfinal; t += dt) {
+		//std::cerr << "t=" << std::fixed << t << std::endl;
+		cudaDiffusion << <grid_size, block_size >> >
+			(
+			thrust::raw_pointer_cast(u.data()),
+			dx,dy,dz,
+			dt,
+			k,
+			tfinal,
+			thrust::raw_pointer_cast(du.data())
+			);
+		cudaStreamSynchronize(0);
+		ec.chk("cudaDiffusion");
+
+		cudaSum << < grid_size, block_size >> >
+			(
+			thrust::raw_pointer_cast(u.data()),
+			thrust::raw_pointer_cast(du.data())
+			);
+		//thrust::transform(
+		//	u.begin(), // begin input (1) iterator
+		//	u.end(),   // end input (1) iterator
+		//	du.begin(),  // begin input (2) iteratorout
+		//	u.begin(),
+		//	thrust::plus<Scalar>()
+		//	);
+	}
+
+	h_u = u;
+	cudaEventRecord(stop, 0);
+	cudaEventSynchronize(stop);
+	cudaEventElapsedTime(&millisecs, start, stop);
+	ec.chk("cudaencode");
+
+	cout << "encode GPU in time: " << millisecs << endl;
+
+	for (int i = 0; i < u.size(); i++){
+		out[i] = h_u[i];
+	}
+
+	rme(out, x0, y0, z0, dx, dy, dz, k, tfinal - dt);
+}
 template<class Int, class UInt, class Scalar, uint bsize>
 void gpuTestBitStream
 (
@@ -510,9 +466,11 @@ host_vector<Scalar> &h_data
 	//gpuValidate<Int, UInt, Scalar, bsize>(h_data, q, data);
 
 }
+
+template<typename Array>
 void discrete_solution
 (
-array3d &u,
+Array &u,
 
 int x0, int y0, int z0,
 const double dx,
@@ -525,15 +483,17 @@ const double tfinal
 {
 	// initialize u (constructor zero-initializes)
 	//rate = u.rate();
+	double start_time = omp_get_wtime();
+
 	u(x0, y0, z0) = 1;
 
 	// iterate until final time
 	std::cerr.precision(6);
 	double t;
 	for (t = 0; t < tfinal; t += dt) {
-		std::cerr << "t=" << std::fixed << t << std::endl;
+		//std::cerr << "t=" << std::fixed << t << std::endl;
 		// compute du/dt
-		array3d du(nx, ny, nz, rate);
+		Array du(nx, ny, nz, rate);
 		for (int z = 1; z < nz - 1; z++){
 			for (int y = 1; y < ny - 1; y++) {
 				for (int x = 1; x < nx - 1; x++) {
@@ -548,45 +508,14 @@ const double tfinal
 		for (uint i = 0; i < u.size(); i++)
 			u[i] += du[i];
 	}
-}
-void rme
-(
-	const array3d &u,
-	int x0,
-	int y0,
-	int z0,
-	const double dx,
-	const double dy,
-	const double dz,
-	const double k,
-	const double pi,
-	double t
-)
-{
+	double time = omp_get_wtime() - start_time;
+	cout << "discrete time: " << time << endl;
 
-	// compute root mean square error with respect to exact solution
-	double e = 0;
-	double sum = 0;
-	for (int z = 1; z < nz - 1; z++){
-		double pz = dz * (z - z0);
-		for (int y = 1; y < ny - 1; y++) {
-			double py = dy * (y - y0);
-			for (int x = 1; x < nx - 1; x++) {
-				double px = dx * (x - x0);
-				double f = u(x, y, z);
-				//http://nptel.ac.in/courses/105103026/34
-				double g = dx * dy * dz * std::exp(-(px * px + py * py + pz * pz) / (4 * k * t)) / powf(4 * pi * k * t, 3.0/2.0);
-				e += (f - g) * (f - g);
-				sum += f;
-			}
-		}
-	}
-
-	e = std::sqrt(e / ((nx - 2) * (ny - 2)));
-	std::cerr.unsetf(std::ios::fixed);
-	std::cerr << "rate=" << rate << " sum=" << std::fixed << sum << " error=" << std::setprecision(6) << std::scientific << e << std::endl;
+	rme(u, x0, y0, z0, dx, dy, dz, k, tfinal - dt);
 
 }
+
+
 int main()
 {
 	host_vector<double> h_vec_in(nx*ny*nz);
@@ -622,12 +551,13 @@ int main()
 	const double dz = 2.0 / (std::max(nz, std::max(nx, ny)) - 1);
 	const double dt = 0.5 * (dx * dx + dy * dy) / (8 * k);
 	const double tfinal = nt ? nt * dt : 1;
-	const double pi = 3.14159265358979323846;
 
-	array3d u(nx, ny, nz, rate);
+	zfp::array3d u(nx, ny, nz, rate);
 
-	discrete_solution(u, x0, y0, z0, dx,dy,dz,dt,k, tfinal);
+	discrete_solution<zfp::array3d>(u, x0, y0, z0, dx,dy,dz,dt,k, tfinal);
 
-	rme(u, x0, y0, z0, dx, dy, dz, k, pi, tfinal-dt);
+
+	array3d u2(nx, ny, nz, rate);
+	gpu_discrete_solution<double>(x0, y0, z0, dx, dy, dz, dt, k, tfinal, u2);
 
 }
