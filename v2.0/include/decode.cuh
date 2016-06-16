@@ -319,21 +319,32 @@ decode_ints(Word *block, UInt* data, uint minbits, uint maxbits, uint maxprec, u
 
 }
 
-template<typename Int, typename UInt, uint bsize, int intprec>
+template<typename Int, typename UInt, typename Scalar, uint bsize, int intprec>
 __device__ 
 void decode
 (
 	Word *blocks,
-	uint *s_kmin,
-	unsigned long long *s_bit_cnt,
-	Int *s_iblock,
-	int *s_emax
+	unsigned char *smem,
+	uint out_idx,
+	Scalar *out
 )
 {
+	__shared__ uint *s_kmin;
+	__shared__ unsigned long long *s_bit_cnt;
+	__shared__ Int *s_iblock;
+	__shared__ int *s_emax;
+
+	s_bit_cnt = (unsigned long long*)&smem[0];
+	s_iblock = (Int*)&s_bit_cnt[0];
+	s_kmin = (uint*)&s_iblock[64];
+
+	s_emax = (int*)&s_kmin[1];
+
 	UInt l_data = 0;
 
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
+
 
 	if (tid == 0){
 		//Bit<bsize> stream(blocks + idx * bsize);
@@ -369,6 +380,10 @@ void decode
 	__syncthreads();
 	inv_xform(s_iblock);
 	__syncthreads();
+
+	//inv_cast
+	out[out_idx] = dequantize<Int, Scalar>(1, s_emax[0]);
+	out[out_idx] *= (Scalar)(s_iblock[tid]);
 }
 template<class Int, class UInt>
 __global__
@@ -470,34 +485,12 @@ const unsigned long long orig_count
   uint bidx = idx*bdim;
 
 	extern __shared__ unsigned char smem[];
-#if 1
-  __shared__ uint *s_kmin;
-	__shared__ unsigned long long *s_bit_cnt;
-	__shared__ Int *s_iblock;
-	__shared__ int *s_emax;
 
-  s_bit_cnt = (unsigned long long*)&smem[0];
-  s_iblock = (Int*)&s_bit_cnt[0];
-	s_kmin = (uint*)&s_iblock[64];
-	
-	s_emax = (int*)&s_kmin[1];
-
-#else
-	uint *s_idx_n = (uint*)&smem[0];
-	uint *s_idx_g = (uint*)&smem[64 * 4];
-	unsigned long long *s_bit_cnt = (unsigned long long*)&smem[64 * (4 + 4)];
-	uint *s_bit_rmn_bits = (uint*)&smem[64 * (4 + 4 + 8)];
-	char *s_bit_offset = (char*)&smem[64 * (4 + 4 + 8 + 4)];
-	uint *s_bit_bits = (uint*)&smem[64 * (4 + 4 + 8 + 4 + 1)];
-	Word *s_bit_buffer = (Word*)&smem[64 * (4 + 4 + 8 + 4 + 1 + 4)];
-	UInt *s_data = (UInt*)&smem[64 * (4 + 4 + 8 + 4 + 1 + 4 + 8)];
-#endif
-  __syncthreads();
-
-	decode<Int, UInt, bsize, intprec>(blocks, s_kmin, s_bit_cnt, s_iblock, s_emax);
+	decode<Int, UInt, Scalar, bsize, intprec>(blocks, smem,
+		(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4),
+		out
+		);
 	//inv_cast
-	out[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)] = dequantize<Int, Scalar>(1, s_emax[0]);
-	out[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)] *= (Scalar)(s_iblock[tid]);
 }
 template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 void decode

@@ -435,11 +435,8 @@ void encode
 	const uint size,
 	unsigned char *smem,
 
-	unsigned char * &sh_sbits,
-	Bitter * &sh_bitters,
-	uint *&s_emax_bits,
+	uint blk_idx,
 	Word *blocks
-
 )
 {
 	__shared__ unsigned char *sh_g;
@@ -448,6 +445,9 @@ void encode
 	__shared__ Int *sh_q;
 	__shared__ UInt *sh_p;
 	__shared__ uint *sh_m, *sh_n;
+	__shared__ unsigned char *sh_sbits;
+	__shared__ Bitter *sh_bitters;
+	__shared__ uint *s_emax_bits;
 
 	sh_g = &smem[0];
 	sh_sbits = &smem[64];
@@ -461,7 +461,6 @@ void encode
 	s_emax_bits = (uint*)&sh_n[64];
 	sh_emax = (int*)&s_emax_bits[1];
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
-	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
 
 	Bitter bitter = make_bitter(0, 0);
 	unsigned char sbit = 0;
@@ -512,7 +511,7 @@ void encode
 		uint e = maxprec ? sh_emax[0] + ebias : 0;
 		if (e){
 			//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
-			blocks[idx * bsize] = 2 * e + 1;
+			blocks[blk_idx] = 2 * e + 1;
 			s_emax_bits[0] = c_ebits + 1;
 		}
 	}
@@ -580,6 +579,22 @@ void encode
 	sh_bitters[63 - tid] = bitter;
 	sh_sbits[63 - tid] = sbit;
 
+
+	if (tid == 0){
+		uint tot_sbits = s_emax_bits[0];// sbits[0];
+		uint  rem_sbits = s_emax_bits[0];// sbits[0];
+		uint offset = 0;
+		for (int i = 0; i < intprec && tot_sbits < c_maxbits; i++){
+			if (sh_sbits[i] <= 64){
+				write_outx<bsize>(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, sh_sbits[i]);
+			}
+			else{
+				write_outx<bsize>(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, 64);
+				write_outy<bsize>(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64);
+			}
+		}
+	}
+
 }
 template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 __global__
@@ -606,10 +621,6 @@ Word *blocks
   uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
   uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
 
-	unsigned char *sh_sbits;
-	Bitter *sh_bitters;
-	//int *sh_emax;
-	uint *s_emax_bits;
 
 	encode<Int, UInt, Scalar, bsize, intprec>(
 		data,
@@ -617,27 +628,12 @@ Word *blocks
 
 		smem, 
 
-		sh_sbits,
-		sh_bitters, 
-		s_emax_bits,
+		idx * bsize,
 		blocks
 		);
 
   __syncthreads();
-  if (tid == 0){
-    uint tot_sbits = s_emax_bits[0];// sbits[0];
-    uint  rem_sbits = s_emax_bits[0];// sbits[0];
-    uint offset = 0;
-    for (int i = 0; i < intprec && tot_sbits < c_maxbits; i++){
-      if (sh_sbits[i] <= 64){
-        write_outx<bsize>(sh_bitters, blocks + idx * bsize, rem_sbits, tot_sbits, offset, i, sh_sbits[i]);
-      }
-      else{
-        write_outx<bsize>(sh_bitters, blocks + idx * bsize, rem_sbits, tot_sbits, offset, i, 64);
-        write_outy<bsize>(sh_bitters, blocks + idx * bsize, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64);
-      }
-    }
-  }
+
 }
 template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 void encode
