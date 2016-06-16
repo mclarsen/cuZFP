@@ -291,10 +291,7 @@ void gpu_discrete_solution
 		const Scalar dz,
 		const Scalar dt,
 		const Scalar k,
-		const Scalar tfinal,
-
-		array3d &out
-
+		const Scalar tfinal
 		)
 {
 	thrust::host_vector<Scalar> h_u(nx*ny*nz, 0);
@@ -355,6 +352,8 @@ void gpu_discrete_solution
 	ec.chk("cudaencode");
 
 	cout << "encode GPU in time: " << millisecs << endl;
+
+	array3d out(nx, ny, nz, 0);
 
 	for (int i = 0; i < u.size(); i++){
 		out[i] = h_u[i];
@@ -556,8 +555,9 @@ int main()
 
 	discrete_solution<zfp::array3d>(u, x0, y0, z0, dx,dy,dz,dt,k, tfinal);
 
-
 	array3d u2(nx, ny, nz, rate);
-	gpu_discrete_solution<double>(x0, y0, z0, dx, dy, dz, dt, k, tfinal, u2);
+	discrete_solution<array3d>(u2, x0, y0, z0, dx, dy, dz, dt, k, tfinal);
+
+	gpu_discrete_solution<double>(x0, y0, z0, dx, dy, dz, dt, k, tfinal);
 
 }
