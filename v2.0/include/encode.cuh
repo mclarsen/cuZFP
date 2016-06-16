@@ -602,10 +602,8 @@ void
 __launch_bounds__(64,5)
 cudaEncode
 (
-const unsigned long long count,
 uint size,
 const Scalar* data,
-const unsigned char *g_cnt,
 Word *blocks
 )
 {
@@ -646,17 +644,7 @@ void encode
 )
 {
   dim3 block_size, grid_size;
-  thrust::device_vector<unsigned char> d_g_cnt;
-  unsigned long long count = group_count;
-  thrust::host_vector<unsigned char> g_cnt(10);
-  uint sum = 0;
-  g_cnt[0] = 0;
-  for (int i = 1; i < 10; i++){
-    sum += count & 0xf;
-    g_cnt[i] = sum;
-    count >>= 4;
-  }
-  d_g_cnt = g_cnt;
+
 
   block_size = dim3(4, 4, 4);
   grid_size = dim3(nx, ny, nz);
@@ -664,9 +652,8 @@ void encode
 
 	cudaEncode<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 >> >
     (
-    group_count, size,
+    size,
     d_data,
-    thrust::raw_pointer_cast(d_g_cnt.data()),
     thrust::raw_pointer_cast(stream.data())
     );
   cudaStreamSynchronize(0);
@@ -699,7 +686,6 @@ const unsigned long long group_count,
 const uint size
 )
 {
-  thrust::device_vector<unsigned char> d_g_cnt;
 
   thrust::device_vector<Scalar> d_data = h_data;
 
