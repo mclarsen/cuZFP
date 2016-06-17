@@ -306,8 +306,8 @@ BinaryFunction op
 
 	unsigned char *new_smem = (unsigned char*)&s_lhs[64];
 
-	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(rhs, new_smem, tid, s_rhs);
-	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(lhs, new_smem, tid, s_lhs);
+	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(rhs + idx*bsize, new_smem, tid, s_rhs);
+	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(lhs + idx*bsize, new_smem, tid, s_lhs);
 
 	if (tid % 2){
 		s_lhs[tid] = op(s_lhs[tid], s_rhs[tid]);
@@ -322,6 +322,7 @@ BinaryFunction op
 		idx * bsize,
 		lhs
 		);	
+	//out[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)] = s_dblock[tid];
 }
 
 template<class Int, class UInt, class Scalar, uint bsize, int intprec, typename BinaryFunction>
