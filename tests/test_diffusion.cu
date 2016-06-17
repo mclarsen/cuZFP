@@ -280,6 +280,71 @@ const Scalar *du
 	u[idx(x, y, z)] += du[idx(x, y, z)];
 }
 
+
+template<class Int, class UInt, class Scalar, uint bsize, int intprec>
+__global__
+void
+__launch_bounds__(64, 5)
+cudaZFPIncr
+(
+Word *blocks,
+Scalar val,
+uint size
+)
+{
+	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
+	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
+	uint bdim = blockDim.x*blockDim.y*blockDim.z;
+	uint bidx = idx*bdim;
+
+	extern __shared__ unsigned char smem[];
+	__shared__ Scalar *s_dblock;
+
+	s_dblock = (Scalar*)&smem[0];
+
+	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(blocks, (unsigned char*)&s_dblock[64], tid, s_dblock);
+
+	if (tid % 2){
+		s_dblock[tid] += val;
+	}
+
+	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(
+		s_dblock,
+		size,
+
+		(unsigned char*)&s_dblock[64],
+
+		idx * bsize,
+		blocks
+		);	
+	//out[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)] = s_dblock[tid];
+}
+
+template<class Int, class UInt, class Scalar, uint bsize, int intprec>
+void gpuZFPIncr
+(
+int nx, int ny, int nz,
+device_vector<Word > &block,
+Scalar val
+)
+{
+	dim3 block_size = dim3(4, 4, 4);
+	dim3 grid_size = dim3(nx, ny, nz);
+	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+
+	//cuZFP::decode needs  64 * (8*2) + 4 + 4 
+	//of shmem
+	//cuZFP::encode need (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 
+	//of shmem
+	//obviously, take the larger of the two if you're doing both encode and decode
+	cudaZFPIncr<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 >> >
+		(
+		thrust::raw_pointer_cast(block.data()),
+		val,
+		size
+		);
+}
+
 template<typename Scalar>
 void gpu_discrete_solution
 	(
@@ -362,8 +427,9 @@ void gpu_discrete_solution
 	rme(out, x0, y0, z0, dx, dy, dz, k, tfinal - dt);
 }
 template<class Int, class UInt, class Scalar, uint bsize>
-void gpuTestBitStream
+void gpuDiffusion
 (
+int x0, int y0, int z0,
 host_vector<Scalar> &h_data
 )
 {
@@ -374,17 +440,12 @@ host_vector<Scalar> &h_data
 	host_vector<cuZFP::Bit<bsize> > h_bits;
 	device_vector<unsigned char> d_g_cnt;
 
+
+	h_data[x0 + nx*y0 + nx*ny*z0] = 1;
   device_vector<Scalar> data;
   data = h_data;
 
 
-	dim3 emax_size(nx / 4, ny / 4, nz / 4);
-
-	dim3 block_size(8, 8, 8);
-	dim3 grid_size = emax_size;
-	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
-
-	//const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
 
 	ErrorCheck ec;
 
@@ -397,7 +458,8 @@ host_vector<Scalar> &h_data
 
 
 
-  device_vector<Word > block(emax_size.x * emax_size.y * emax_size.z * bsize);
+	dim3 emax_size(nx / 4, ny / 4, nz / 4);
+	device_vector<Word > block(emax_size.x * emax_size.y * emax_size.z * bsize);
   cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, data, block, group_count, size);
 
 	cudaStreamSynchronize(0);
@@ -426,9 +488,10 @@ host_vector<Scalar> &h_data
 	cudaEventRecord(start, 0);
 
 
-	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, block, data, group_count);
+	gpuZFPIncr<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, block, 1.0);
+  ec.chk("gpuZFPIncr");
 
-  ec.chk("cudaDecode");
+	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, block, data, group_count);
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&millisecs, start, stop);
@@ -517,25 +580,20 @@ const double tfinal
 
 int main()
 {
-	host_vector<double> h_vec_in(nx*ny*nz);
+	host_vector<double> h_vec_in(nx*ny*nz, 0);
 
-	device_vector<double> d_vec_in(nx*ny*nz);
-		thrust::counting_iterator<uint> index_sequence_begin(0);
-	thrust::transform(
-		index_sequence_begin,
-		index_sequence_begin + nx*ny*nz,
-		d_vec_in.begin(),
-		RandGen());
+	//device_vector<double> d_vec_in(nx*ny*nz);
+	//	thrust::counting_iterator<uint> index_sequence_begin(0);
+	//thrust::transform(
+	//	index_sequence_begin,
+	//	index_sequence_begin + nx*ny*nz,
+	//	d_vec_in.begin(),
+	//	RandGen());
 
-	h_vec_in = d_vec_in;
-	d_vec_in.clear();
-	d_vec_in.shrink_to_fit();
+	//h_vec_in = d_vec_in;
+	//d_vec_in.clear();
+	//d_vec_in.shrink_to_fit();
 
-	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
-	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS, EBIAS);
-	cout << "Begin gpuTestBitStream" << endl;
-  gpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
-	cout << "Finish gpuTestBitStream" << endl;
 
 
 
@@ -551,13 +609,21 @@ int main()
 	const double dt = 0.5 * (dx * dx + dy * dy) / (8 * k);
 	const double tfinal = nt ? nt * dt : 1;
 
-	zfp::array3d u(nx, ny, nz, rate);
+	//zfp::array3d u(nx, ny, nz, rate);
 
-	discrete_solution<zfp::array3d>(u, x0, y0, z0, dx,dy,dz,dt,k, tfinal);
+	//discrete_solution<zfp::array3d>(u, x0, y0, z0, dx,dy,dz,dt,k, tfinal);
 
-	array3d u2(nx, ny, nz, rate);
-	discrete_solution<array3d>(u2, x0, y0, z0, dx, dy, dz, dt, k, tfinal);
+	//array3d u2(nx, ny, nz, rate);
+	//discrete_solution<array3d>(u2, x0, y0, z0, dx, dy, dz, dt, k, tfinal);
 
-	gpu_discrete_solution<double>(x0, y0, z0, dx, dy, dz, dt, k, tfinal);
+	//gpu_discrete_solution<double>(x0, y0, z0, dx, dy, dz, dt, k, tfinal);
+
+
+
+	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
+	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS, EBIAS);
+	cout << "Begin gpuDiffusion" << endl;
+	gpuDiffusion<long long, unsigned long long, double, BSIZE>(x0,y0,z0, h_vec_in);
+	cout << "Finish gpuDiffusion" << endl;
 
 }
