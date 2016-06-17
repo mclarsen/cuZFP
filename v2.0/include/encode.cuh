@@ -431,7 +431,7 @@ template<typename Int, typename UInt, typename Scalar, uint bsize, int intprec>
 __device__
 void encode
 (
-	const Scalar *data,
+	const Scalar *sh_data,
 	const uint size,
 	unsigned char *smem,
 
@@ -440,7 +440,7 @@ void encode
 )
 {
 	__shared__ unsigned char *sh_g;
-	__shared__ Scalar *sh_data, *sh_reduce;
+	__shared__ Scalar *sh_reduce;
 	__shared__ int *sh_emax;
 	__shared__ Int *sh_q;
 	__shared__ UInt *sh_p;
@@ -453,8 +453,7 @@ void encode
 	sh_sbits = &smem[64];
 	sh_bitters = (Bitter*)&smem[64 + 64];
 	sh_p = (UInt*)&smem[64 + 64 + 16 * 64];
-	sh_data = (Scalar*)&sh_p[64];
-	sh_reduce = (Scalar*)&sh_data[64];
+	sh_reduce = (Scalar*)&sh_p[64];
 	sh_q = (Int*)&sh_reduce[32];
 	sh_m = (uint*)&sh_q[64];
 	sh_n = (uint*)&sh_m[64];
@@ -466,7 +465,6 @@ void encode
 	unsigned char sbit = 0;
 	uint kmin = 0;
 
-	sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
 
 	__syncthreads();
 	//max_exp
@@ -613,18 +611,21 @@ Word *blocks
   //	int eidx = mz*gridDim.x*blockDim.x*gridDim.y*blockDim.y + my*gridDim.x*blockDim.x + mx;
 
   extern __shared__ unsigned char smem[];
+	__shared__ Scalar *sh_data;
 
+	sh_data = (Scalar*)&smem[0];
 
   uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
   uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
   uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
 
 
+	sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
 	encode<Int, UInt, Scalar, bsize, intprec>(
-		data,
+		sh_data,
 		size, 
 
-		smem, 
+		(unsigned char*)&sh_data[64],
 
 		idx * bsize,
 		blocks
