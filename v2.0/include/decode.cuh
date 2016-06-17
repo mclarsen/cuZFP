@@ -323,7 +323,7 @@ template<typename Int, typename UInt, typename Scalar, uint bsize, int intprec>
 __device__ 
 void decode
 (
-	Word *blocks,
+	const Word *blocks,
 	unsigned char *smem,
 	uint out_idx,
 	Scalar *out
