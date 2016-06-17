@@ -281,15 +281,15 @@ const Scalar *du
 }
 
 
-template<class Int, class UInt, class Scalar, uint bsize, int intprec>
+template<class Int, class UInt, class Scalar, uint bsize, int intprec, typename BinaryFunction>
 __global__
 void
 __launch_bounds__(64, 5)
-cudaZFPIncr
+cudaZFPTransform
 (
 Word *blocks,
-Scalar val,
-uint size
+uint size,
+BinaryFunction op
 )
 {
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
@@ -305,7 +305,7 @@ uint size
 	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(blocks, (unsigned char*)&s_dblock[64], tid, s_dblock);
 
 	if (tid % 2){
-		s_dblock[tid] += val;
+		s_dblock[tid] = op(s_dblock[tid], 1);
 	}
 
 	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(
@@ -320,12 +320,12 @@ uint size
 	//out[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)] = s_dblock[tid];
 }
 
-template<class Int, class UInt, class Scalar, uint bsize, int intprec>
-void gpuZFPIncr
+template<class Int, class UInt, class Scalar, uint bsize, int intprec, typename BinaryFunction>
+void gpuZFPTransform
 (
 int nx, int ny, int nz,
 device_vector<Word > &block,
-Scalar val
+BinaryFunction op
 )
 {
 	dim3 block_size = dim3(4, 4, 4);
@@ -337,11 +337,11 @@ Scalar val
 	//cuZFP::encode need (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 
 	//of shmem
 	//obviously, take the larger of the two if you're doing both encode and decode
-	cudaZFPIncr<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 >> >
+	cudaZFPTransform<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 >> >
 		(
 		thrust::raw_pointer_cast(block.data()),
-		val,
-		size
+		size,
+		op
 		);
 }
 
@@ -488,7 +488,7 @@ host_vector<Scalar> &h_data
 	cudaEventRecord(start, 0);
 
 
-	gpuZFPIncr<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, block, 1.0);
+	gpuZFPTransform<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, block, thrust::plus<Scalar>());
   ec.chk("gpuZFPIncr");
 
 	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, block, data, group_count);
