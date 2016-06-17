@@ -576,7 +576,7 @@ void encode
 
 	sh_bitters[63 - tid] = bitter;
 	sh_sbits[63 - tid] = sbit;
-
+	__syncthreads();
 
 	if (tid == 0){
 		uint tot_sbits = s_emax_bits[0];// sbits[0];
@@ -612,8 +612,10 @@ Word *blocks
 
   extern __shared__ unsigned char smem[];
 	__shared__ Scalar *sh_data;
+	unsigned char *new_smem;
 
 	sh_data = (Scalar*)&smem[0];
+	new_smem = (unsigned char*)&sh_data[64];
 
   uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
   uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
@@ -625,7 +627,7 @@ Word *blocks
 		sh_data,
 		size, 
 
-		(unsigned char*)&sh_data[64],
+		new_smem,
 
 		idx * bsize,
 		blocks
@@ -651,7 +653,7 @@ void encode
   grid_size = dim3(nx, ny, nz);
   grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
 
-	cudaEncode<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 >> >
+	cudaEncode<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, (sizeof(Scalar) + 2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 >> >
     (
     size,
     d_data,
