@@ -352,9 +352,9 @@ void decode
 		Word buffer = 0;
 		char offset = 0;
 
-		read_bit(offset, sbits, buffer, blocks + idx*bsize);
+		read_bit(offset, sbits, buffer, blocks);
 		uint ebits = c_ebits + 1;
-		s_emax[0] = read_bits(ebits - 1, offset, sbits, buffer, blocks + idx*bsize) - c_ebias;
+		s_emax[0] = read_bits(ebits - 1, offset, sbits, buffer, blocks) - c_ebias;
 		int maxprec = precision(s_emax[0], c_maxprec, c_minexp);
 		s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
 		uint bits = c_maxbits - ebits;
@@ -363,9 +363,9 @@ void decode
 			//					bit_rmn_bits[k] = bits;
 			uint m = MIN(n, bits);
 			bits -= m;
-			s_bit_cnt[k] = read_bits(m, offset, sbits, buffer, blocks + idx*bsize);
-			for (; n < 64 && bits && (bits--, read_bit(offset, sbits, buffer, blocks + idx*bsize)); s_bit_cnt[k] += (unsigned long long)1 << n++)
-				for (; n < 64 - 1 && bits && (bits--, !read_bit(offset, sbits, buffer, blocks + idx*bsize)); n++)
+			s_bit_cnt[k] = read_bits(m, offset, sbits, buffer, blocks);
+			for (; n < 64 && bits && (bits--, read_bit(offset, sbits, buffer, blocks)); s_bit_cnt[k] += (unsigned long long)1 << n++)
+				for (; n < 64 - 1 && bits && (bits--, !read_bit(offset, sbits, buffer, blocks)); n++)
 					;
 		}
 
@@ -486,7 +486,7 @@ const unsigned long long orig_count
 
 	extern __shared__ unsigned char smem[];
 
-	decode<Int, UInt, Scalar, bsize, intprec>(blocks, smem,
+	decode<Int, UInt, Scalar, bsize, intprec>(blocks + bsize*idx, smem,
 		(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4),
 		out
 		);
