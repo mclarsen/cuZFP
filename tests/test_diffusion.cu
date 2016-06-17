@@ -287,7 +287,8 @@ void
 __launch_bounds__(64, 5)
 cudaZFPTransform
 (
-Word *blocks,
+Word *rhs,
+Word *lhs,
 uint size,
 BinaryFunction op
 )
@@ -298,26 +299,29 @@ BinaryFunction op
 	uint bidx = idx*bdim;
 
 	extern __shared__ unsigned char smem[];
-	__shared__ Scalar *s_dblock;
+	__shared__ Scalar *s_rhs, *s_lhs;
 
-	s_dblock = (Scalar*)&smem[0];
+	s_rhs = (Scalar*)&smem[0];
+	s_lhs = (Scalar*)&s_rhs[64];
 
-	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(blocks, (unsigned char*)&s_dblock[64], tid, s_dblock);
+	unsigned char *new_smem = (unsigned char*)&s_lhs[64];
+
+	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(rhs, new_smem, tid, s_rhs);
+	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(lhs, new_smem, tid, s_lhs);
 
 	if (tid % 2){
-		s_dblock[tid] = op(s_dblock[tid], 1);
+		s_lhs[tid] = op(s_lhs[tid], s_rhs[tid]);
 	}
 
 	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(
-		s_dblock,
+		s_lhs,
 		size,
 
-		(unsigned char*)&s_dblock[64],
+		new_smem,
 
 		idx * bsize,
-		blocks
+		lhs
 		);	
-	//out[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)] = s_dblock[tid];
 }
 
 template<class Int, class UInt, class Scalar, uint bsize, int intprec, typename BinaryFunction>
@@ -325,6 +329,8 @@ void gpuZFPTransform
 (
 int nx, int ny, int nz,
 device_vector<Word > &block,
+device_vector<Word > &block2,
+
 BinaryFunction op
 )
 {
@@ -337,9 +343,10 @@ BinaryFunction op
 	//cuZFP::encode need (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 
 	//of shmem
 	//obviously, take the larger of the two if you're doing both encode and decode
-	cudaZFPTransform<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 >> >
+	cudaZFPTransform<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, (sizeof(Scalar) * 2 + 2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 >> >
 		(
 		thrust::raw_pointer_cast(block.data()),
+		thrust::raw_pointer_cast(block2.data()),
 		size,
 		op
 		);
@@ -440,10 +447,11 @@ host_vector<Scalar> &h_data
 	host_vector<cuZFP::Bit<bsize> > h_bits;
 	device_vector<unsigned char> d_g_cnt;
 
-
+	device_vector<Scalar> tmp_du;
+	tmp_du = h_data;
 	h_data[x0 + nx*y0 + nx*ny*z0] = 1;
-  device_vector<Scalar> data;
-  data = h_data;
+  device_vector<Scalar> tmp_u;
+	tmp_u = h_data;
 
 
 
@@ -459,8 +467,13 @@ host_vector<Scalar> &h_data
 
 
 	dim3 emax_size(nx / 4, ny / 4, nz / 4);
-	device_vector<Word > block(emax_size.x * emax_size.y * emax_size.z * bsize);
-  cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, data, block, group_count, size);
+	device_vector<Word > u(emax_size.x * emax_size.y * emax_size.z * bsize);
+	device_vector<Word > du(emax_size.x * emax_size.y * emax_size.z * bsize);
+	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, tmp_u, u, group_count, size);
+	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, tmp_du, du, group_count, size);
+
+	tmp_du.clear();
+	tmp_du.shrink_to_fit();
 
 	cudaStreamSynchronize(0);
 	ec.chk("cudaEncode");
@@ -473,14 +486,12 @@ host_vector<Scalar> &h_data
 	cout << "encode GPU in time: " << millisecs << endl;
 
   thrust::host_vector<Word > cpu_block;
-  cpu_block = block;
+  cpu_block = u;
 	UInt sum = 0;
   for (int i = 0; i < cpu_block.size(); i++){
     sum += cpu_block[i];
 	}
 	cout << "encode UInt sum: " << sum << endl;
-
-  cudaMemset(thrust::raw_pointer_cast(data.data()), 0, sizeof(Scalar)*data.size());
 
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
@@ -488,10 +499,10 @@ host_vector<Scalar> &h_data
 	cudaEventRecord(start, 0);
 
 
-	gpuZFPTransform<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, block, thrust::plus<Scalar>());
+	gpuZFPTransform<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, du, thrust::plus<Scalar>());
   ec.chk("gpuZFPIncr");
 
-	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, block, data, group_count);
+	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, tmp_u, group_count);
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&millisecs, start, stop);
@@ -500,7 +511,7 @@ host_vector<Scalar> &h_data
 
 	double tot_sum = 0, max_diff = 0, min_diff = 1e16;
 
-	host_vector<Scalar> h_out = data;
+	host_vector<Scalar> h_out = tmp_u;
 	for (int i = 0; i < h_data.size(); i++){
 		int k = 0, j = 0;
 		frexp(h_data[i], &j);
