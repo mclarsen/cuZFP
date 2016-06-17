@@ -20,6 +20,7 @@
 #include "array3d.h"
 #include "zfparray3.h"
 
+enum ENGHS_t{ N_LEFT, N_RIGHT, N_UP, N_DOWN, N_NEAR, N_FAR } enghs;
 
 using namespace thrust;
 using namespace std;
@@ -281,14 +282,120 @@ const Scalar *du
 }
 
 
+template<class Int, class UInt, class Scalar, uint bsize, int intprec>
+__global__
+void
+__launch_bounds__(64, 5)
+cudaZFPDiffusion
+(
+const Word *u,
+Word *du,
+uint size,
+
+const Scalar dx,
+const Scalar dy,
+const Scalar dz,
+const Scalar dt,
+const Scalar k
+)
+{
+	uint x = threadIdx.x;
+	uint y = threadIdx.y;
+	uint z = threadIdx.z;
+
+	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
+	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
+	uint bdim = blockDim.x*blockDim.y*blockDim.z;
+	uint bidx = idx*bdim;
+
+	extern __shared__ unsigned char smem[];
+	__shared__ Scalar *s_u, *s_du, *s_nghs, *s_u_ext;
+
+
+	s_u = (Scalar*)&smem[0];
+	s_du = (Scalar*)&s_u[64];
+	s_u_ext = (Scalar*)&s_du[64];
+	s_nghs = (Scalar*)&s_u_ext[216];
+
+	unsigned char *new_smem = (unsigned char*)&s_nghs[64];
+
+	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + idx*bsize, new_smem, tid, s_u);
+	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(du + idx*bsize, new_smem, tid, s_du);
+
+
+	//left
+	s_nghs[tid] = 0;
+	if (blockIdx.x > 0){
+		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + ((blockIdx.x-1) + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
+	}
+	s_u_ext[x + (y + 1) * 6 + (z + 1) * 36] = s_nghs[tid];
+
+	//right
+	s_nghs[tid] = 0;
+	if (blockIdx.x < gridDim.x){
+		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (1 + blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
+	}
+	s_u_ext[(2 + x) + (y + 1) * 6 + (z + 1) * 36] = s_nghs[tid];
+
+	//down
+	s_nghs[tid] = 0;
+	if (blockIdx.y > 0){
+		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (blockIdx.x + (blockIdx.y - 1) * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
+	}
+	s_u_ext[1 + x + (y)* 6 + (z + 1) * 36] = s_nghs[tid];
+
+	//up
+	s_nghs[tid] = 0;
+	if (blockIdx.y < gridDim.y){
+		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (blockIdx.x + (blockIdx.y + 1) * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
+	}
+	s_u_ext[1 + x + (y + 2) * 6 + (z + 1) * 36] = s_nghs[tid];
+
+	//near
+	s_nghs[tid] = 0;
+	if (blockIdx.z > 0){
+		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (blockIdx.x + blockIdx.y * gridDim.x + (blockIdx.z - 1) * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
+	}
+	s_u_ext[1 + x + (y + 1) * 6 + (z)* 36] = s_nghs[tid];
+
+	//far
+	s_nghs[tid] = 0;
+	if (blockIdx.z < gridDim.z){
+		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (blockIdx.x + blockIdx.y * gridDim.x + (blockIdx.z + 1) * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
+	}
+	s_u_ext[1 + x + (y + 1) * 6 + (z + 2) * 36] = s_nghs[tid];
+
+
+	s_u_ext[1 + x + (y + 1) * 6 + (z + 1) * 36] = s_u[tid];
+	
+	Scalar uxx = (s_u_ext[x + (y + 1) * 6 + (z + 1) * 36] - 2 * s_u_ext[x + 1 + (y + 1) * 6 + (z + 1) * 36] + s_u_ext[x + 2 + (y + 1) * 6 + (z + 1) * 36]) / (dx * dx);
+	Scalar uyy = (s_u_ext[x + 1 + (y)* 6 + (z + 1) * 36] - 2 * s_u_ext[x + 1 + (y + 1) * 6 + (z + 1) * 36] + s_u_ext[x + 1 + (y + 2) * 6 + (z + 1) * 36]) / (dy * dy);
+	Scalar uzz = (s_u_ext[x + 1 + (y + 1) * 6 + (z)* 36] - 2 * s_u_ext[x + 1 + (y + 1) * 6 + (z + 1) * 36] + s_u_ext[x + 1 + (y + 1) * 6 + (z + 2) * 36]) / (dz * dz);
+
+	s_du[tid] = uxx + uyy + uzz;
+	s_du[tid] *= dt * k;
+
+	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(
+		s_du,
+		size,
+
+		new_smem,
+
+		idx * bsize,
+		du
+		);
+	//out[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)] = s_dblock[tid];
+}
+
+
 template<class Int, class UInt, class Scalar, uint bsize, int intprec, typename BinaryFunction>
 __global__
 void
 __launch_bounds__(64, 5)
 cudaZFPTransform
 (
-Word *rhs,
 Word *lhs,
+Word *rhs,
 uint size,
 BinaryFunction op
 )
@@ -309,9 +416,7 @@ BinaryFunction op
 	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(rhs + idx*bsize, new_smem, tid, s_rhs);
 	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(lhs + idx*bsize, new_smem, tid, s_lhs);
 
-	if (tid % 2){
-		s_lhs[tid] = op(s_lhs[tid], s_rhs[tid]);
-	}
+	s_lhs[tid] = op(s_lhs[tid], s_rhs[tid]);
 
 	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(
 		s_lhs,
@@ -325,20 +430,32 @@ BinaryFunction op
 	//out[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)] = s_dblock[tid];
 }
 
-template<class Int, class UInt, class Scalar, uint bsize, int intprec, typename BinaryFunction>
-void gpuZFPTransform
+template<class Int, class UInt, class Scalar, uint bsize, int intprec>
+void gpuZFPDiffusion
 (
 int nx, int ny, int nz,
-device_vector<Word > &block,
-device_vector<Word > &block2,
+device_vector<Word > &u,
+device_vector<Word > &du,
+const Scalar dx,
+const Scalar dy,
+const Scalar dz,
+const Scalar dt,
+const Scalar k,
+const Scalar tfinal
 
-BinaryFunction op
 )
 {
 	dim3 block_size = dim3(4, 4, 4);
 	dim3 grid_size = dim3(nx, ny, nz);
 	grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
 
+	cudaZFPDiffusion<Int, UInt, Scalar, bsize, intprec> << < grid_size, block_size, (sizeof(Scalar) * 2 + 2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 + 216 * sizeof(Scalar) >> >
+		(
+		thrust::raw_pointer_cast(u.data()),
+		thrust::raw_pointer_cast(du.data()),
+		size,
+		dx,dy,dz,dt,k
+		);
 	//cuZFP::decode needs  64 * (8*2) + 4 + 4 
 	//of shmem
 	//cuZFP::encode need (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 
@@ -346,10 +463,10 @@ BinaryFunction op
 	//obviously, take the larger of the two if you're doing both encode and decode
 	cudaZFPTransform<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, (sizeof(Scalar) * 2 + 2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 >> >
 		(
-		thrust::raw_pointer_cast(block.data()),
-		thrust::raw_pointer_cast(block2.data()),
+		thrust::raw_pointer_cast(u.data()),
+		thrust::raw_pointer_cast(du.data()),
 		size,
-		op
+		thrust::plus<Scalar>()
 		);
 }
 
@@ -438,6 +555,7 @@ template<class Int, class UInt, class Scalar, uint bsize>
 void gpuDiffusion
 (
 int x0, int y0, int z0,
+Scalar dx,Scalar dy, Scalar dz, Scalar dt, Scalar k, Scalar tfinal,
 host_vector<Scalar> &h_data
 )
 {
@@ -499,9 +617,9 @@ host_vector<Scalar> &h_data
 	
 	cudaEventRecord(start, 0);
 
-
-	gpuZFPTransform<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, du, thrust::plus<Scalar>());
-  ec.chk("gpuZFPIncr");
+	gpuZFPDiffusion<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, du, dx,dy,dz,dt,k,tfinal);
+	cudaStreamSynchronize(0);
+  ec.chk("gpuZFPDiffusion");
 
 	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, tmp_u, group_count);
 	cudaEventRecord(stop, 0);
@@ -635,7 +753,7 @@ int main()
 	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS, EBIAS);
 	cout << "Begin gpuDiffusion" << endl;
-	gpuDiffusion<long long, unsigned long long, double, BSIZE>(x0,y0,z0, h_vec_in);
+	gpuDiffusion<long long, unsigned long long, double, BSIZE>(x0,y0,z0, dx, dy, dz, dt, k, tfinal, h_vec_in);
 	cout << "Finish gpuDiffusion" << endl;
 
 }
