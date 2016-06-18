@@ -322,59 +322,122 @@ const Scalar k
 	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + idx*bsize, new_smem, tid, s_u);
 	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(du + idx*bsize, new_smem, tid, s_du);
 
+	for (int i = 0; i < 3; i++){
+		s_u_ext[i * 64 + tid] = 0;
+	}
+
+	if (tid < 24)
+		s_u_ext[192 + tid] = 0;
+
+	__syncthreads();
 
 	//left
 	s_nghs[tid] = 0;
 	if (blockIdx.x > 0){
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + ((blockIdx.x-1) + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
 	}
-	s_u_ext[x + (y + 1) * 6 + (z + 1) * 36] = s_nghs[tid];
+	__syncthreads();
+	if (tid == 0){
+		for (int i = 0; i < 4; i++){
+			for (int j = 0; j < 4; j++){
+				s_u_ext[(i+1) * 6 + (j+1) * 36] = s_nghs[3 + i * blockDim.x + j * blockDim.x + blockDim.y];
+			}
+		}
+	}
+	//s_u_ext[x + (y + 1) * 6 + (z + 1) * 36] = s_nghs[(3 - x) + (y)*blockDim.x + z*blockDim.x*blockDim.y];
+	__syncthreads();
 
 	//right
 	s_nghs[tid] = 0;
 	if (blockIdx.x < gridDim.x){
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (1 + blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
 	}
-	s_u_ext[(2 + x) + (y + 1) * 6 + (z + 1) * 36] = s_nghs[tid];
+	__syncthreads();
+	if (tid == 0){
+		for (int i = 0; i < 4; i++){
+			for (int j = 0; j < 4; j++){
+				s_u_ext[5 + (i+1) * 6 + (j+1) * 36] = s_nghs[i*blockDim.x + j * blockDim.x + blockDim.y];
+			}
+		}
+	}
+	//s_u_ext[(2 + x) + (y + 1) * 6 + (z + 1) * 36] = s_nghs[(3 - x) + (y)*blockDim.x + z*blockDim.x*blockDim.y];
+	__syncthreads();
 
 	//down
 	s_nghs[tid] = 0;
 	if (blockIdx.y > 0){
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (blockIdx.x + (blockIdx.y - 1) * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
 	}
-	s_u_ext[1 + x + (y)* 6 + (z + 1) * 36] = s_nghs[tid];
+	__syncthreads();
+	if (tid == 0){
+		for (int i = 0; i < 4; i++){
+			for (int j = 0; j < 4; j++){
+				s_u_ext[1 + i + (j+1) * 36] = s_nghs[i + 3*blockDim.x + j * blockDim.x + blockDim.y];
+			}
+		}
+	}
+	//s_u_ext[1 + x + (y)* 6 + (z + 1) * 36] = s_nghs[x + (3 - y)*blockDim.x + z*blockDim.x*blockDim.y];
+	__syncthreads();
 
 	//up
 	s_nghs[tid] = 0;
 	if (blockIdx.y < gridDim.y){
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (blockIdx.x + (blockIdx.y + 1) * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
 	}
-	s_u_ext[1 + x + (y + 2) * 6 + (z + 1) * 36] = s_nghs[tid];
+	__syncthreads();
+	if (tid == 0){
+		for (int i = 0; i < 4; i++){
+			for (int j = 0; j < 4; j++){
+				s_u_ext[1 + i + 5*6 + (j+1) * 36] = s_nghs[i + j * blockDim.x + blockDim.y];
+			}
+		}
+	}
+	//s_u_ext[1 + x + (y + 2) * 6 + (z + 1) * 36] = s_nghs[x + (3 - y)*blockDim.x + z*blockDim.x*blockDim.y];
+	__syncthreads();
 
 	//near
 	s_nghs[tid] = 0;
 	if (blockIdx.z > 0){
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (blockIdx.x + blockIdx.y * gridDim.x + (blockIdx.z - 1) * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
 	}
-	s_u_ext[1 + x + (y + 1) * 6 + (z)* 36] = s_nghs[tid];
+	__syncthreads();
+	if (tid == 0){
+		for (int i = 0; i < 4; i++){
+			for (int j = 0; j < 4; j++){
+				s_u_ext[1 + i + (j + 1) * 6] = s_nghs[i + (j)*blockDim.x + 3 * blockDim.x + blockDim.y];
+			}
+		}
+	}
+	//s_u_ext[1 + x + (y + 1) * 6 + (z)* 36] = s_nghs[x + (y)*blockDim.x + (3 - z)*blockDim.x*blockDim.y];
+	__syncthreads();
 
 	//far
 	s_nghs[tid] = 0;
 	if (blockIdx.z < gridDim.z){
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (blockIdx.x + blockIdx.y * gridDim.x + (blockIdx.z + 1) * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
 	}
-	s_u_ext[1 + x + (y + 1) * 6 + (z + 2) * 36] = s_nghs[tid];
+	__syncthreads();
+	if (tid == 0){
+		for (int i = 0; i < 4; i++){
+			for (int j = 0; j < 4; j++){
+				s_u_ext[1 + i + (j + 1) * 6 + 5 * 36] = s_nghs[i + (j)*blockDim.x ];
+			}
+		}
+	}
+	//s_u_ext[1 + x + (y + 1) * 6 + (z + 2) * 36] = s_nghs[x + (y)*blockDim.x + (3 - z)*blockDim.x*blockDim.y];
+	__syncthreads();
 
 
 	s_u_ext[1 + x + (y + 1) * 6 + (z + 1) * 36] = s_u[tid];
-	
+	__syncthreads();
+
 	Scalar uxx = (s_u_ext[x + (y + 1) * 6 + (z + 1) * 36] - 2 * s_u_ext[x + 1 + (y + 1) * 6 + (z + 1) * 36] + s_u_ext[x + 2 + (y + 1) * 6 + (z + 1) * 36]) / (dx * dx);
 	Scalar uyy = (s_u_ext[x + 1 + (y)* 6 + (z + 1) * 36] - 2 * s_u_ext[x + 1 + (y + 1) * 6 + (z + 1) * 36] + s_u_ext[x + 1 + (y + 2) * 6 + (z + 1) * 36]) / (dy * dy);
 	Scalar uzz = (s_u_ext[x + 1 + (y + 1) * 6 + (z)* 36] - 2 * s_u_ext[x + 1 + (y + 1) * 6 + (z + 1) * 36] + s_u_ext[x + 1 + (y + 1) * 6 + (z + 2) * 36]) / (dz * dz);
 
-	s_du[tid] = uxx + uyy + uzz;
-	s_du[tid] *= dt * k;
+	s_du[tid] = dt*k * (uxx + uyy + uzz);
 
+	__syncthreads();
 	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(
 		s_du,
 		size,
@@ -395,7 +458,7 @@ __launch_bounds__(64, 5)
 cudaZFPTransform
 (
 Word *lhs,
-Word *rhs,
+const Word *rhs,
 uint size,
 BinaryFunction op
 )
@@ -413,10 +476,14 @@ BinaryFunction op
 
 	unsigned char *new_smem = (unsigned char*)&s_lhs[64];
 
-	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(rhs + idx*bsize, new_smem, tid, s_rhs);
+
 	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(lhs + idx*bsize, new_smem, tid, s_lhs);
+	__syncthreads();
+	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(rhs + idx*bsize, new_smem, tid, s_rhs);
+	__syncthreads();
 
 	s_lhs[tid] = op(s_lhs[tid], s_rhs[tid]);
+	__syncthreads();
 
 	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(
 		s_lhs,
@@ -468,6 +535,7 @@ const Scalar tfinal
 		size,
 		thrust::plus<Scalar>()
 		);
+
 }
 
 template<typename Scalar>
@@ -569,6 +637,10 @@ host_vector<Scalar> &h_data
 	device_vector<Scalar> tmp_du;
 	tmp_du = h_data;
 	h_data[x0 + nx*y0 + nx*ny*z0] = 1;
+
+	//for (int i = 0; i < h_data.size(); i++){
+	//	h_data[i] = i;
+	//}
   device_vector<Scalar> tmp_u;
 	tmp_u = h_data;
 
@@ -617,16 +689,29 @@ host_vector<Scalar> &h_data
 	
 	cudaEventRecord(start, 0);
 
-	gpuZFPDiffusion<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, du, dx,dy,dz,dt,k,tfinal);
-	cudaStreamSynchronize(0);
-  ec.chk("gpuZFPDiffusion");
+	for (double t = 0; t < tfinal; t += dt){
+		gpuZFPDiffusion<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, du, dx, dy, dz, dt, k, tfinal);
+		cudaStreamSynchronize(0);
+		ec.chk("gpuZFPDiffusion");
+		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, du, tmp_u, group_count);
+		cudaStreamSynchronize(0);
+		Scalar sum = thrust::reduce(tmp_u.begin(), tmp_u.end(), 0);
+		cout << t << " " << sum << endl;
+		if (fabs(sum) > 0){
+			host_vector<Scalar> h_out = tmp_u;
+			for (int i = 0; i < h_out.size(); i++){
+				if (fabs(h_out[i]) > 1e-3)
+					cout << i << " " << h_out[i] << endl;
+			}
+		}
+	}
 
-	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, tmp_u, group_count);
+	//cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, tmp_u, group_count);
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&millisecs, start, stop);
 
-	cout << "decode parallel GPU in time: " << millisecs << endl;
+	cout << "decode GPU ZFP diffusion in time: " << millisecs << endl;
 
 	double tot_sum = 0, max_diff = 0, min_diff = 1e16;
 
@@ -697,8 +782,13 @@ const double tfinal
 			}
 		}
 		// take forward Euler step
-		for (uint i = 0; i < u.size(); i++)
+		double sum = 0;
+		for (uint i = 0; i < u.size(); i++){
+			double f = du[i];
 			u[i] += du[i];
+			sum += du[i];
+		}
+		cout << "sum: " << sum << endl;
 	}
 	double time = omp_get_wtime() - start_time;
 	cout << "discrete time: " << time << endl;
