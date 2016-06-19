@@ -469,7 +469,7 @@ void encode
 	__syncthreads();
 	//max_exp
 	if (tid < 32)
-		sh_reduce[tid] = max(sh_data[tid], sh_data[tid + 32]);
+		sh_reduce[tid] = max(fabs(sh_data[tid]), fabs(sh_data[tid + 32]));
 	if (tid < 16)
 		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 16]);
 	if (tid < 8)
@@ -623,6 +623,7 @@ Word *blocks
 
 
 	sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
+	__syncthreads();
 	encode<Int, UInt, Scalar, bsize, intprec>(
 		sh_data,
 		size, 
