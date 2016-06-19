@@ -66,6 +66,12 @@ namespace cuZFP{
 
 			const dim3 grid_size(nx / block_size.x, ny / block_size.y, nz / block_size.z);
 
+			//cuZFP::decode needs  64 * (8*2) + 4 + 4 
+			//of shmem
+			//cuZFP::encode need (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 
+			//of shmem
+			//obviously, take the larger of the two if you're doing both encode and decode
+
 			transform<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, 
 			(sizeof(Scalar) * 2 + 2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 >> >
 				(
