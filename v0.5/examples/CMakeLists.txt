@@ -19,19 +19,23 @@ TARGET_LINK_LIBRARIES(testzfp
     zfp
 )
 
+set(ZFP_C_LIBS zfp)
+if(NOT WIN32)
+    set(ZFP_C_LIBS "${ZFP_C_LIBS} m")
+endif(NOT WIN32)
+
+message(${ZFP_C_LIBS})
 ADD_EXECUTABLE(zfp_c
     zfp.c
 )
 TARGET_LINK_LIBRARIES(zfp_c
-    zfp
-    m
+	${ZFP_C_LIBS}
 )
 
 ADD_EXECUTABLE(zfp_cpp
     zfp.c
 )
 TARGET_LINK_LIBRARIES(zfp_cpp
-    zfp
-    m
+	${ZFP_C_LIBS}
 )
 
