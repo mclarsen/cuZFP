@@ -16,6 +16,7 @@
 #include "ErrorCheck.h"
 #include "include/encode.cuh"
 #include "include/decode.cuh"
+#include "include/cuZFP.cuh"
 
 #include "array3d.h"
 #include "zfparray3.h"
@@ -455,51 +456,6 @@ const Scalar k
 }
 
 
-template<class Int, class UInt, class Scalar, uint bsize, int intprec, typename BinaryFunction>
-__global__
-void
-__launch_bounds__(64, 5)
-cudaZFPTransform
-(
-Word *lhs,
-const Word *rhs,
-uint size,
-BinaryFunction op
-)
-{
-	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
-	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
-	uint bdim = blockDim.x*blockDim.y*blockDim.z;
-	uint bidx = idx*bdim;
-
-	extern __shared__ unsigned char smem[];
-	__shared__ Scalar *s_rhs, *s_lhs;
-
-	s_rhs = (Scalar*)&smem[0];
-	s_lhs = (Scalar*)&s_rhs[64];
-
-	unsigned char *new_smem = (unsigned char*)&s_lhs[64];
-
-
-	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(lhs + idx*bsize, new_smem, tid, s_lhs);
-	__syncthreads();
-	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(rhs + idx*bsize, new_smem, tid, s_rhs);
-	__syncthreads();
-
-	s_lhs[tid] = op(s_lhs[tid], s_rhs[tid]);
-	__syncthreads();
-
-	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(
-		s_lhs,
-		size,
-
-		new_smem,
-
-		idx * bsize,
-		lhs
-		);	
-	//out[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)] = s_dblock[tid];
-}
 
 template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 void gpuZFPDiffusion
@@ -532,14 +488,14 @@ const Scalar tfinal
 	//cuZFP::encode need (2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 
 	//of shmem
 	//obviously, take the larger of the two if you're doing both encode and decode
-	cudaZFPTransform<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, (sizeof(Scalar) * 2 + 2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 >> >
+	cuZFP::transform <Int, UInt, Scalar, bsize, intprec>
 		(
-		thrust::raw_pointer_cast(u.data()),
-		thrust::raw_pointer_cast(du.data()),
+		nx,ny,nz,
 		size,
+		u,
+		du,
 		thrust::plus<Scalar>()
 		);
-
 }
 
 template<typename Scalar>
@@ -697,20 +653,9 @@ host_vector<Scalar> &h_data
 		gpuZFPDiffusion<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, du, dx, dy, dz, dt, k, tfinal);
 		cudaStreamSynchronize(0);
 		ec.chk("gpuZFPDiffusion");
-		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, du, tmp_u, group_count);
-		cudaStreamSynchronize(0);
-		Scalar sum = thrust::reduce(tmp_u.begin(), tmp_u.end(), 0.0);
-		//if (fabs(sum) > 0){
-		//	host_vector<Scalar> h_out = tmp_u;
-		//	for (int i = 0; i < h_out.size(); i++){
-		//		if (fabs(h_out[i]) > 1e-3)
-		//			cout << i << " " << h_out[i] << endl;
-		//	}
-		//}
 
-		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, tmp_u, group_count);
-		host_vector<Scalar> h_out = tmp_u;
-		Scalar sum2 = thrust::reduce(h_out.begin(), h_out.end(), 0.0);
+		Scalar sum = cuZFP::reduce<Int, UInt, Scalar, bsize, intprec>(nx,ny,nz, du);
+		Scalar sum2 = cuZFP::reduce<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u);
 		cout << t << " " << sum << " " << sum2 << endl;
 	}
 
