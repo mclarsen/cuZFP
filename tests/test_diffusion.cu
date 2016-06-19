@@ -320,7 +320,7 @@ const Scalar k
 	unsigned char *new_smem = (unsigned char*)&s_nghs[64];
 
 	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + idx*bsize, new_smem, tid, s_u);
-	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(du + idx*bsize, new_smem, tid, s_du);
+	//cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(du + idx*bsize, new_smem, tid, s_du);
 
 	for (int i = 0; i < 3; i++){
 		s_u_ext[i * 64 + tid] = 0;
@@ -340,7 +340,7 @@ const Scalar k
 	if (tid == 0){
 		for (int i = 0; i < 4; i++){
 			for (int j = 0; j < 4; j++){
-				s_u_ext[(i+1) * 6 + (j+1) * 36] = s_nghs[3 + i * blockDim.x + j * blockDim.x + blockDim.y];
+				s_u_ext[(i+1) * 6 + (j+1) * 36] = s_nghs[3 + i * blockDim.x + j * blockDim.x * blockDim.y];
 			}
 		}
 	}
@@ -349,14 +349,14 @@ const Scalar k
 
 	//right
 	s_nghs[tid] = 0;
-	if (blockIdx.x < gridDim.x){
+	if (blockIdx.x+1 < gridDim.x){
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (1 + blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
 	}
 	__syncthreads();
 	if (tid == 0){
 		for (int i = 0; i < 4; i++){
 			for (int j = 0; j < 4; j++){
-				s_u_ext[5 + (i+1) * 6 + (j+1) * 36] = s_nghs[i*blockDim.x + j * blockDim.x + blockDim.y];
+				s_u_ext[5 + (i+1) * 6 + (j+1) * 36] = s_nghs[i*blockDim.x + j * blockDim.x * blockDim.y];
 			}
 		}
 	}
@@ -372,7 +372,7 @@ const Scalar k
 	if (tid == 0){
 		for (int i = 0; i < 4; i++){
 			for (int j = 0; j < 4; j++){
-				s_u_ext[1 + i + (j+1) * 36] = s_nghs[i + 3*blockDim.x + j * blockDim.x + blockDim.y];
+				s_u_ext[1 + i + (j+1) * 36] = s_nghs[i + 3*blockDim.x + j * blockDim.x * blockDim.y];
 			}
 		}
 	}
@@ -381,14 +381,14 @@ const Scalar k
 
 	//up
 	s_nghs[tid] = 0;
-	if (blockIdx.y < gridDim.y){
+	if (blockIdx.y + 1 < gridDim.y){
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (blockIdx.x + (blockIdx.y + 1) * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
 	}
 	__syncthreads();
 	if (tid == 0){
 		for (int i = 0; i < 4; i++){
 			for (int j = 0; j < 4; j++){
-				s_u_ext[1 + i + 5*6 + (j+1) * 36] = s_nghs[i + j * blockDim.x + blockDim.y];
+				s_u_ext[1 + i + 5*6 + (j+1) * 36] = s_nghs[i + j * blockDim.x * blockDim.y];
 			}
 		}
 	}
@@ -404,7 +404,7 @@ const Scalar k
 	if (tid == 0){
 		for (int i = 0; i < 4; i++){
 			for (int j = 0; j < 4; j++){
-				s_u_ext[1 + i + (j + 1) * 6] = s_nghs[i + (j)*blockDim.x + 3 * blockDim.x + blockDim.y];
+				s_u_ext[1 + i + (j + 1) * 6] = s_nghs[i + (j)*blockDim.x + 3 * blockDim.x * blockDim.y];
 			}
 		}
 	}
@@ -413,7 +413,7 @@ const Scalar k
 
 	//far
 	s_nghs[tid] = 0;
-	if (blockIdx.z < gridDim.z){
+	if (blockIdx.z + 1 < gridDim.z){
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (blockIdx.x + blockIdx.y * gridDim.x + (blockIdx.z + 1) * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
 	}
 	__syncthreads();
@@ -438,6 +438,10 @@ const Scalar k
 	s_du[tid] = dt*k * (uxx + uyy + uzz);
 
 	__syncthreads();
+	//if (uxx < 0 || uyy < 0 || uzz < 0){
+	//	printf("%d, %f, %f, %f, %f %f %f %d %d %d %d\n", tid, dt, k, s_du[tid], uxx, uyy, uzz, threadIdx.x + blockIdx.x * blockDim.x, threadIdx.y + blockIdx.y * blockDim.y, threadIdx.z + blockIdx.z * blockDim.z, threadIdx.x + blockIdx.x * blockDim.x + (threadIdx.y + blockIdx.y * blockDim.y)*gridDim.x * blockDim.x + (threadIdx.z + blockIdx.z * blockDim.z)*gridDim.x * blockDim.x * gridDim.y * blockDim.y);
+	//}
+
 	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(
 		s_du,
 		size,
@@ -689,21 +693,25 @@ host_vector<Scalar> &h_data
 	
 	cudaEventRecord(start, 0);
 
-	for (double t = 0; t < tfinal; t += dt){
+	for (double t = 0; t < tfinal/3; t += dt){
 		gpuZFPDiffusion<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, du, dx, dy, dz, dt, k, tfinal);
 		cudaStreamSynchronize(0);
 		ec.chk("gpuZFPDiffusion");
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, du, tmp_u, group_count);
 		cudaStreamSynchronize(0);
-		Scalar sum = thrust::reduce(tmp_u.begin(), tmp_u.end(), 0);
-		cout << t << " " << sum << endl;
-		if (fabs(sum) > 0){
-			host_vector<Scalar> h_out = tmp_u;
-			for (int i = 0; i < h_out.size(); i++){
-				if (fabs(h_out[i]) > 1e-3)
-					cout << i << " " << h_out[i] << endl;
-			}
-		}
+		Scalar sum = thrust::reduce(tmp_u.begin(), tmp_u.end(), 0.0);
+		//if (fabs(sum) > 0){
+		//	host_vector<Scalar> h_out = tmp_u;
+		//	for (int i = 0; i < h_out.size(); i++){
+		//		if (fabs(h_out[i]) > 1e-3)
+		//			cout << i << " " << h_out[i] << endl;
+		//	}
+		//}
+
+		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, tmp_u, group_count);
+		host_vector<Scalar> h_out = tmp_u;
+		Scalar sum2 = thrust::reduce(h_out.begin(), h_out.end(), 0.0);
+		cout << t << " " << sum << " " << sum2 << endl;
 	}
 
 	//cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, tmp_u, group_count);
@@ -715,6 +723,7 @@ host_vector<Scalar> &h_data
 
 	double tot_sum = 0, max_diff = 0, min_diff = 1e16;
 
+	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, tmp_u, group_count);
 	host_vector<Scalar> h_out = tmp_u;
 	for (int i = 0; i < h_data.size(); i++){
 		int k = 0, j = 0;
