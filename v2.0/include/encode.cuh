@@ -465,6 +465,8 @@ void encode
 	unsigned char sbit = 0;
 	uint kmin = 0;
 
+	if (tid < bsize)
+		blocks[blk_idx + tid] = 0; 
 
 	__syncthreads();
 	//max_exp

@@ -333,18 +333,20 @@ void decode
 	__shared__ unsigned long long *s_bit_cnt;
 	__shared__ Int *s_iblock;
 	__shared__ int *s_emax;
+	__shared__ int *s_cont;
 
 	s_bit_cnt = (unsigned long long*)&smem[0];
 	s_iblock = (Int*)&s_bit_cnt[0];
 	s_kmin = (uint*)&s_iblock[64];
 
 	s_emax = (int*)&s_kmin[1];
+	s_cont = (int *)&s_emax[1];
 
 	UInt l_data = 0;
 
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
-
+	out[out_idx] = 0;
 
 	if (tid == 0){
 		//Bit<bsize> stream(blocks + idx * bsize);
@@ -352,38 +354,49 @@ void decode
 		Word buffer = 0;
 		char offset = 0;
 
-		read_bit(offset, sbits, buffer, blocks);
-		uint ebits = c_ebits + 1;
-		s_emax[0] = read_bits(ebits - 1, offset, sbits, buffer, blocks) - c_ebias;
-		int maxprec = precision(s_emax[0], c_maxprec, c_minexp);
-		s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
-		uint bits = c_maxbits - ebits;
-		for (uint k = intprec, n = 0; k-- > 0;){
-			//					idx_n[k] = n;
-			//					bit_rmn_bits[k] = bits;
-			uint m = MIN(n, bits);
-			bits -= m;
-			s_bit_cnt[k] = read_bits(m, offset, sbits, buffer, blocks);
-			for (; n < 64 && bits && (bits--, read_bit(offset, sbits, buffer, blocks)); s_bit_cnt[k] += (unsigned long long)1 << n++)
-				for (; n < 64 - 1 && bits && (bits--, !read_bit(offset, sbits, buffer, blocks)); n++)
-					;
-		}
+		s_cont[0] = read_bit(offset, sbits, buffer, blocks);
+	}__syncthreads();
 
-	}	__syncthreads();
+	if (s_cont[0]){
+		if (tid == 0){
+			uint sbits = 0;
+			Word buffer = 0;
+			char offset = 0;
+			//do it again, it won't hurt anything
+			read_bit(offset, sbits, buffer, blocks);
+
+			uint ebits = c_ebits + 1;
+			s_emax[0] = read_bits(ebits - 1, offset, sbits, buffer, blocks) - c_ebias;
+			int maxprec = precision(s_emax[0], c_maxprec, c_minexp);
+			s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
+			uint bits = c_maxbits - ebits;
+			for (uint k = intprec, n = 0; k-- > 0;){
+				//					idx_n[k] = n;
+				//					bit_rmn_bits[k] = bits;
+				uint m = MIN(n, bits);
+				bits -= m;
+				s_bit_cnt[k] = read_bits(m, offset, sbits, buffer, blocks);
+				for (; n < 64 && bits && (bits--, read_bit(offset, sbits, buffer, blocks)); s_bit_cnt[k] += (unsigned long long)1 << n++)
+					for (; n < 64 - 1 && bits && (bits--, !read_bit(offset, sbits, buffer, blocks)); n++)
+						;
+			}
+
+		}	__syncthreads();
 
 #pragma unroll 64
-	for (int i = 0; i<64; i++)
-		l_data += (UInt)((s_bit_cnt[i] >> tid) & 1u) << i;
+		for (int i = 0; i < 64; i++)
+			l_data += (UInt)((s_bit_cnt[i] >> tid) & 1u) << i;
 
-	__syncthreads();
-	s_iblock[c_perm[tid]] = uint2int<Int, UInt>(l_data);
-	__syncthreads();
-	inv_xform(s_iblock);
-	__syncthreads();
+		__syncthreads();
+		s_iblock[c_perm[tid]] = uint2int<Int, UInt>(l_data);
+		__syncthreads();
+		inv_xform(s_iblock);
+		__syncthreads();
 
-	//inv_cast
-	out[out_idx] = dequantize<Int, Scalar>(1, s_emax[0]);
-	out[out_idx] *= (Scalar)(s_iblock[tid]);
+		//inv_cast
+		out[out_idx] = dequantize<Int, Scalar>(1, s_emax[0]);
+		out[out_idx] *= (Scalar)(s_iblock[tid]);
+	}
 }
 template<class Int, class UInt>
 __global__
