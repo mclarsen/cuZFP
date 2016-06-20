@@ -28,9 +28,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 512;
-const size_t ny = 512;
-const size_t nz = 512;
+const size_t nx = 64;
+const size_t ny = 64;
+const size_t nz = 64;
 const int nt = 0;
 const double pi = 3.14159265358979323846;
 
@@ -338,14 +338,17 @@ const Scalar k
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + ((blockIdx.x-1) + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
 	}
 	__syncthreads();
-	if (tid == 0){
-		for (int i = 0; i < 4; i++){
-			for (int j = 0; j < 4; j++){
-				s_u_ext[(i+1) * 6 + (j+1) * 36] = s_nghs[3 + i * blockDim.x + j * blockDim.x * blockDim.y];
-			}
-		}
+	//if (tid == 0){
+	//	for (int i = 0; i < 4; i++){
+	//		for (int j = 0; j < 4; j++){
+	//			s_u_ext[(i+1) * 6 + (j+1) * 36] = s_nghs[3 + i * blockDim.x + j * blockDim.x * blockDim.y];
+	//		}
+	//	}
+	//}
+	if (z == 0){
+		s_u_ext[(x + 1) * 6 + (y + 1) * 36] = s_nghs[3 + x * blockDim.x + y * blockDim.x * blockDim.y];
 	}
-	//s_u_ext[x + (y + 1) * 6 + (z + 1) * 36] = s_nghs[(3 - x) + (y)*blockDim.x + z*blockDim.x*blockDim.y];
+
 	__syncthreads();
 
 	//right
@@ -354,14 +357,16 @@ const Scalar k
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (1 + blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
 	}
 	__syncthreads();
-	if (tid == 0){
-		for (int i = 0; i < 4; i++){
-			for (int j = 0; j < 4; j++){
-				s_u_ext[5 + (i+1) * 6 + (j+1) * 36] = s_nghs[i*blockDim.x + j * blockDim.x * blockDim.y];
-			}
-		}
+	//if (tid == 0){
+	//	for (int i = 0; i < 4; i++){
+	//		for (int j = 0; j < 4; j++){
+	//			s_u_ext[5 + (i+1) * 6 + (j+1) * 36] = s_nghs[i*blockDim.x + j * blockDim.x * blockDim.y];
+	//		}
+	//	}
+	//}
+	if (z == 0){
+		s_u_ext[5 + (x + 1) * 6 + (y + 1) * 36] = s_nghs[x*blockDim.x + y * blockDim.x * blockDim.y];
 	}
-	//s_u_ext[(2 + x) + (y + 1) * 6 + (z + 1) * 36] = s_nghs[(3 - x) + (y)*blockDim.x + z*blockDim.x*blockDim.y];
 	__syncthreads();
 
 	//down
@@ -370,14 +375,16 @@ const Scalar k
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (blockIdx.x + (blockIdx.y - 1) * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
 	}
 	__syncthreads();
-	if (tid == 0){
-		for (int i = 0; i < 4; i++){
-			for (int j = 0; j < 4; j++){
-				s_u_ext[1 + i + (j+1) * 36] = s_nghs[i + 3*blockDim.x + j * blockDim.x * blockDim.y];
-			}
-		}
+	//if (tid == 0){
+	//	for (int i = 0; i < 4; i++){
+	//		for (int j = 0; j < 4; j++){
+	//			s_u_ext[1 + i + (j+1) * 36] = s_nghs[i + 3*blockDim.x + j * blockDim.x * blockDim.y];
+	//		}
+	//	}
+	//}
+	if (z == 0){
+		s_u_ext[1 + x + (y + 1) * 36] = s_nghs[x + 3 * blockDim.x + y * blockDim.x * blockDim.y];
 	}
-	//s_u_ext[1 + x + (y)* 6 + (z + 1) * 36] = s_nghs[x + (3 - y)*blockDim.x + z*blockDim.x*blockDim.y];
 	__syncthreads();
 
 	//up
@@ -386,14 +393,16 @@ const Scalar k
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (blockIdx.x + (blockIdx.y + 1) * gridDim.x + blockIdx.z * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
 	}
 	__syncthreads();
-	if (tid == 0){
-		for (int i = 0; i < 4; i++){
-			for (int j = 0; j < 4; j++){
-				s_u_ext[1 + i + 5*6 + (j+1) * 36] = s_nghs[i + j * blockDim.x * blockDim.y];
-			}
-		}
+	//if (tid == 0){
+	//	for (int i = 0; i < 4; i++){
+	//		for (int j = 0; j < 4; j++){
+	//			s_u_ext[1 + i + 5*6 + (j+1) * 36] = s_nghs[i + j * blockDim.x * blockDim.y];
+	//		}
+	//	}
+	//}
+	if (z == 0){
+		s_u_ext[1 + x + 5 * 6 + (y + 1) * 36] = s_nghs[x + y * blockDim.x * blockDim.y];
 	}
-	//s_u_ext[1 + x + (y + 2) * 6 + (z + 1) * 36] = s_nghs[x + (3 - y)*blockDim.x + z*blockDim.x*blockDim.y];
 	__syncthreads();
 
 	//near
@@ -402,14 +411,16 @@ const Scalar k
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (blockIdx.x + blockIdx.y * gridDim.x + (blockIdx.z - 1) * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
 	}
 	__syncthreads();
-	if (tid == 0){
-		for (int i = 0; i < 4; i++){
-			for (int j = 0; j < 4; j++){
-				s_u_ext[1 + i + (j + 1) * 6] = s_nghs[i + (j)*blockDim.x + 3 * blockDim.x * blockDim.y];
-			}
-		}
+	//if (tid == 0){
+	//	for (int i = 0; i < 4; i++){
+	//		for (int j = 0; j < 4; j++){
+	//			s_u_ext[1 + i + (j + 1) * 6] = s_nghs[i + (j)*blockDim.x + 3 * blockDim.x * blockDim.y];
+	//		}
+	//	}
+	//}
+	if (z == 0){
+		s_u_ext[1 + x + (y + 1) * 6] = s_nghs[x + (y)*blockDim.x + 3 * blockDim.x * blockDim.y];
 	}
-	//s_u_ext[1 + x + (y + 1) * 6 + (z)* 36] = s_nghs[x + (y)*blockDim.x + (3 - z)*blockDim.x*blockDim.y];
 	__syncthreads();
 
 	//far
@@ -418,14 +429,17 @@ const Scalar k
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + (blockIdx.x + blockIdx.y * gridDim.x + (blockIdx.z + 1) * gridDim.y * gridDim.x)*bsize, new_smem, tid, s_nghs);
 	}
 	__syncthreads();
-	if (tid == 0){
-		for (int i = 0; i < 4; i++){
-			for (int j = 0; j < 4; j++){
-				s_u_ext[1 + i + (j + 1) * 6 + 5 * 36] = s_nghs[i + (j)*blockDim.x ];
-			}
-		}
+	//if (tid == 0){
+	//	for (int i = 0; i < 4; i++){
+	//		for (int j = 0; j < 4; j++){
+	//			s_u_ext[1 + i + (j + 1) * 6 + 5 * 36] = s_nghs[i + (j)*blockDim.x ];
+	//		}
+	//	}
+	//}
+	if (z == 0){
+		s_u_ext[1 + x + (y + 1) * 6 + 5 * 36] = s_nghs[x + (y)*blockDim.x];
+
 	}
-	//s_u_ext[1 + x + (y + 1) * 6 + (z + 2) * 36] = s_nghs[x + (y)*blockDim.x + (3 - z)*blockDim.x*blockDim.y];
 	__syncthreads();
 
 
@@ -538,7 +552,7 @@ void gpu_discrete_solution
 
 	double t;
 	for (t = 0; t < tfinal; t += dt) {
-		//std::cerr << "t=" << std::fixed << t << std::endl;
+		std::cerr << "gpu t=" << std::fixed << t << std::endl;
 		cudaDiffusion << <grid_size, block_size >> >
 			(
 			thrust::raw_pointer_cast(u.data()),
@@ -641,7 +655,7 @@ host_vector<Scalar> &h_u
 	cudaEventRecord(start, 0);
 
 	for (double t = 0; t < tfinal; t += dt){
-		//std::cerr << "t=" << std::fixed << t << std::endl;
+		std::cerr << "compressed gpu t=" << std::fixed << t << std::endl;
 		gpuZFPDiffusion<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, du, dx, dy, dz, dt, k, tfinal);
 		cudaStreamSynchronize(0);
 		ec.chk("gpuZFPDiffusion");
@@ -714,7 +728,7 @@ const double tfinal
 	std::cerr.precision(6);
 	double t;
 	for (t = 0; t < tfinal; t += dt) {
-		//std::cerr << "t=" << std::fixed << t << std::endl;
+		std::cerr << "cpu t=" << std::fixed << t << std::endl;
 		// compute du/dt
 		Array du(nx, ny, nz, rate);
 		for (int z = 1; z < nz - 1; z++){
@@ -775,15 +789,16 @@ int main()
 	const double dt = 0.5 * (dx * dx + dy * dy) / (8 * k);
 	const double tfinal = nt ? nt * dt : 1;
 
+	cout << "cpu diffusion start" << endl;
 	//zfp::array3d u(nx, ny, nz, rate);
-
 	//discrete_solution<zfp::array3d>(u, x0, y0, z0, dx,dy,dz,dt,k, tfinal);
 
+	cout << "compressed cpu diffusion start" << endl;
 	//array3d u2(nx, ny, nz, rate);
 	//discrete_solution<array3d>(u2, x0, y0, z0, dx, dy, dz, dt, k, tfinal);
 
-	cout << "GPU discete diffusion start" << endl;
-	gpu_discrete_solution<double>(x0, y0, z0, dx, dy, dz, dt, k, tfinal);
+	//cout << "GPU discete diffusion start" << endl;
+	//gpu_discrete_solution<double>(x0, y0, z0, dx, dy, dz, dt, k, tfinal);
 
 
 
