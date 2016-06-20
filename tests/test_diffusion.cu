@@ -28,9 +28,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 64;
-const size_t ny = 64;
-const size_t nz = 64;
+const size_t nx = 512;
+const size_t ny = 512;
+const size_t nz = 512;
 const int nt = 0;
 const double pi = 3.14159265358979323846;
 
@@ -483,10 +483,7 @@ const Scalar tfinal
 		size,
 		dx,dy,dz,dt,k
 		);
-	Scalar sum_u = cuZFP::reduce<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u);
-	Scalar sum_du = cuZFP::reduce<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, du);
 
-	cout << "pre-transform du: " << sum_du << " u: " << sum_u << endl;
 	cuZFP::transform <Int, UInt, Scalar, bsize, intprec>
 		(
 		nx,ny,nz,
@@ -496,10 +493,10 @@ const Scalar tfinal
 		thrust::plus<Scalar>()
 		);
 
-	sum_u = cuZFP::reduce<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u);
-	sum_du = cuZFP::reduce<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, du);
+	//Scalar sum_u = cuZFP::reduce<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u);
+	//Scalar sum_du = cuZFP::reduce<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, du);
 
-	cout << "post-transform du: " << sum_du << " u: " << sum_u << endl;
+	//cout << "post-transform du: " << sum_du << " u: " << sum_u << endl;
 
 }
 
@@ -559,13 +556,6 @@ void gpu_discrete_solution
 			thrust::raw_pointer_cast(u.data()),
 			thrust::raw_pointer_cast(du.data())
 			);
-		//thrust::transform(
-		//	u.begin(), // begin input (1) iterator
-		//	u.end(),   // end input (1) iterator
-		//	du.begin(),  // begin input (2) iteratorout
-		//	u.begin(),
-		//	thrust::plus<Scalar>()
-		//	);
 	}
 
 	h_u = u;
@@ -574,7 +564,7 @@ void gpu_discrete_solution
 	cudaEventElapsedTime(&millisecs, start, stop);
 	ec.chk("cudaencode");
 
-	cout << "encode GPU in time: " << millisecs << endl;
+	cout << "Diffusion GPU in time: " << millisecs << endl;
 
 	array3d out(nx, ny, nz, 0);
 
@@ -589,7 +579,7 @@ void gpuDiffusion
 (
 int x0, int y0, int z0,
 Scalar dx,Scalar dy, Scalar dz, Scalar dt, Scalar k, Scalar tfinal,
-host_vector<Scalar> &h_data
+host_vector<Scalar> &h_u
 )
 {
 	host_vector<int> h_emax;
@@ -598,145 +588,18 @@ host_vector<Scalar> &h_data
 	host_vector<UInt> h_buf(nx*ny*nz);
 	host_vector<cuZFP::Bit<bsize> > h_bits;
 	device_vector<unsigned char> d_g_cnt;
-	host_vector<Scalar> h_du(nx*ny*nz, 0.0), h_u(nx*ny*nz, 0.0);
-	device_vector<Scalar> tmp_du;
+	host_vector<Scalar> h_du(nx*ny*nz, 0.0);
+
+	thrust::fill(h_u.begin(), h_u.end(), 0.0);
+	device_vector<Scalar> d_du;
 
 	h_u[x0 + nx*y0 + nx*ny*z0] = 1;
 
-	//h_u[0] = 0.000000047155445770385995000000;
-	//h_du[0] = 0.000000007942333679622493000000;
-	//h_u[1] = 0.000000058254052248685184000000;
-	//h_du[1] = 0.000000009464045769291828900000;
-	//h_u[2] = 0.000000066092347594803869000000;
-	//h_du[2] = 0.000000010488775847861120000000;
-	//h_u[3] = 0.000000068810187769940967000000;
-	//h_du[3] = 0.000000010794614313525130000000;
-	//h_u[64] = 0.000000131761630939308820000000;
-	//h_du[64] = 0.000000019405373530290149000000;
-	//h_u[65] = 0.000000162089655475483600000000;
-	//h_du[65] = 0.000000022954437239874892000000;
-	//h_u[66] = 0.000000183317503399393900000000;
-	//h_du[66] = 0.000000025281850613012580000000;
-	//h_u[67] = 0.000000190321308934926490000000;
-	//h_du[67] = 0.000000025863254426994331000000;
-	//h_u[128] = 0.000000344133574969873730000000;
-	//h_du[128] = 0.000000043974974550664570000000;
-	//h_u[129] = 0.000000421613755463567940000000;
-	//h_du[129] = 0.000000051598939565522528000000;
-	//h_u[130] = 0.000000475183092873976420000000;
-	//h_du[130] = 0.000000056415820237631920000000;
-	//h_u[131] = 0.000000491471787711361690000000;
-	//h_du[131] = 0.000000057340511228076707000000;
-	//h_u[192] = 0.000000839691416842924810000000;
-	//h_du[192] = 0.000000092286448039047286000000;
-	//h_u[193] = 0.000001024654061154706100000000;
-	//h_du[193] = 0.000000107300685447953010000000;
-	//h_u[194] = 0.000001150548435191467400000000;
-	//h_du[194] = 0.000000116408166883630320000000;
-	//h_u[195] = 0.000001184672065335234900000000;
-	//h_du[195] = 0.000000117634940677291410000000;
-	//h_u[4096] = 0.000000079863191615459073000000;
-	//h_du[4096] = 0.000000012382042280378869000000;
-	//h_u[4097] = 0.000000098418375671371905000000;
-	//h_du[4097] = 0.000000014698555927949997000000;
-	//h_u[4098] = 0.000000111534554037007180000000;
-	//h_du[4098] = 0.000000016265162772199915000000;
-	//h_u[4099] = 0.000000116203345612575500000000;
-	//h_du[4099] = 0.000000016784763579025253000000;
-	//h_u[4160] = 0.000000221182709481126950000000;
-	//h_du[4160] = 0.000000029788682409659373000000;
-	//h_u[4161] = 0.000000271485994574049980000000;
-	//h_du[4161] = 0.000000035097761363900304000000;
-	//h_u[4162] = 0.000000306828773943834680000000;
-	//h_du[4162] = 0.000000038638100496868333000000;
-	//h_u[4163] = 0.000000319169977558431130000000;
-	//h_du[4163] = 0.000000039739693535878473000000;
-	//h_u[4224] = 0.000000572978230195531070000000;
-	//h_du[4224] = 0.000000066421369071534286000000;
-	//h_u[4225] = 0.000000700611785475757640000000;
-	//h_du[4225] = 0.000000077642640539110630000000;
-	//h_u[4226] = 0.000000789665712375153820000000;
-	//h_du[4226] = 0.000000084972539449168494000000;
-	//h_u[4227] = 0.000000819875786817192420000000;
-	//h_du[4227] = 0.000000087051648334224296000000;
-	//h_u[4288] = 0.000001387706156208423600000000;
-	//h_du[4288] = 0.000000136987207133287820000000;
-	//h_u[4289] = 0.000001690749549254633200000000;
-	//h_du[4289] = 0.000000158739987599076930000000;
-	//h_u[4290] = 0.000001900525397502406100000000;
-	//h_du[4290] = 0.000000172620537197687440000000;
-	//h_u[4291] = 0.000001969053990080738000000000;
-	//h_du[4291] = 0.000000176186898181995840000000;
-	//h_u[8192] = 0.000000142844425843335900000000;
-	//h_du[8192] = 0.000000017965069210035267000000;
-	//h_u[8193] = 0.000000174816263909249870000000;
-	//h_du[8193] = 0.000000021249866977157694000000;
-	//h_u[8194] = 0.000000197306704974309350000000;
-	//h_du[8194] = 0.000000023469504339956870000000;
-	//h_u[8195] = 0.000000205354547810898680000000;
-	//h_du[8195] = 0.000000024234127815603301000000;
-	//h_u[8256] = 0.000000385948961012516630000000;
-	//h_du[8256] = 0.000000042629511698422107000000;
-	//h_u[8257] = 0.000000470610831859730180000000;
-	//h_du[8257] = 0.000000050042924248927534000000;
-	//h_u[8258] = 0.000000529900187951071190000000;
-	//h_du[8258] = 0.000000054996494691650355000000;
-	//h_u[8259] = 0.000000550913111352357990000000;
-	//h_du[8259] = 0.000000056643248980137173000000;
-	//h_u[8320] = 0.000000977086057174503250000000;
-	//h_du[8320] = 0.000000093662624989221399000000;
-	//h_u[8321] = 0.000001187357203003003300000000;
-	//h_du[8321] = 0.000000109038790663262830000000;
-	//h_u[8322] = 0.000001333907487355290300000000;
-	//h_du[8322] = 0.000000119157551159432270000000;
-	//h_u[8323] = 0.000001385187796687503700000000;
-	//h_du[8323] = 0.000000122386029532961520000000;
-	//h_u[8384] = 0.000002316568379123751200000000;
-	//h_du[8384] = 0.000000189993885735262320000000;
-	//h_u[8385] = 0.000002806247856979027200000000;
-	//h_du[8385] = 0.000000219143999613535810000000;
-	//h_u[8386] = 0.000003145890026035047500000000;
-	//h_du[8386] = 0.000000237987250573112870000000;
-	//h_u[8387] = 0.000003262969526351966500000000;
-	//h_du[8387] = 0.000000243694449286735450000000;
-	//h_u[12288] = 0.000000204500407052776720000000;
-	//h_du[12288] = 0.000000024286668010020662000000;
-	//h_u[12289] = 0.000000249797020179798320000000;
-	//h_du[12289] = 0.000000028624343562100307000000;
-	//h_u[12290] = 0.000000281600654128411070000000;
-	//h_du[12290] = 0.000000031551904422499888000000;
-	//h_u[12291] = 0.000000292991013450816240000000;
-	//h_du[12291] = 0.000000032559855922542624000000;
-	//h_u[12352] = 0.000000549469943100788780000000;
-	//h_du[12352] = 0.000000056954012839227630000000;
-	//h_u[12353] = 0.000000668759710054089850000000;
-	//h_du[12353] = 0.000000066602275028415647000000;
-	//h_u[12354] = 0.000000752165846718000350000000;
-	//h_du[12354] = 0.000000073025270053150848000000;
-	//h_u[12355] = 0.000000781846546837883240000000;
-	//h_du[12355] = 0.000000075196157078849524000000;
-	//h_u[12416] = 0.000001384066474097167500000000;
-	//h_du[12416] = 0.000000123505048188476960000000;
-	//h_u[12417] = 0.000001678934020032940600000000;
-	//h_du[12417] = 0.000000143170397093328460000000;
-	//h_u[12418] = 0.000001884257989859250400000000;
-	//h_du[12418] = 0.000000156090521175045180000000;
-	//h_u[12419] = 0.000001956757257337571300000000;
-	//h_du[12419] = 0.000000160327876974619700000000;
-	//h_u[12480] = 0.000003266464441820105000000000;
-	//h_du[12480] = 0.000000246745843979212510000000;
-	//h_u[12481] = 0.000003950404886987612900000000;
-	//h_du[12481] = 0.000000283211511353798070000000;
-	//h_u[12482] = 0.000004424832867888639500000000;
-	//h_du[12482] = 0.000000306766318791673600000000;
-	//h_u[12483] = 0.000004590985736685482300000000;
-	//h_du[12483] = 0.000000314251200395077030000000;
-
-	device_vector<Scalar> tmp_u;
+	device_vector<Scalar> d_u;
 	//tmp_u = h_data;
 
-	tmp_du = h_du;
-	tmp_u = h_u;
+	d_du = h_du;
+	d_u = h_u;
 
 
 
@@ -754,12 +617,12 @@ host_vector<Scalar> &h_data
 	dim3 emax_size(nx / 4, ny / 4, nz / 4);
 	device_vector<Word > u(emax_size.x * emax_size.y * emax_size.z * bsize);
 	device_vector<Word > du(emax_size.x * emax_size.y * emax_size.z * bsize);
-	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, tmp_u, u, group_count, size);
-	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, tmp_du, du, group_count, size);
+	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, d_u, u, group_count, size);
+	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, d_du, du, group_count, size);
 	cuZFP::transform<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, size, u, du, thrust::plus<Scalar>());
 	cout << "start: " << cuZFP::reduce<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u) << endl;
-	//tmp_du.clear();
-	//tmp_du.shrink_to_fit();
+	d_du.clear();
+	d_du.shrink_to_fit();
 
 	cudaStreamSynchronize(0);
 	ec.chk("cudaEncode");
@@ -769,79 +632,61 @@ host_vector<Scalar> &h_data
 	cudaEventElapsedTime(&millisecs, start, stop);
 	ec.chk("cudaencode");
 
-	cout << "encode GPU in time: " << millisecs << endl;
+	cout << "encode diffusion GPU in time: " << millisecs << endl;
 
-  thrust::host_vector<Word > cpu_block;
-  cpu_block = u;
-	UInt sum = 0;
-  for (int i = 0; i < cpu_block.size(); i++){
-    sum += cpu_block[i];
-	}
-	cout << "encode UInt sum: " << sum << endl;
 
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
 	
 	cudaEventRecord(start, 0);
 
-	int i = 0;
 	for (double t = 0; t < tfinal; t += dt){
-		cout << i++ << " " << t << endl;
-		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, tmp_u, group_count);
-		h_u = tmp_u;
+		//std::cerr << "t=" << std::fixed << t << std::endl;
 		gpuZFPDiffusion<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, du, dx, dy, dz, dt, k, tfinal);
 		cudaStreamSynchronize(0);
 		ec.chk("gpuZFPDiffusion");
-		
-		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, tmp_u, group_count);
-		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, du, tmp_du, group_count);
-		h_du = tmp_du;
-		thrust::host_vector<Scalar> h_u2 = tmp_u;
-		for (int i = 0; i < h_u2.size(); i++){
-			if (h_u2[i] > 1){
-				cout << i << " " << h_u[i] << " " << h_u2[i] << " " << h_du[i] << endl;
-
-			}
-		}
-
 	}
 
-	//cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, tmp_u, group_count);
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&millisecs, start, stop);
 
-	cout << "decode GPU ZFP diffusion in time: " << millisecs << endl;
+	cout << "Diffusion GPU ZFP in time: " << millisecs << endl;
 
 	double tot_sum = 0, max_diff = 0, min_diff = 1e16;
 
-	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, tmp_u, group_count);
-	host_vector<Scalar> h_out = tmp_u;
-	for (int i = 0; i < h_data.size(); i++){
-		int k = 0, j = 0;
-		frexp(h_data[i], &j);
-		frexp(h_out[i], &k);
+	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, d_u, group_count);
+	host_vector<Scalar> h_out = d_u;
+	//for (int i = 0; i < h_u.size(); i++){
+	//	int k = 0, j = 0;
+	//	frexp(h_u[i], &j);
+	//	frexp(h_u[i], &k);
 
-		//if (abs(j - k) > 1){
-		//	cout << i << " " << j << " " << k << " " << h_data[i] << " " << h_out[i] << endl;
-		//	//exit(-1);
-		//}
-		double diff = fabs(h_data[i] - h_out[i]);
-		//if (diff > 1 )
-		//	cout << i << " " << j << " " << k << " " << h_data[i] << " " << h_out[i] << endl;
+	//	//if (abs(j - k) > 1){
+	//	//	cout << i << " " << j << " " << k << " " << h_data[i] << " " << h_out[i] << endl;
+	//	//	//exit(-1);
+	//	//}
+	//	double diff = fabs(h_u[i] - h_out[i]);
+	//	//if (diff > 1 )
+	//	//	cout << i << " " << j << " " << k << " " << h_data[i] << " " << h_out[i] << endl;
 
-		if (max_diff < diff)
-			max_diff = diff;
-		if (min_diff > diff)
-			min_diff = diff;
+	//	if (max_diff < diff)
+	//		max_diff = diff;
+	//	if (min_diff > diff)
+	//		min_diff = diff;
 
-		tot_sum += diff;
+	//	tot_sum += diff;
+	//}
+
+	//cout << "tot diff: " << tot_sum << " average diff: " << tot_sum / (float)h_u.size() << " max diff: " << max_diff << " min diff: " << min_diff << endl;
+	//cout << "sum: " << thrust::reduce(h_u.begin(), h_u.end()) << " " << thrust::reduce(h_out.begin(), h_out.end()) << endl;
+
+	array3d out(nx, ny, nz, rate);
+	for (int i = 0; i < h_out.size(); i++){
+		out[i] = h_out[i];
 	}
 
-	cout << "tot diff: " << tot_sum << " average diff: " << tot_sum / (float)h_data.size() << " max diff: " << max_diff << " min diff: " << min_diff << endl;
-	cout << "sum: " << thrust::reduce(h_data.begin(), h_data.end()) << " " << thrust::reduce(h_out.begin(), h_out.end()) << endl;
-
-	//gpuValidate<Int, UInt, Scalar, bsize>(h_data, q, data);
+	rme(out, x0, y0, z0, dx, dy, dz, k, tfinal - dt);
 
 }
 
@@ -937,10 +782,12 @@ int main()
 	//array3d u2(nx, ny, nz, rate);
 	//discrete_solution<array3d>(u2, x0, y0, z0, dx, dy, dz, dt, k, tfinal);
 
-	//gpu_discrete_solution<double>(x0, y0, z0, dx, dy, dz, dt, k, tfinal);
+	cout << "GPU discete diffusion start" << endl;
+	gpu_discrete_solution<double>(x0, y0, z0, dx, dy, dz, dt, k, tfinal);
 
 
 
+	cout << "GPU ZFP diffusion start" << endl;
 	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS, EBIAS);
 	cout << "Begin gpuDiffusion" << endl;
