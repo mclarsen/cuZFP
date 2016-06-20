@@ -590,7 +590,9 @@ void encode
 			}
 			else{
 				write_outx<bsize>(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, 64);
-				write_outy<bsize>(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64);
+        if (tot_sbits < c_maxbits){
+          write_outy<bsize>(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64);
+        }
 			}
 		}
 	}
