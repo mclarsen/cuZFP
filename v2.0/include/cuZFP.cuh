@@ -9,7 +9,7 @@ namespace cuZFP{
 	template<class Int, class UInt, class Scalar, uint bsize, int intprec, typename BinaryFunction>
 	__global__
 		void
-		__launch_bounds__(64, 5)
+		//__launch_bounds__(64, 5)
 		transform
 		(
 		Word *lhs,
@@ -24,21 +24,43 @@ namespace cuZFP{
 		uint bidx = idx*bdim;
 
 		extern __shared__ unsigned char smem[];
-		__shared__ Scalar *s_rhs, *s_lhs;
+		__shared__ Scalar *s_rhs, *s_lhs, *s_tmp;
 
 		s_rhs = (Scalar*)&smem[0];
-		s_lhs = (Scalar*)&s_rhs[64];
+		s_tmp = (Scalar*)&s_rhs[64];
+		s_lhs = (Scalar*)&s_tmp[64];
 
 		unsigned char *new_smem = (unsigned char*)&s_lhs[64];
-
 
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(lhs + idx*bsize, new_smem, tid, s_lhs);
 		__syncthreads();
 		cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(rhs + idx*bsize, new_smem, tid, s_rhs);
 		__syncthreads();
+		uint tidx = threadIdx.x + blockDim.x * blockIdx.x + (threadIdx.y + blockDim.y*blockIdx.y) * gridDim.x * blockDim.x + (threadIdx.z + blockDim.z * blockIdx.z)* gridDim.x * blockDim.x * gridDim.y * blockDim.y;
+		//if (tidx == 99356){
+		//	for (int i = 0; i < 4; i++){
+		//		for (int j = 0; j < 4; j++){
+		//			for (int k = 0; k < 4; k++){
+		//				printf("h_u[%d] = %.30f;\n h_du[%d] = %.30f;\n", k + j * 64 + i * 4096, s_lhs[i * 16 + j * 4 + k], k + j * 64 + i * 4096, s_rhs[i * 16 + j * 4 + k]);
+
+		//			}
+		//		}
+		//	}
+		//	printf("wtf %d %f %f\n", tidx, s_lhs[tid], s_rhs[tid]);
+		//}
 
 		s_lhs[tid] = op(s_lhs[tid], s_rhs[tid]);
 		__syncthreads();
+
+		//if (tidx == 99356){
+		//		for (int i = 0; i < 64; i++){
+		//			printf("<%.30f %.30f >", s_lhs[i], s_rhs[i]);
+		//		}
+		//	printf("wtf %d %.30f %.30f\n", tidx, s_lhs[tid], s_rhs[tid]);
+		//}
+		//if (tid < bsize){
+		//	lhs[idx * bsize + tid] = 0;
+		//}
 
 		cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(
 			s_lhs,
@@ -49,6 +71,32 @@ namespace cuZFP{
 			idx * bsize,
 			lhs
 			);
+		__syncthreads();
+		//cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(lhs + idx*bsize, new_smem, tid, s_tmp);
+		//__syncthreads();
+		//if (s_tmp[0] > 1){
+		//	//for (int i = 0; i < 64; i++){
+		//	//	printf("<%f.30f %.30f %.30f >", s_tmp[i], s_lhs[i], s_rhs[i]);
+		//	//}
+		//	printf("wtf %d %.16f %.16f %.16f\n", tidx, s_tmp[tid], s_lhs[tid], s_rhs[tid]);
+
+		//	s_lhs[tid] = 0;
+		//	__syncthreads();
+		//	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(
+		//		s_lhs,
+		//		size,
+
+		//		new_smem,
+
+		//		idx * bsize,
+		//		lhs
+		//		);
+		//	__syncthreads();
+		//	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(lhs + idx*bsize, new_smem, tid, s_tmp);
+		//	printf("wtf %d %.16f %.16f %.16f\n", tidx, s_tmp[tid], s_lhs[tid], s_rhs[tid]);
+
+		//}
+
 		//out[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)] = s_dblock[tid];
 	}
 	template<class Int, class UInt, class Scalar, uint bsize, int intprec, typename BinaryFunction>
@@ -72,7 +120,7 @@ namespace cuZFP{
 			//of shmem
 			//obviously, take the larger of the two if you're doing both encode and decode
 
-			transform<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, 
+			transform<Int, UInt, Scalar, bsize, intprec > << <grid_size, block_size,
 			(sizeof(Scalar) * 2 + 2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 >> >
 				(
 				thrust::raw_pointer_cast(lhs.data()),
