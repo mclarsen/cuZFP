@@ -289,6 +289,67 @@ void
 __launch_bounds__(64, 5)
 cudaZFPDiffusion
 (
+const Scalar *u,
+Word *du,
+uint size,
+
+const Scalar dx,
+const Scalar dy,
+const Scalar dz,
+const Scalar dt,
+const Scalar k
+)
+{
+	uint x = threadIdx.x;
+	uint y = threadIdx.y;
+	uint z = threadIdx.z;
+
+	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
+	uint bidx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
+	uint bdim = blockDim.x*blockDim.y*blockDim.z;
+	uint tbidx = bidx*bdim;
+
+	extern __shared__ unsigned char smem[];
+	__shared__ Scalar *s_u, *s_du, *s_nghs, *s_u_ext;
+
+
+	s_u = (Scalar*)&smem[0];
+	s_du = (Scalar*)&s_u[64];
+	s_u_ext = (Scalar*)&s_du[64];
+	s_nghs = (Scalar*)&s_u_ext[216];
+
+	unsigned char *new_smem = (unsigned char*)&s_nghs[64];
+
+	//cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(u + bidx*bsize, new_smem, tid, s_u);
+	//cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(du + bidx*bsize, new_smem, tid, s_du);
+	//__syncthreads();
+
+	int3 utid = make_int3(threadIdx.x + blockDim.x * blockIdx.x, threadIdx.y + blockDim.y * blockIdx.y, threadIdx.z + blockDim.z * blockIdx.z);
+
+	Scalar uxx = (u[idx(max(0, utid.x - 1), utid.y, utid.z)] - 2 * u[idx(utid.x, utid.y, utid.z)] + u[idx(min(blockDim.x*gridDim.x - 1, utid.x + 1), utid.y, utid.z)]) / (dx * dx);
+	Scalar uyy = (u[idx(utid.x, max(0, utid.y - 1), utid.z)] - 2 * u[idx(utid.x, utid.y, utid.z)] + u[idx(utid.x, min(blockDim.y*gridDim.y - 1, utid.y + 1), utid.z)]) / (dy * dy);
+	Scalar uzz = (u[idx(utid.x, utid.y, max(0, utid.z - 1))] - 2 * u[idx(utid.x, utid.y, utid.z)] + u[idx(utid.x, utid.y, min(blockDim.z*gridDim.z - 1, utid.z + 1))]) / (dz * dz);
+
+	s_du[tid] = dt*k * (uxx + uyy + uzz);
+
+	__syncthreads();
+
+	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(
+		s_du,
+		size,
+
+		new_smem,
+
+		bidx * bsize,
+		du
+		);
+}
+template<class Int, class UInt, class Scalar, uint bsize, int intprec>
+__global__
+void
+__launch_bounds__(64, 5)
+cudaZFPDiffusion
+(
 const Word *u,
 Word *du,
 uint size,
@@ -477,6 +538,7 @@ void gpuZFPDiffusion
 int nx, int ny, int nz,
 device_vector<Word > &u,
 device_vector<Word > &du,
+device_vector<Scalar> &df_u,
 const Scalar dx,
 const Scalar dy,
 const Scalar dz,
@@ -497,7 +559,18 @@ const Scalar tfinal
 		size,
 		dx,dy,dz,dt,k
 		);
-
+//	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(
+//		nx, ny, nz,
+//		u, df_u,
+//		group_count
+//		);
+//cudaZFPDiffusion<Int, UInt, Scalar, bsize, intprec> << < grid_size, block_size, (sizeof(Scalar) * 2 + 2 * sizeof(unsigned char) + sizeof(Bitter) + sizeof(UInt) + sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4 + 216 * sizeof(Scalar) >> >
+//	(
+//	thrust::raw_pointer_cast(df_u.data()),
+//	thrust::raw_pointer_cast(du.data()),
+//	size,
+//	dx,dy,dz,dt,k
+//	);
 	cuZFP::transform <Int, UInt, Scalar, bsize, intprec>
 		(
 		nx,ny,nz,
@@ -656,7 +729,7 @@ host_vector<Scalar> &h_u
 
 	for (double t = 0; t < tfinal; t += dt){
 		std::cerr << "compressed gpu t=" << std::fixed << t << std::endl;
-		gpuZFPDiffusion<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, du, dx, dy, dz, dt, k, tfinal);
+		gpuZFPDiffusion<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, du, d_u, dx, dy, dz, dt, k, tfinal);
 		cudaStreamSynchronize(0);
 		ec.chk("gpuZFPDiffusion");
 	}
@@ -744,11 +817,8 @@ const double tfinal
 		// take forward Euler step
 		double sum = 0;
 		for (uint i = 0; i < u.size(); i++){
-			double f = du[i];
 			u[i] += du[i];
-			sum += du[i];
 		}
-		cout << "sum: " << sum << endl;
 	}
 	double time = omp_get_wtime() - start_time;
 	cout << "discrete time: " << time << endl;
@@ -790,15 +860,15 @@ int main()
 	const double tfinal = nt ? nt * dt : 1;
 
 	cout << "cpu diffusion start" << endl;
-	//zfp::array3d u(nx, ny, nz, rate);
-	//discrete_solution<zfp::array3d>(u, x0, y0, z0, dx,dy,dz,dt,k, tfinal);
+	array3d u(nx, ny, nz, rate);
+	discrete_solution<array3d>(u, x0, y0, z0, dx,dy,dz,dt,k, tfinal);
 
 	cout << "compressed cpu diffusion start" << endl;
-	//array3d u2(nx, ny, nz, rate);
-	//discrete_solution<array3d>(u2, x0, y0, z0, dx, dy, dz, dt, k, tfinal);
+	zfp::array3d u2(nx, ny, nz, rate);
+	discrete_solution<zfp::array3d>(u2, x0, y0, z0, dx, dy, dz, dt, k, tfinal);
 
-	//cout << "GPU discete diffusion start" << endl;
-	//gpu_discrete_solution<double>(x0, y0, z0, dx, dy, dz, dt, k, tfinal);
+	cout << "GPU discete diffusion start" << endl;
+	gpu_discrete_solution<double>(x0, y0, z0, dx, dy, dz, dt, k, tfinal);
 
 
 
