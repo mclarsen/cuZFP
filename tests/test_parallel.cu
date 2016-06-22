@@ -688,7 +688,7 @@ host_vector<Scalar> &h_data
 	}
 
 	cout << "tot diff: " << tot_sum << " average diff: " << tot_sum / (float)h_data.size() << " max diff: " << max_diff << " min diff: " << min_diff << endl;
-	cout << "sum: " << thrust::reduce(h_data.begin(), h_data.end()) << " " << thrust::reduce(h_out.begin(), h_out.end()) << endl;
+	cout << "sum: " << thrust::reduce(h_data.begin(), h_data.end()) << " " << thrust::reduce(h_out.begin(), h_out.end()) << endl << endl;
 
 	//gpuValidate<Int, UInt, Scalar, bsize>(h_data, q, data);
 
@@ -897,6 +897,154 @@ host_vector<Scalar> &h_data
 	cout << "tot diff: " << tot_diff << " average diff: " << tot_diff / (float)h_out.size() << endl;// " max diff: " << max_diff << " min diff: " << min_diff << endl;
 	cout << "sum : " << thrust::reduce(h_data.begin(), h_data.end()) << " " << thrust::reduce(h_out.begin(), h_out.end()) << endl;
 }
+
+template<class Int, class UInt, class Scalar, uint bsize>
+void mixedTestCPUtoGPU
+(
+host_vector<Scalar> &h_data
+)
+{
+
+
+	dim3 emax_size(nx / 4, ny / 4, nz / 4);
+
+	dim3 block_size(8, 8, 8);
+	dim3 grid_size = emax_size;
+	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
+
+	//const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+
+	ErrorCheck ec;
+
+	cudaEvent_t start, stop;
+	float millisecs;
+
+	double start_time = omp_get_wtime();
+	zfp::array3d u(nx, ny, nz, rate);
+	for (int i = 0; i < nx*ny*nz; i++){
+		u[i] = h_data[i];
+	}
+	double time = omp_get_wtime() - start_time;
+
+	u.flush_cache();
+	cout << "encode time: " << time << endl;
+
+	unsigned char * cd = u.compressed_data();
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+
+	cudaEventRecord(start, 0);
+
+	device_vector<Word > block(emax_size.x * emax_size.y * emax_size.z * bsize);
+	host_vector<Word> h_block(emax_size.x * emax_size.y * emax_size.z * bsize);
+	memcpy(h_block.data(), cd, u.compressed_size());
+	block = h_block;
+	device_vector<Scalar> data(nx*ny*nz, 0.0);
+
+	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, block, data, group_count);
+
+	ec.chk("cudaDecode");
+	cudaEventRecord(stop, 0);
+	cudaEventSynchronize(stop);
+	cudaEventElapsedTime(&millisecs, start, stop);
+
+	cout << "decode parallel GPU in time: " << millisecs / 1000.0 << endl;
+
+	double tot_sum = 0, max_diff = 0, min_diff = 1e16;
+
+	host_vector<Scalar> h_out = data;
+	for (int i = 0; i < h_data.size(); i++){
+		int k = 0, j = 0;
+		frexp(h_data[i], &j);
+		frexp(h_out[i], &k);
+
+		//if (abs(j - k) > 1){
+		//	cout << i << " " << j << " " << k << " " << h_data[i] << " " << h_out[i] << endl;
+		//	//exit(-1);
+		//}
+		double diff = fabs(h_data[i] - h_out[i]);
+		//if (diff > 1 )
+		//	cout << i << " " << j << " " << k << " " << h_data[i] << " " << h_out[i] << endl;
+
+		if (max_diff < diff)
+			max_diff = diff;
+		if (min_diff > diff)
+			min_diff = diff;
+
+		tot_sum += diff;
+	}
+
+	cout << "tot diff: " << tot_sum << " average diff: " << tot_sum / (float)h_data.size() << " max diff: " << max_diff << " min diff: " << min_diff << endl;
+	cout << "sum: " << thrust::reduce(h_data.begin(), h_data.end()) << " " << thrust::reduce(h_out.begin(), h_out.end()) << endl << endl;
+}
+
+template<class Int, class UInt, class Scalar, uint bsize>
+void mixedTestGPUtoCPU
+(
+host_vector<Scalar> &h_data
+)
+{
+	device_vector<Scalar> data;
+	data = h_data;
+
+
+	dim3 emax_size(nx / 4, ny / 4, nz / 4);
+
+	dim3 block_size(8, 8, 8);
+	dim3 grid_size = emax_size;
+	grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
+
+	//const uint kmin = intprec > maxprec ? intprec - maxprec : 0;
+
+	ErrorCheck ec;
+
+	cudaEvent_t start, stop;
+	float millisecs;
+
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+	cudaEventRecord(start, 0);
+
+
+
+	device_vector<Word > block(emax_size.x * emax_size.y * emax_size.z * bsize);
+	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, data, block, group_count, size);
+
+	cudaStreamSynchronize(0);
+	ec.chk("cudaEncode");
+
+	cudaEventRecord(stop, 0);
+	cudaEventSynchronize(stop);
+	cudaEventElapsedTime(&millisecs, start, stop);
+	ec.chk("cudaencode");
+
+	cout << "encode mixed GPU in time: " << millisecs / 1000.0 << endl;
+
+	host_vector<Word> h_block = block;
+	zfp::array3d u(nx, ny, nz, rate);
+	unsigned char *wtf = u.compressed_data();
+	memcpy(wtf, raw_pointer_cast(h_block.data()), u.compressed_size());
+		
+	double start_time = omp_get_wtime();
+	host_vector<Scalar> h_out(nx*ny*nz);
+	for (int i = 0; i < nx*ny*nz; i++){
+		h_out[i] = u[i];
+	}
+
+	double time = omp_get_wtime() - start_time;
+	cout << "decode mixd CPU time: " << time << endl;
+
+	Scalar tot_diff = 0;
+	for (int i = 0; i < nx*ny*nz; i++){
+		Scalar diff = fabs(h_data[i] - h_out[i]);
+		tot_diff += diff;
+	}
+
+	cout << "tot diff: " << tot_diff << " average diff: " << tot_diff / (float)h_out.size() << endl;// " max diff: " << max_diff << " min diff: " << min_diff << endl;
+	cout << "sum : " << thrust::reduce(h_data.begin(), h_data.end()) << " " << thrust::reduce(h_out.begin(), h_out.end()) << endl << endl;
+}
+
+
 int main()
 {
 	host_vector<double> h_vec_in(nx*ny*nz);
@@ -938,4 +1086,7 @@ int main()
 	zfpTest<double>(h_vec_in);
 	cout << "Finish zfpTest" << endl;
 
+
+	mixedTestGPUtoCPU<long long, unsigned long long, double, BSIZE>(h_vec_in);
+	mixedTestCPUtoGPU<long long, unsigned long long, double, BSIZE>(h_vec_in);
 }
