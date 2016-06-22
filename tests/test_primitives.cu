@@ -245,6 +245,41 @@ void gpu_discrete_sum
 	cout << "GPU reduce in time: " << millisecs/1000.0 << " sum: " << sum << endl;
 
 }
+template<typename Scalar, typename BinaryFunction>
+void gpu_discrete_transform
+(
+thrust::host_vector<Scalar> &h_lhs,
+thrust::host_vector<Scalar> &h_rhs,
+BinaryFunction op
+)
+
+{
+
+	thrust::device_vector<Scalar> d_rhs = h_lhs;
+	thrust::device_vector<Scalar> d_lhs = h_lhs;
+
+
+	ErrorCheck ec;
+
+	cudaEvent_t start, stop;
+	float millisecs;
+
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+	cudaEventRecord(start, 0);
+
+	thrust::transform(d_lhs.begin(), d_lhs.end(), d_rhs.begin(), d_lhs.begin(), op);
+
+	cudaEventRecord(stop, 0);
+	cudaEventSynchronize(stop);
+	cudaEventElapsedTime(&millisecs, start, stop);
+	ec.chk("cudaencode");
+
+	Scalar sum = thrust::reduce(d_lhs.begin(), d_lhs.end());
+
+	cout << "GPU reduce in time: " << millisecs / 1000.0 << " sum: " << sum << endl;
+
+}
 template<class Int, class UInt, class Scalar, uint bsize>
 void cuZFPReduce
 (
@@ -281,6 +316,45 @@ host_vector<Scalar> &h_u
 	cout << "GPU ZFP reduce in time: " << millisecs/1000.0 << " sum: " << sum << endl;
 }
 
+template<class Int, class UInt, class Scalar, uint bsize, typename BinaryFunction>
+void cuZFPTransform
+(
+host_vector<Scalar> &h_lhs,
+host_vector<Scalar> &h_rhs,
+BinaryFunction op
+)
+{
+
+	ErrorCheck ec;
+	dim3 emax_size(nx / 4, ny / 4, nz / 4);
+	device_vector<Scalar> d_lhs, d_rhs;
+	d_lhs = h_lhs;
+	d_rhs = h_rhs;
+
+
+	cudaEvent_t start, stop;
+	float millisecs;
+
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+	cudaEventRecord(start, 0);
+
+
+
+	device_vector<Word > lhs(emax_size.x * emax_size.y * emax_size.z * bsize);
+	device_vector<Word > rhs(emax_size.x * emax_size.y * emax_size.z * bsize);
+	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, d_lhs, lhs, group_count, size);
+	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, d_rhs, rhs, group_count, size);
+	cuZFP::transform<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, size, lhs, rhs, op);
+
+
+	cudaEventRecord(stop, 0);
+	cudaEventSynchronize(stop);
+	cudaEventElapsedTime(&millisecs, start, stop);
+	ec.chk("reduce");
+	Scalar sum = cuZFP::reduce<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, lhs);
+	cout << "GPU ZFP reduce in time: " << millisecs / 1000.0 << " sum: " << sum << endl;
+}
 template<class Scalar, typename Array>
 void discrete_sum
 (
@@ -316,6 +390,44 @@ void discrete_sum
 	cout << "discrete time: " << time << " sum: " << sum << endl;
 }
 
+template<class Scalar, typename Array, typename BinaryFunction>
+void discrete_transform
+(
+host_vector<Scalar> &h_lhs, 
+host_vector<Scalar> &h_rhs,
+BinaryFunction op
+
+)
+{
+	double start_time = omp_get_wtime();
+	Array lhs(nx, ny, nz, rate), rhs(nx, ny, nz, rate);
+	for (int z = 0; z < nz; z++){
+		for (int y = 0; y < ny; y++) {
+			for (int x = 0; x < nx; x++) {
+				rhs[x + y * nx + z * nx * ny] = h_rhs[x + y * nx + z * nx * ny];
+				lhs[x + y * nx + z * nx * ny] = h_lhs[x + y * nx + z * nx * ny];
+			}
+		}
+	}
+
+	// compute du/dt
+	for (int z = 0; z < nz; z++){
+		for (int y = 0; y < ny; y++) {
+			for (int x = 0; x < nx; x++) {
+				lhs[x + y * nx + z * nx * ny] = op(lhs[x + y * nx + z * nx * ny], rhs[x + y * nx + z * nx * ny]);
+			}
+		}
+	}
+
+	double time = omp_get_wtime() - start_time;
+
+	double sum = 0.0;
+	for (int i = 0; i < nx*ny*nz; i++){
+		sum += lhs[i]; 
+	}
+	cout << "discrete time: " << time << " sum: " << sum << endl;
+}
+
 
 int main()
 {
@@ -344,13 +456,38 @@ int main()
 	cout << "GPU discete reduce start" << endl;
 	gpu_discrete_sum<double>(h_vec_in);
 
-
-
-	cout << "GPU ZFP diffusion start" << endl;
+	cout << "GPU ZFP reduce start" << endl;
 	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS, EBIAS);
-	cout << "Begin gpuDiffusion" << endl;
+	cout << "Begin cuZFPReduce" << endl;
 	cuZFPReduce<long long, unsigned long long, double, BSIZE>(h_vec_in);
-	cout << "Finish gpuDiffusion" << endl;
+	cout << "Finish cuZFPReduce" << endl;
 
+
+	host_vector<double> h_rhs(nx*ny*nz, 0.0);
+	device_vector<double> d_rhs(nx*ny*nz);
+
+	thrust::transform(
+		index_sequence_begin,
+		index_sequence_begin + nx*ny*nz,
+		d_rhs.begin(),
+		RandGen());
+	h_rhs = d_rhs;
+	d_rhs.clear();
+	d_rhs.shrink_to_fit();
+
+
+
+
+	cout << "cpu transform start" << endl;
+	discrete_transform<double, array3d>(h_vec_in, h_rhs, thrust::plus<double>());
+	cout << "compressed cpu transform start" << endl;
+	discrete_transform<double, zfp::array3d>(h_vec_in, h_rhs, thrust::plus<double>());
+
+	cout << "GPU discete transfor start" << endl;
+	gpu_discrete_transform<double>(h_vec_in, h_rhs, thrust::plus<double>());
+
+	cout << "Begin cuZFPTransform" << endl;
+	cuZFPTransform<long long, unsigned long long, double, BSIZE>(h_vec_in, h_rhs, thrust::plus<double>());
+	cout << "Finish cuZFPTransform" << endl;
 }
