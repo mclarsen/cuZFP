@@ -69,7 +69,7 @@ list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_50,code=sm_50")
 
 #list(APPEND CUDA_NVCC_FLAGS "-G")
 #list(APPEND CUDA_NVCC_FLAGS "--ptxas-options=-v")
-#list(APPEND CUDA_NVCC_FLAGS "-Xptxas;-O3")
+list(APPEND CUDA_NVCC_FLAGS "-Xptxas;-O3")
 
 #set(BaseName "binary" CACHE STRING "BaseName chosen by the user at CMake configure time")
 set(BUILD_ZFP_PARALLEL "v1.0" CACHE STRING "Build Version 1.0|2.0")
@@ -252,6 +252,19 @@ ${BIT_CUH}
 test_diffusion.cu
 )
 TARGET_LINK_LIBRARIES(test_diffusion
+${LIBOMP}
+zfp
+cudart
+)
+
+CUDA_ADD_EXECUTABLE(test_primitives
+ErrorCheck.cpp
+${ENC_CUH}
+${DEC_CUH}
+${BIT_CUH}
+test_primitives.cu
+)
+TARGET_LINK_LIBRARIES(test_primitives
 ${LIBOMP}
 zfp
 cudart
