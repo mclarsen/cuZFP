@@ -590,7 +590,7 @@ const unsigned long long orig_count
 }
 
 template<class Int, class UInt, class Scalar, uint bsize>
-void gpuTestBitStream
+void gpuTest
 (
 host_vector<Scalar> &h_data
 )
@@ -636,7 +636,7 @@ host_vector<Scalar> &h_data
 	cudaEventElapsedTime(&millisecs, start, stop);
 	ec.chk("cudaencode");
 
-	cout << "encode GPU in time: " << millisecs << endl;
+	cout << "encode GPU in time: " << millisecs/1000.0 << endl;
 
   thrust::host_vector<Word > cpu_block;
   cpu_block = block;
@@ -661,7 +661,7 @@ host_vector<Scalar> &h_data
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&millisecs, start, stop);
 
-	cout << "decode parallel GPU in time: " << millisecs << endl;
+	cout << "decode parallel GPU in time: " << millisecs/1000.0 << endl;
 
 	double tot_sum = 0, max_diff = 0, min_diff = 1e16;
 
@@ -792,6 +792,111 @@ host_vector<Scalar> &h_data
 	//gpuValidate<Int, UInt, Scalar, bsize>(h_data, q, data);
 
 }
+
+template<typename Scalar>
+void zfpTest
+(
+host_vector<Scalar> &h_data
+)
+{
+	double start_time = omp_get_wtime();
+#if 0
+	//doing the compression with sextuple nested for loop is actually
+	//faster than the array3d way.
+	zfp_field* field = zfp_field_alloc();
+	zfp_field_set_type(field, zfp::codec<Scalar>::type);
+	zfp_field_set_pointer(field, thrust::raw_pointer_cast(h_data.data()));
+	zfp_field_set_size_3d(field, nx, ny, nz);
+	zfp_stream* stream = zfp_stream_open(0);
+	uint n = zfp_field_size(field, NULL);
+	uint dims = zfp_field_dimensionality(field);
+	zfp_type type = zfp_field_type(field);
+	Scalar new_rate = zfp_stream_set_rate(stream, rate, type, dims, 0);
+	size_t bufsize = zfp_stream_maximum_size(stream, field);
+	uchar* buffer = new uchar[bufsize];
+	bitstream* s = stream_open(buffer, bufsize);
+	zfp_stream_set_bit_stream(stream, s);
+	zfp_stream_rewind(stream);
+	int m = 0;
+	for (int z = 0; z < nz; z += 4){
+		for (int y = 0; y < ny; y += 4){
+			for (int x = 0; x < nx; x += 4){
+				Scalar b[64];
+				m = 0;
+
+				for (int i = 0; i < 4; i++){
+					for (int j = 0; j < 4; j++){
+						for (int k = 0; k < 4; k++, m++){
+							b[m] = h_data[(z + i)*nx*ny + (y + j)*nx + x + k];
+						}
+					}
+				}
+
+				zfp_encode_block_double_3(stream, b);
+			}
+		}
+	}
+	Scalar time = omp_get_wtime() - start_time;
+	cout << "encode time: " << time << endl;
+	//cout << "sum UInt " << thrust::reduce(stream->begin, stream->end) << endl;
+	stream_flush(s);
+
+	host_vector<Scalar> h_out(nx*ny*nz);
+	stream_rewind(s);
+	start_time = omp_get_wtime();
+	for (int z = 0; z < nz; z += 4){
+		for (int y = 0; y < ny; y += 4){
+			for (int x = 0; x < nx; x += 4){
+				m = 0;
+				Scalar b[64];
+				zfp_decode_block_double_3(stream, b);
+				for (int i = 0; i < 4; i++){
+					for (int j = 0; j < 4; j++){
+						for (int k = 0; k < 4; k++, m++){
+							h_out[(z + i)*nx*ny + (y + j)*nx + x + k] = b[m];
+						}
+					}
+				}
+			}
+		}
+	}
+#else
+	zfp::array3d u(nx, ny, nz, rate);
+
+	//this isn't any faster than straight 0 to n-1
+	//for (int z = 0; z < nz; z++){
+	//	for (int y = 0; y < nz; y++){
+	//		for (int x = 0; x < nx; x++){
+
+	//			u[x + y * nx + z * nx * ny] = h_data[x + y * nx + z * nx * ny];
+	//		}
+	//	}
+	//}
+
+	for (int i = 0; i < nx*ny*nz; i++){
+		u[i] = h_data[i];
+	}
+	double time = omp_get_wtime() - start_time;
+	cout << "encode time: " << time << endl;
+
+	start_time = omp_get_wtime();
+	host_vector<Scalar> h_out(nx*ny*nz);
+	for (int i = 0; i < nx*ny*nz; i++){
+		h_out[i] = u[i];
+	}
+
+	time = omp_get_wtime() - start_time;
+	cout << "decode time: " << time << endl;
+#endif
+	Scalar tot_diff = 0;
+	for (int i = 0; i < nx*ny*nz; i++){
+		Scalar diff = fabs(h_data[i] - h_out[i]);
+		tot_diff += diff;
+	}
+
+	cout << "tot diff: " << tot_diff << " average diff: " << tot_diff / (float)h_out.size() << endl;// " max diff: " << max_diff << " min diff: " << min_diff << endl;
+	cout << "sum : " << thrust::reduce(h_data.begin(), h_data.end()) << " " << thrust::reduce(h_out.begin(), h_out.end()) << endl;
+}
 int main()
 {
 	host_vector<double> h_vec_in(nx*ny*nz);
@@ -823,98 +928,14 @@ int main()
 	d_vec_in.clear();
 	d_vec_in.shrink_to_fit();
 #endif
-	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
+	cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
 	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS, EBIAS);
-	cout << "Begin gpuTestBitStream" << endl;
-  gpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
-	cout << "Finish gpuTestBitStream" << endl;
+	cout << "Begin gpuTest" << endl;
+  gpuTest<long long, unsigned long long, double, BSIZE>(h_vec_in);
+	cout << "Finish gpuTest" << endl;
 
-	cout << "Begin cpuTestBitStream" << endl;
-  //cpuTestBitStream<long long, unsigned long long, double, BSIZE>(h_vec_in);
-	cout << "Finish cpuTestBitStream" << endl;
+	cout << "Begin zfpTest" << endl;
+	zfpTest<double>(h_vec_in);
+	cout << "Finish zfpTest" << endl;
 
-
-	cout << "Begin alpha test" << endl;
-
-
-	zfp_field* field = zfp_field_alloc();
-	zfp_field_set_type(field, zfp::codec<double>::type);
-	zfp_field_set_pointer(field, thrust::raw_pointer_cast(h_vec_in.data()));
-	zfp_field_set_size_3d(field, nx, ny, nz);
-	zfp_stream* stream = zfp_stream_open(0);
-	uint n = zfp_field_size(field, NULL);
-	uint dims = zfp_field_dimensionality(field);
-	zfp_type type = zfp_field_type(field);
-
-	// allocate memory for compressed data
-	double new_rate = zfp_stream_set_rate(stream, rate, type, dims, 0);
-	size_t bufsize = zfp_stream_maximum_size(stream, field);
-	uchar* buffer = new uchar[bufsize];
-	bitstream* s = stream_open(buffer, bufsize);
-	zfp_stream_set_bit_stream(stream, s);
-	zfp_stream_rewind(stream);
-
-  double start_time = omp_get_wtime();
-	int m = 0;
-	for (int z = 0; z < nz; z += 4){
-		for (int y = 0; y < ny; y += 4){
-			for (int x = 0; x < nx; x += 4){
-				double b[64];
-				m = 0;
-
-				for (int i = 0; i < 4; i++){
-					for (int j = 0; j < 4; j++){
-						for (int k = 0; k < 4; k++, m++){
-							b[m] = h_vec_in[(z + i)*nx*ny + (y + j)*nx + x + k];
-						}
-					}
-				}
-
-				zfp_encode_block_double_3(stream, b);
-			}
-		}
-	}
-  double time = omp_get_wtime() - start_time;
-  cout << "encode time: " << time << endl;
-	//cout << "sum UInt " << thrust::reduce(stream->begin, stream->end) << endl;
-	stream_flush(s);
-
-	host_vector<double> h_out(nx*ny*nz);
-	stream_rewind(s);
-  start_time = omp_get_wtime();
-	for (int z = 0; z < nz; z += 4){
-		for (int y = 0; y < ny; y += 4){
-			for (int x = 0; x < nx; x += 4){
-				m = 0;
-				double b[64];
-				zfp_decode_block_double_3(stream, b);
-				for (int i = 0; i < 4; i++){
-					for (int j = 0; j < 4; j++){
-						for (int k = 0; k < 4; k++, m++){
-							h_out[(z+i)*nx*ny + (y+j)*nx + x + k] = b[m];
-						}
-					}
-				}
-			} 
-		}
-	}
-  time = omp_get_wtime() - start_time;
-  cout << "encode time: " << time << endl;
-
-	double tot_diff = 0;
-	for (int i = 0; i < nx*ny*nz; i++){
-		double diff = fabs(h_vec_in[i] - h_out[i]);
-		tot_diff += diff;
-	}
-
-	cout << "tot diff: " << tot_diff << " average diff: " << tot_diff / (float)h_out.size() << endl;// " max diff: " << max_diff << " min diff: " << min_diff << endl;
-	cout << "sum : " << thrust::reduce(h_vec_in.begin(), h_vec_in.end()) << " " << thrust::reduce(h_out.begin(), h_out.end()) << endl;
-	//    cout << "Begin cpuTestBitStream" << endl;
-	//    cpuTestBitStream<long long, unsigned long long, double, 64>(h_vec_in);
-	//    cout << "End cpuTestBitStream" << endl;
-
-	//cout << "Begin gpuTestHarnessSingle" << endl;
-	//gpuTestharnessSingle<long long, unsigned long long, double, 64>(h_vec_in, d_vec_out, d_vec_in, 0,0,0);
-	//cout << "Begin gpuTestHarnessMulti" << endl;
-	//gpuTestharnessMulti<long long, unsigned long long, double, 64>(d_vec_in);
 }
