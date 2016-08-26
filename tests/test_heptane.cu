@@ -19,7 +19,6 @@
 #include "include/decode.cuh"
 #include "include/cuZFP.cuh"
 
-#include "array3d.h"
 #include "zfparray3.h"
 
 enum ENGHS_t{ N_LEFT, N_RIGHT, N_UP, N_DOWN, N_NEAR, N_FAR } enghs;
@@ -550,78 +549,7 @@ const Scalar tfinal
 
 }
 
-template<typename Scalar>
-void gpu_discrete_solution
-	(
-	const int x0,
-	const int y0,
-	const int z0,
-		const Scalar dx,
-		const Scalar dy,
-		const Scalar dz,
-		const Scalar dt,
-		const Scalar k,
-		const Scalar tfinal
-		)
-{
-	thrust::host_vector<Scalar> h_u(nx*ny*nz, 0);
 
-	thrust::device_vector<Scalar> u(nx*ny*nz);
-	thrust::device_vector<Scalar> du(nx*ny*nz);
-	ErrorCheck ec;
-
-	cudaEvent_t start, stop;
-	float millisecs;
-
-	cudaEventCreate(&start);
-	cudaEventCreate(&stop);
-	cudaEventRecord(start, 0);
-
-	h_u[x0 + y0 * nx + z0 * nx * ny] = 1; 
-	u = h_u;
-
-	dim3 block_size(4, 4, 4);
-	dim3 grid_size;
-	grid_size.x = nx / block_size.x;
-	grid_size.y = ny / block_size.y;
-	grid_size.z = nz / block_size.z;
-
-	double t;
-	for (t = 0; t < tfinal; t += dt) {
-		std::cerr << "gpu t=" << std::fixed << t << std::endl;
-		cudaDiffusion << <grid_size, block_size >> >
-			(
-			thrust::raw_pointer_cast(u.data()),
-			dx,dy,dz,
-			dt,
-			k,
-			tfinal,
-			thrust::raw_pointer_cast(du.data())
-			);
-		cudaStreamSynchronize(0);
-		ec.chk("cudaDiffusion");
-
-		cudaSum << < grid_size, block_size >> >
-			(
-			thrust::raw_pointer_cast(u.data()),
-			thrust::raw_pointer_cast(du.data())
-			);
-	}
-
-	h_u = u;
-	cudaEventRecord(stop, 0);
-	cudaEventSynchronize(stop);
-	cudaEventElapsedTime(&millisecs, start, stop);
-	ec.chk("cudaencode");
-
-	cout << "Diffusion GPU in time: " << millisecs << endl;
-
-	array3d out(nx, ny, nz, 0);
-
-	for (int i = 0; i < u.size(); i++){
-		out[i] = h_u[i];
-	}
-}
 
 
 template<class Int, class UInt, class Scalar, uint bsize>
@@ -696,14 +624,9 @@ int main()
 
   cout << "cpu encode start" << endl;
   double start_time = omp_get_wtime();
-  array3d u(nx, ny, nz, rate);
-
-  for (int z = 0; z < nz; z++){
-    for (int y = 0; y < ny; y++) {
-      for (int x = 0; x < nx; x++) {
-        u(x, y, z) = h_vec_in[z*nx*ny + y*nx + x];
-      }
-    }
+  zfp::array3d u(nx, ny, nz, rate);
+  for (int i = 0; i < nx*ny*nz; i++){
+    u[i] = h_vec_in[i];
   }
   double time = omp_get_wtime() - start_time;
   cout << "discrete time: " << time << endl;
@@ -718,7 +641,7 @@ int main()
   cout << "sum: " << sum << endl;
 
   cout << "GPU ZFP encode start" << endl;
-	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
+  cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
 	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS, EBIAS);
 	cout << "Begin gpuDiffusion" << endl;
 	gpuEncode<long long, unsigned long long, double, BSIZE>(h_vec_in);
