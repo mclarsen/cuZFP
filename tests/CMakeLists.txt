@@ -296,3 +296,16 @@ ${LIBOMP}
 zfp
 cudart
 )
+
+CUDA_ADD_EXECUTABLE(test_rmi
+ErrorCheck.cpp
+${ENC_CUH}
+${DEC_CUH}
+${BIT_CUH}
+test_rmi.cu
+)
+TARGET_LINK_LIBRARIES(test_rmi
+${LIBOMP}
+zfp
+cudart
+)
