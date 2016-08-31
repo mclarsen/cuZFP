@@ -30,9 +30,9 @@ using namespace std;
 
 #define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
 
-const size_t nx = 417;
-const size_t ny = 664;
-const size_t nz = 417;
+const size_t nx = 512;
+const size_t ny = 512;
+const size_t nz = 512;
 const int nt = 0;
 const double pi = 3.14159265358979323846;
 
@@ -610,6 +610,12 @@ host_vector<Scalar> &h_u
 
 int main()
 {
+#if 0
+  //Convert combustion dataset from uinta output to raw
+  const size_t nx = 417;
+  const size_t ny = 664;
+  const size_t nz = 417;
+
 	std::vector<double> h_vec_in(nx*ny*nz, 0);
 
   ifstream ifs("../../combustion.txt");
@@ -655,32 +661,43 @@ int main()
   fwrite(&h_vec_in[0], 1, nx*ny*nz*sizeof(double), pFile);
   fclose(pFile);
 
+#endif
+  host_vector<double> h_vec_in(nx*ny*nz, 0);
+
+  ifstream ifs("../../combustion_512.raw", ios::binary);
+  if (ifs) {
+    double read;
+    for (int i = 0; i < nx*ny*nz; i++){
+      ifs.read(reinterpret_cast<char*>(&read), sizeof read);
+      h_vec_in[i] = read;
+    }
+  }
+  ifs.close();
 
 
+  cout << "cpu encode start" << endl;
+  double start_time = omp_get_wtime();
+  zfp::array3d u(nx, ny, nz, rate);
+  for (int i = 0; i < nx*ny*nz; i++){
+    u[i] = h_vec_in[i];
+  }
+  double time = omp_get_wtime() - start_time;
+  cout << "discrete time: " << time << endl;
+  double sum = 0;
+  for (int z = 0; z < nz; z++){
+    for (int y = 0; y < ny; y++) {
+      for (int x = 0; x < nx; x++) {
+        sum += u(x, y, z);
+      }
+    }
+  }
+  cout << "sum: " << sum << endl;
 
- // cout << "cpu encode start" << endl;
- // double start_time = omp_get_wtime();
- // zfp::array3d u(nx, ny, nz, rate);
- // for (int i = 0; i < nx*ny*nz; i++){
- //   u[i] = h_vec_in[i];
- // }
- // double time = omp_get_wtime() - start_time;
- // cout << "discrete time: " << time << endl;
- // double sum = 0;
- // for (int z = 0; z < nz; z++){
- //   for (int y = 0; y < ny; y++) {
- //     for (int x = 0; x < nx; x++) {
- //       sum += u(x, y, z);
- //     }
- //   }
- // }
- // cout << "sum: " << sum << endl;
-
- // cout << "GPU ZFP encode start" << endl;
- // cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
-	//setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS, EBIAS);
-	//cout << "Begin gpuDiffusion" << endl;
-	//gpuEncode<long long, unsigned long long, double, BSIZE>(h_vec_in);
-	//cout << "Finish gpuDiffusion" << endl;
+  cout << "GPU ZFP encode start" << endl;
+  cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
+	setupConst<double>(perm, MAXBITS, MAXPREC, MINEXP, EBITS, EBIAS);
+	cout << "Begin gpuDiffusion" << endl;
+	gpuEncode<long long, unsigned long long, double, BSIZE>(h_vec_in);
+	cout << "Finish gpuDiffusion" << endl;
 
 }
