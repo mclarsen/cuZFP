@@ -594,8 +594,18 @@ host_vector<Scalar> &h_u
 
 	double tot_sum = 0, max_diff = 0, min_diff = 1e16;
 
-	cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, d_u, group_count);
-	host_vector<Scalar> h_out = d_u;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+  cudaEventRecord(start, 0);
+
+  cuZFP::decode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, u, d_u, group_count);
+  cudaEventRecord(stop, 0);
+  cudaEventSynchronize(stop);
+  cudaEventElapsedTime(&millisecs, start, stop);
+  ec.chk("cudadecoe");
+
+  cout << "decode GPU in time: " << millisecs / 1000.0 << endl;
+  host_vector<Scalar> h_out = d_u;
 
 	//array3d out(nx, ny, nz, rate);
 	//for (int i = 0; i < h_out.size(); i++){
@@ -629,16 +639,21 @@ int main()
     u[i] = h_vec_in[i];
   }
   double time = omp_get_wtime() - start_time;
-  cout << "discrete time: " << time << endl;
-  double sum = 0;
+  cout << "decode cpu time: " << time << endl;
+  host_vector<double> h_vec_out(nx*ny*nz, 0);
+  cout << "cpu decode start" << endl;
+  start_time = omp_get_wtime();
   for (int z = 0; z < nz; z++){
     for (int y = 0; y < ny; y++) {
       for (int x = 0; x < nx; x++) {
-        sum += u(x, y, z);
+        h_vec_out[z*nx*ny + y*nx + x] = u(x, y, z);
       }
     }
   }
-  cout << "sum: " << sum << endl;
+  time = omp_get_wtime() - start_time;
+  cout << "decode cpu time: " << time << endl;
+  cout << "sum: " << thrust::reduce(h_vec_out.begin(), h_vec_out.end()) << endl;
+
 
   cout << "GPU ZFP encode start" << endl;
   cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
