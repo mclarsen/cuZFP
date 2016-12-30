@@ -1,29 +1,24 @@
-# README #
+# cuZFP #
 
-This README would normally document whatever steps are necessary to get your application up and running.
+cuZFP: a CUDA implementation of ZFP.
 
-### What is this repository for? ###
+This is research code, YMMV. The code itself is not on the master branch, the most recent version is on zfp_new_v2.0 in the v2.0 directory. The include directory in v2.0 contains:
 
-* Quick summary
-* Version
-* [Learn Markdown](https://bitbucket.org/tutorials/markdowndemo)
+* BitStream.cuh
+* cuZFP.cuh
+* decode.cuh
+* encode.cuh
+* shared.h
+* ull128.h
+* WriteBitter.cuh 
+
+encode.cuh, decode.cuh, and cuZFP.cuh are, for lack of a better term, the API to cuZFP. BitStream.cuh, shared.h, ul128.h and WriteBitter.cuh are are helper files. Note, these are all header files.
+
+The primary functions used are: cuzfp::encode in encode.cuh and cuzfp::decode in decode.cuh. There are basic parallel primitive functions in cuZFP.cuh as well: cuzfp::transform and cuzfp::reduce. This allows for a "thrust"-esque style of programming and made my life a little easier.
 
 ### How do I get set up? ###
+A good place to get started is in the tests directory, using the test_diffusion.cu. The tests/CMakeLists.txt lists all the tests programs, so commenting out the other ones might be best. test_diffusion has an analytic diffusion solver, a regular CPU diffusion solver, a ZFP diffusion solver, a regular CUDA diffusion solver, and a cuZFP diffusion solver. It's based on ZFP's diffusion test case. 
 
-* Summary of set up
-* Configuration
-* Dependencies
-* Database configuration
-* How to run tests
-* Deployment instructions
 
-### Contribution guidelines ###
-
-* Writing tests
-* Code review
-* Other guidelines
-
-### Who do I talk to? ###
-
-* Repo owner or admin
-* Other community or team contact
+### Other notes ###
+Ignore the CMakeLists.txt in the root directory: it doesn't do anything. cuZFP is header files only.
