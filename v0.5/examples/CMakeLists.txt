@@ -21,7 +21,7 @@ TARGET_LINK_LIBRARIES(testzfp
 
 set(ZFP_C_LIBS zfp)
 if(NOT WIN32)
-    set(ZFP_C_LIBS "${ZFP_C_LIBS} m")
+    LIST(APPEND ZFP_C_LIBS m)
 endif(NOT WIN32)
 
 message(${ZFP_C_LIBS})
