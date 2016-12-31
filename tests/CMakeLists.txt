@@ -72,7 +72,7 @@ list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_50,code=sm_50")
 list(APPEND CUDA_NVCC_FLAGS "-Xptxas;-O3")
 
 #set(BaseName "binary" CACHE STRING "BaseName chosen by the user at CMake configure time")
-set(BUILD_ZFP_PARALLEL "v1.0" CACHE STRING "Build Version 1.0|2.0")
+set(BUILD_ZFP_PARALLEL "v2.0" CACHE STRING "Build Version 1.0|2.0")
 set_property(CACHE BUILD_ZFP_PARALLEL PROPERTY STRINGS "v1.0" "v1.0;v2.0")
 
 #message(${BUILD_ZFP_PARALLEL})
@@ -110,7 +110,14 @@ SET(CMAKE_BUILD_TYPE Debug)
 set(ENC_CUH "../${ZFP_PARALLEL_VERSION}/include/encode.cuh")
 set(DEC_CUH "../${ZFP_PARALLEL_VERSION}/include/decode.cuh")
 set(BIT_CUH "../${ZFP_PARALLEL_VERSION}/include/BitStream.cuh")
-if(false)
+
+SET(CUZFP_TESTS_DEBUG false CACHE BOOL "Debug tests")
+SET(CUZFP_TESTS_DIFFUSION true CACHE BOOL "diffusion tests")
+SET(CUZFP_TESTS_HEPTANE false CACHE BOOL "heptane tests")
+SET(CUZFP_TESTS_COMBUSTION false CACHE BOOL "combustion tests")
+SET(CUZFP_TESTS_RAYLEIGH false CACHE BOOL "rayleigh tests")
+
+if (CUZFP_TESTS_DEBUG)
 CUDA_ADD_EXECUTABLE(zfp_test_exp
 ErrorCheck.cpp
 test_exp.cu
@@ -188,8 +195,6 @@ ${LIBOMP}
 
 cudart
 )
-endif()
-if(false)
 CUDA_ADD_EXECUTABLE(zfp_test_all
 ErrorCheck.cpp
 ${ENC_CUH}
@@ -202,10 +207,6 @@ ${LIBOMP}
 
 cudart
 )
-endif()
-
-
-if(false)
 
 CUDA_ADD_EXECUTABLE(zfp_test_ull128
 ErrorCheck.cpp
@@ -218,7 +219,6 @@ ${LIBOMP}
 
 cudart
 )
-endif()
 
 cuda_compile_ptx(
   cuda_ptx_files
@@ -242,35 +242,6 @@ ${LIBOMP}
 zfp
 cudart
 )
-
-
-CUDA_ADD_EXECUTABLE(test_diffusion
-ErrorCheck.cpp
-${ENC_CUH}
-${DEC_CUH}
-${BIT_CUH}
-test_diffusion.cu
-)
-TARGET_LINK_LIBRARIES(test_diffusion
-${LIBOMP}
-zfp
-cudart
-)
-
-
-CUDA_ADD_EXECUTABLE(test_diffusion_decoupled
-ErrorCheck.cpp
-${ENC_CUH}
-${DEC_CUH}
-${BIT_CUH}
-test_diffusion_decoupled.cu
-)
-TARGET_LINK_LIBRARIES(test_diffusion_decoupled
-${LIBOMP}
-zfp
-cudart
-)
-
 CUDA_ADD_EXECUTABLE(test_primitives
 ErrorCheck.cpp
 ${ENC_CUH}
@@ -283,7 +254,37 @@ ${LIBOMP}
 zfp
 cudart
 )
+endif(CUZFP_TESTS_DEBUG)
 
+if(CUZFP_TESTS_DIFFUSION)
+CUDA_ADD_EXECUTABLE(test_diffusion
+ErrorCheck.cpp
+${ENC_CUH}
+${DEC_CUH}
+${BIT_CUH}
+test_diffusion.cu
+)
+TARGET_LINK_LIBRARIES(test_diffusion
+${LIBOMP}
+zfp
+cudart
+)
+endif(CUZFP_TESTS_DIFFUSION)
+
+# CUDA_ADD_EXECUTABLE(test_diffusion_decoupled
+# ErrorCheck.cpp
+# ${ENC_CUH}
+# ${DEC_CUH}
+# ${BIT_CUH}
+# test_diffusion_decoupled.cu
+# )
+# TARGET_LINK_LIBRARIES(test_diffusion_decoupled
+# ${LIBOMP}
+# zfp
+# cudart
+# )
+
+if (CUZFP_TEST_HEPTANE)
 CUDA_ADD_EXECUTABLE(test_heptane
 ErrorCheck.cpp
 ${ENC_CUH}
@@ -296,20 +297,22 @@ ${LIBOMP}
 zfp
 cudart
 )
+endif(CUZFP_TEST_HEPTANE)
 
-CUDA_ADD_EXECUTABLE(test_rmi
-ErrorCheck.cpp
-${ENC_CUH}
-${DEC_CUH}
-${BIT_CUH}
-test_rmi.cu
-)
-TARGET_LINK_LIBRARIES(test_rmi
-${LIBOMP}
-zfp
-cudart
-)
+# CUDA_ADD_EXECUTABLE(test_rmi
+# ErrorCheck.cpp
+# ${ENC_CUH}
+# ${DEC_CUH}
+# ${BIT_CUH}
+# test_rmi.cu
+# )
+# TARGET_LINK_LIBRARIES(test_rmi
+# ${LIBOMP}
+# zfp
+# cudart
+# )
 
+if(CUZFP_TESTS_COMBUSTION)
 CUDA_ADD_EXECUTABLE(test_combustion
 ErrorCheck.cpp
 ${ENC_CUH}
@@ -322,7 +325,9 @@ ${LIBOMP}
 zfp
 cudart
 )
+endif(CUZFP_TESTS_COMBUSTION)
 
+if(CUZFP_TESTS_RALEIGH)
 CUDA_ADD_EXECUTABLE(test_rayleigh
 ErrorCheck.cpp
 ${ENC_CUH}
@@ -335,3 +340,4 @@ ${LIBOMP}
 zfp
 cudart
 )
+endif(CUZFP_TESTS_RALEIGH)
