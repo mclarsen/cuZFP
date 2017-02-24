@@ -337,13 +337,12 @@ const Scalar k
 	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(
 		s_du,
 		size,
-
 		new_smem,
-
 		bidx * bsize,
 		du
 		);
 }
+J
 template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 __global__
 void
@@ -536,9 +535,9 @@ template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 void gpuZFPDiffusion
 (
 int nx, int ny, int nz,
-device_vector<Word > &u,
-device_vector<Word > &du,
-device_vector<Scalar> &df_u,
+device_vector<Word > &u, //Compressed??
+device_vector<Word > &du, //Compressed??
+device_vector<Scalar> &df_u, //uncompressed
 const Scalar dx,
 const Scalar dy,
 const Scalar dz,
@@ -858,7 +857,7 @@ int main()
 	const double dz = 2.0 / (std::max(nz, std::max(nx, ny)) - 1);
 	const double dt = 0.5 * (dx * dx + dy * dy) / (8 * k);
 	const double tfinal = nt ? nt * dt : 1;
-
+/*
 	cout << "cpu diffusion start" << endl;
 	array3d u(nx, ny, nz, rate);
 	discrete_solution<array3d>(u, x0, y0, z0, dx,dy,dz,dt,k, tfinal);
@@ -866,7 +865,7 @@ int main()
 	cout << "compressed cpu diffusion start" << endl;
 	zfp::array3d u2(nx, ny, nz, rate);
 	discrete_solution<zfp::array3d>(u2, x0, y0, z0, dx, dy, dz, dt, k, tfinal);
-
+*/
 	cout << "GPU discete diffusion start" << endl;
 	gpu_discrete_solution<double>(x0, y0, z0, dx, dy, dz, dt, k, tfinal);
 

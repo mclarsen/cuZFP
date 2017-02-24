@@ -390,19 +390,16 @@ void
 encodeBitplane
 (
 unsigned long long count,
-
 unsigned long long x,
 const unsigned char g,
 unsigned char h,
 const unsigned char *g_cnt,
-
 //uint &h, uint &n_cnt, unsigned long long &cnt,
 Bitter &bitters,
 unsigned char &sbits
 
 )
-{
-  unsigned long long cnt = count;
+{ unsigned long long cnt = count;
   cnt >>= h * 4;
   uint n_cnt = g_cnt[h];
 
@@ -429,15 +426,12 @@ unsigned char &sbits
 
 template<typename Int, typename UInt, typename Scalar, uint bsize, int intprec>
 __device__
-void encode
-(
-	const Scalar *sh_data,
-	const uint size,
-	unsigned char *smem,
-
-	uint blk_idx,
-	Word *blocks
-)
+void 
+encode (const Scalar *sh_data,
+	      const uint size,
+        unsigned char *smem,
+        uint blk_idx,
+        Word *blocks)
 {
 	__shared__ unsigned char *sh_g;
 	__shared__ Scalar *sh_reduce;
@@ -631,9 +625,7 @@ Word *blocks
 	encode<Int, UInt, Scalar, bsize, intprec>(
 		sh_data,
 		size, 
-
 		new_smem,
-
 		idx * bsize,
 		blocks
 		);
@@ -699,6 +691,7 @@ const uint size
 
   encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, d_data, stream, group_count, size);
 }
+
 template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 void encode
 (

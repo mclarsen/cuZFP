@@ -6,7 +6,7 @@ FIND_PACKAGE( OpenMP REQUIRED)
 if(OPENMP_FOUND)
 message("OPENMP FOUND")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS} -std=c++11")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 endif()
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_CXX_FLAGS}")
@@ -62,14 +62,14 @@ else(WIN32)
     )
 endif(WIN32)
 #list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_30,code=sm_30")
-#list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_35,code=sm_35")
-list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_50,code=sm_50")
+list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_35,code=sm_35")
+#list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_50,code=sm_50")
 #list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_52,code=sm_52")
 
 
 #list(APPEND CUDA_NVCC_FLAGS "-G")
 #list(APPEND CUDA_NVCC_FLAGS "--ptxas-options=-v")
-list(APPEND CUDA_NVCC_FLAGS "-Xptxas;-O3")
+list(APPEND CUDA_NVCC_FLAGS "-Xptxas;-O3 -std=c++11 -Xcompiler=-std=c++11")
 
 #set(BaseName "binary" CACHE STRING "BaseName chosen by the user at CMake configure time")
 set(BUILD_ZFP_PARALLEL "v2.0" CACHE STRING "Build Version 1.0|2.0")
@@ -90,6 +90,7 @@ INCLUDE_DIRECTORIES(
 	"${CMAKE_CURRENT_SOURCE_DIR}/../v0.5/inc"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../v0.5/array"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../cub-1.5.2/"
+  "."
 )
 
 message("${CMAKE_CURRENT_SOURCE_DIR}/../")
@@ -103,7 +104,7 @@ LINK_DIRECTORIES(
 
 #set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} "-pg -march=native -msse2")
 
-#ADD_DEFINITIONS("-std=c++0x -march=native -msse2")
+ADD_DEFINITIONS("-std=c++0x -march=native -msse2")
 #ADD_DEFINITIONS("-std=c99")
 #SET(CMAKE_BUILD_TYPE Release)
 SET(CMAKE_BUILD_TYPE Debug)

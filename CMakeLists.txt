@@ -81,7 +81,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_CXX_FLAGS}")
 
 set(CMAKE_C_FLAGS "-std=c99")
 #ADD_DEFINITIONS("-std=c++0x -march=native -msse2")
-<<<<<<< HEAD
 ADD_DEFINITIONS("-std=c99")
 #SET(CMAKE_BUILD_TYPE Release)
 SET(CMAKE_BUILD_TYPE Debug)
@@ -100,7 +99,6 @@ CUDA_ADD_EXECUTABLE(zfp_encode
 )
 target_link_libraries(zfp_encode
 )
-=======
 
 SET(CMAKE_BUILD_TYPE Release)
 #SET(CMAKE_BUILD_TYPE Debug)
@@ -108,4 +106,3 @@ SUBDIRS(
     src
     examples
   )
->>>>>>> master
