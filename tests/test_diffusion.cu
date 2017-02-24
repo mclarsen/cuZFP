@@ -342,7 +342,7 @@ const Scalar k
 		du
 		);
 }
-J
+
 template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 __global__
 void
