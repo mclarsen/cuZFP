@@ -77,18 +77,15 @@ set_property(CACHE BUILD_ZFP_PARALLEL PROPERTY STRINGS "v1.0" "v1.0;v2.0")
 
 #message(${BUILD_ZFP_PARALLEL})
 
-SET (ZFP_PARALLEL_VERSION "v1.0")
-IF(${BUILD_ZFP_PARALLEL} MATCHES "v2.0")
-    SET(ZFP_PARALLEL_VERSION "v2.0")
-ENDIF()
-
+SET(ZFP_PARALLEL_VERSION "v2.0")
+message(STATUS "Using ${ZFP_PARALLEL_VERSION}")
 
 INCLUDE_DIRECTORIES(
-	"/usr/local/include"
-	"/usr/include"
+  #	"/usr/local/include"
+  #"/usr/include"
     "../${ZFP_PARALLEL_VERSION}/"
-	"${CMAKE_CURRENT_SOURCE_DIR}/../v0.5/inc"
-	"${CMAKE_CURRENT_SOURCE_DIR}/../v0.5/array"
+	"${CMAKE_CURRENT_SOURCE_DIR}/../zfp/inc"
+	"${CMAKE_CURRENT_SOURCE_DIR}/../zfp/array"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../cub-1.5.2/"
   "."
 )
@@ -98,7 +95,7 @@ LINK_DIRECTORIES(
 	"/usr/lib"
 	"/usr/local/lib"
         ${CUTIL_LIB_DIRECTORY}
-	"${CMAKE_CURRENT_SOURCE_DIR}/../v0.5/lib"
+	"${CMAKE_CURRENT_SOURCE_DIR}/../zfp/lib"
 )
 #set(CMAKE_C_FLAGS ${CMAKE_C_FLAGS} "-pg -march=native -msse2")
 
