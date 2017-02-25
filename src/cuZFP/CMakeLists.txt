@@ -1,0 +1,24 @@
+###############################################################################
+#
+#  file: src/cuZFP/CMakeLists.txt 
+#
+###############################################################################
+
+set(cuZFP_sources
+    encode.cu
+    cuZFP.cuh
+    decode.cuh
+    encode.cuh
+    BitStream.cuh
+    WriteBitter.cuh)
+
+set(cuZFP_headers
+    shared.h
+    ull128.h)
+
+cuda_add_library(cuZFP
+                 ${cuZFP_sources}
+                 ${cuZFP_headers})
+
+
+      

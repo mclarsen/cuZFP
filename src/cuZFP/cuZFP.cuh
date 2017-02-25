@@ -149,6 +149,6 @@ namespace cuZFP{
 
 		return thrust::reduce(tmp.begin(), tmp.end(), (Scalar)init);
 	}
-		
+	
 };
 #endif

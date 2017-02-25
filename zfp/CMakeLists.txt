@@ -1,7 +1,5 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 2.4)
 
-PROJECT(ZFPParallel)
-
 INCLUDE_DIRECTORIES(
 	"/usr/local/include"
 	"/usr/include"
