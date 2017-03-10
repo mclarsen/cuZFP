@@ -27,6 +27,11 @@ include(CMake/SetupCuda.cmake)
 
 
 ##################################
+# build thirdparty libs 
+##################################
+add_subdirectory(thirdparty_builtin)
+
+##################################
 # build cuZFP lib 
 ##################################
 add_subdirectory(cuZFP)
