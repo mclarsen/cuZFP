@@ -35,6 +35,7 @@ struct int_2_uint : public thrust::unary_function<Int, UInt>
     return (x + (UInt)0xaaaaaaaaaaaaaaaaull) ^ (UInt)0xaaaaaaaaaaaaaaaaull;
   }
 };
+
 // return normalized floating-point exponent for x >= 0
 template<class Scalar>
 __host__ __device__
@@ -52,34 +53,31 @@ exponent(Scalar x)
 
 template<class T, bool mult_only>
 __device__ __host__
-void setLDEXP
-(
-    uint idx,
-        const T *in,
-        T *out,
-        const T w,
-        const int exp
-        )
+void setLDEXP(uint idx,
+              const T *in,
+              T *out,
+              const T w,
+              const int exp)
 {
-    if (mult_only){
-        out[idx] = in[idx] * w;
-    }
-    else
-        out[idx] = LDEXP(in[idx], exp);
+  if (mult_only)
+  {
+    out[idx] = in[idx] * w;
+  }
+  else
+  {
+    out[idx] = LDEXP(in[idx], exp);
+  }
 }
 
 
 template<class T>
 __host__ __device__
-void setFREXP
-    (
-        uint idx,
-        const T *in,
-        T *out,
-        int *nptr
-        )
+void setFREXP(uint idx,
+              const T *in,
+              T *out,
+              int *nptr)
 {
-    out[idx] = FREXP(in[idx], &nptr[ idx] );
+  out[idx] = FREXP(in[idx], &nptr[ idx] );
 }
 
 // block-floating-point transform to signed integers
@@ -107,16 +105,13 @@ int fwd_cast(Int* q, const Scalar* p, uint sx, uint sy, uint sz)
 }
 
 __host__ __device__
-void decompIdx
-(
-        uint sx,
-        uint sy,
-        uint sz,
-        int idx,
-        uint &x,
-        uint &y,
-        uint &z
-        )
+void decompIdx(uint sx,
+               uint sy,
+               uint sz,
+               int idx,
+               uint &x,
+               uint &y,
+               uint &z)
 {
     z = sz == 0 ? 0 : idx / (sz);
     uint rem = sz == 0 ? 0: idx % sz;
@@ -275,12 +270,8 @@ fwd_xform(Int* p)
 
 template<class Int, class UInt>
 __global__
-void cudaint2uint
-(
-        const Int *p,
-        UInt *q
-
-        )
+void cudaint2uint(const Int *p, 
+                  UInt *q)
 {
     int x = threadIdx.x + blockDim.x*blockIdx.x;
     int y = threadIdx.y  + blockDim.y*blockIdx.y;
@@ -291,10 +282,7 @@ void cudaint2uint
 
 template<class Int>
 __global__
-void cudaDecorrelate
-(
-        Int *p
-        )
+void cudaDecorrelate(Int *p)
 {
     int x = threadIdx.x + blockDim.x*blockIdx.x;
     int y = threadIdx.y  + blockDim.y*blockIdx.y;
@@ -305,10 +293,7 @@ void cudaDecorrelate
 
 template<class Int>
 __global__
-void cudaDecorrelateZY
-(
-        Int *p
-        )
+void cudaDecorrelateZY(Int *p)
 {
     int x = threadIdx.x + blockDim.x*blockIdx.x;
     int y = threadIdx.y  + blockDim.y*blockIdx.y;
@@ -319,10 +304,7 @@ void cudaDecorrelateZY
 
 template<class Int>
 __global__
-void cudaDecorrelateXZ
-(
-        Int *p
-        )
+void cudaDecorrelateXZ(Int *p)
 {
     int i = threadIdx.x + blockDim.x*blockIdx.x;
     int j = threadIdx.y  + blockDim.y*blockIdx.y;
@@ -334,10 +316,7 @@ void cudaDecorrelateXZ
 
 template<class Int>
 __global__
-void cudaDecorrelateYX
-(
-        Int *p
-        )
+void cudaDecorrelateYX(Int *p)
 {
     int i = threadIdx.x + blockDim.x*blockIdx.x;
     int j = threadIdx.y  + blockDim.y*blockIdx.y;
@@ -349,12 +328,9 @@ void cudaDecorrelateYX
 
 template<class Int, class Scalar>
 __global__
-void cudaFixedPoint
-(
-        const int *emax,
-        const Scalar *data,
-        Int *q
-        )
+void cudaFixedPoint(const int *emax,
+                    const Scalar *data,
+                    Int *q)
 {
     int x = threadIdx.x + blockDim.x*blockIdx.x;
     int y = threadIdx.y  + blockDim.y*blockIdx.y;
@@ -363,16 +339,21 @@ void cudaFixedPoint
 
     x *= 4; y*=4; z*=4;
     //int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
-    fixed_point_block(q + eidx*64, data, emax[eidx], x,y,z, 1, gridDim.x*blockDim.x*4, gridDim.x*blockDim.x*4*gridDim.y*blockDim.y*4);
+    fixed_point_block(q + eidx*64, 
+                      data, 
+                      emax[eidx], 
+                      x,
+                      y,
+                      z, 
+                      1, 
+                      gridDim.x*blockDim.x*4, 
+                      gridDim.x*blockDim.x*4*gridDim.y*blockDim.y*4);
 }
 
 template<class Scalar>
 __global__
-void cudaMaxExp
-(
-        int *emax,
-    Scalar *data
-        )
+void cudaMaxExp(int *emax,
+                Scalar *data)
 {
     int x = threadIdx.x + blockDim.x*blockIdx.x;
     int y = threadIdx.y  + blockDim.y*blockIdx.y;
@@ -388,19 +369,16 @@ void cudaMaxExp
 inline
 __device__ __host__
 void
-encodeBitplane
-(
-unsigned long long count,
-unsigned long long x,
-const unsigned char g,
-unsigned char h,
-const unsigned char *g_cnt,
-//uint &h, uint &n_cnt, unsigned long long &cnt,
-Bitter &bitters,
-unsigned char &sbits
-
-)
-{ unsigned long long cnt = count;
+encodeBitplane(unsigned long long count,
+               unsigned long long x,
+               const unsigned char g,
+               unsigned char h,
+               const unsigned char *g_cnt,
+               //uint &h, uint &n_cnt, unsigned long long &cnt,
+               Bitter &bitters,
+               unsigned char &sbits)
+{ 
+  unsigned long long cnt = count;
   cnt >>= h * 4;
   uint n_cnt = g_cnt[h];
 
@@ -409,7 +387,8 @@ unsigned char &sbits
   sbits = 0;
   /* encode bit k for first n values */
   x = write_bitters(bitters, make_bitter(x, 0), n_cnt, sbits);
-  while (h++ < g) {
+  while (h++ < g) 
+  {
     /* output a one bit for a positive group test */
     write_bitter(bitters, make_bitter(1, 0), sbits);
     /* add next group of m values to significant set */
@@ -420,7 +399,8 @@ unsigned char &sbits
     x = write_bitters(bitters, make_bitter(x, 0), m, sbits);
   }
   /* if there are more groups, output a zero bit for a negative group test */
-  if (cnt) {
+  if (cnt) 
+  {
     write_bitter(bitters, make_bitter(0, 0), sbits);
   }
 }
@@ -434,7 +414,6 @@ encode (const Scalar *sh_data,
         uint blk_idx,
         Word *blocks)
 {
-	__shared__ unsigned char *sh_g;
 	__shared__ Scalar *sh_reduce;
 	__shared__ int *sh_emax;
 	__shared__ Int *sh_q;
@@ -444,7 +423,6 @@ encode (const Scalar *sh_data,
 	__shared__ Bitter *sh_bitters;
 	__shared__ uint *s_emax_bits;
 
-	sh_g = &smem[0];
 	sh_sbits = &smem[64];
 	sh_bitters = (Bitter*)&smem[64 + 64];
 	sh_p = (UInt*)&smem[64 + 64 + 16 * 64];
@@ -458,7 +436,7 @@ encode (const Scalar *sh_data,
 
 	Bitter bitter = make_bitter(0, 0);
 	unsigned char sbit = 0;
-	uint kmin = 0;
+	//uint kmin = 0;
 
 	if (tid < bsize)
 		blocks[blk_idx + tid] = 0; 
@@ -498,13 +476,15 @@ encode (const Scalar *sh_data,
 	__syncthreads();
 	//fwd_order
 	sh_p[tid] = int2uint<Int, UInt>(sh_q[c_perm[tid]]);
-	if (tid == 0){
+	if (tid == 0)
+  {
 		s_emax_bits[0] = 1;
 		int maxprec = precision(sh_emax[0], c_maxprec, c_minexp);
-		kmin = intprec > maxprec ? intprec - maxprec : 0;
+		//kmin = intprec > maxprec ? intprec - maxprec : 0;
 
 		uint e = maxprec ? sh_emax[0] + ebias : 0;
-		if (e){
+		if (e)
+    {
 			//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
 			blocks[blk_idx] = 2 * e + 1;
 			s_emax_bits[0] = c_ebits + 1;
@@ -515,7 +495,9 @@ encode (const Scalar *sh_data,
 	/* extract bit plane k to x[k] */
 	unsigned long long y = 0;
 	for (uint i = 0; i < size; i++)
+  {
 		y += ((sh_p[i] >> tid) & (unsigned long long)1) << i;
+  }
 
 	unsigned long long x = y;
 
@@ -524,21 +506,29 @@ encode (const Scalar *sh_data,
 	sh_n[tid] = 0;
 
 	//temporarily use sh_n as a buffer
-	uint *sh_test = sh_n;
-	for (int i = 0; i < 64; i++){
+	//uint *sh_test = sh_n;
+	for (int i = 0; i < 64; i++)
+  {
 		if (!!(x >> i))
+    {
 			sh_n[tid] = i + 1;
+    }
 	}
 
-	if (tid < 63){
+	if (tid < 63)
+  {
 		sh_m[tid] = sh_n[tid + 1];
 	}
 
 	__syncthreads();
-	if (tid == 0){
-		for (int i = intprec - 1; i-- > 0;){
+	if (tid == 0)
+  {
+		for (int i = intprec - 1; i-- > 0;)
+    {
 			if (sh_m[i] < sh_m[i + 1])
+      {
 				sh_m[i] = sh_m[i + 1];
+      }
 		}
 	}
 	__syncthreads();
@@ -552,8 +542,9 @@ encode (const Scalar *sh_data,
 	n = sh_m[tid];
 	/* step 3: unary run-length encode remainder of bit plane */
 	for (; n < size && bits && (bits--, !!x); x >>= 1, n++)
-		for (; n < size - 1 && bits && (bits--, !(x & 1u)); x >>= 1, n++)
-			;
+  {
+		for (; n < size - 1 && bits && (bits--, !(x & 1u)); x >>= 1, n++);
+  }
 	__syncthreads();
 
 	bits = (128 - bits);
@@ -566,8 +557,9 @@ encode (const Scalar *sh_data,
 
 	/* step 3: unary run-length encode remainder of bit plane */
 	for (; n < size && bits && (bits-- && write_bitter(bitter, !!y, sbit)); y >>= 1, n++)
-		for (; n < size - 1 && bits && (bits-- && !write_bitter(bitter, y & 1u, sbit)); y >>= 1, n++)
-			;
+  {
+		for (; n < size - 1 && bits && (bits-- && !write_bitter(bitter, y & 1u, sbit)); y >>= 1, n++);
+  }
 	__syncthreads();
 
 
@@ -575,17 +567,22 @@ encode (const Scalar *sh_data,
 	sh_sbits[63 - tid] = sbit;
 	__syncthreads();
 
-	if (tid == 0){
+	if (tid == 0)
+  {
 		uint tot_sbits = s_emax_bits[0];// sbits[0];
 		uint  rem_sbits = s_emax_bits[0];// sbits[0];
 		uint offset = 0;
-		for (int i = 0; i < intprec && tot_sbits < c_maxbits; i++){
-			if (sh_sbits[i] <= 64){
+		for (int i = 0; i < intprec && tot_sbits < c_maxbits; i++)
+    {
+			if (sh_sbits[i] <= 64)
+      {
 				write_outx<bsize>(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, sh_sbits[i]);
 			}
-			else{
+			else
+      {
 				write_outx<bsize>(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, 64);
-        if (tot_sbits < c_maxbits){
+        if (tot_sbits < c_maxbits)
+        {
           write_outy<bsize>(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64);
         }
 			}
@@ -593,16 +590,14 @@ encode (const Scalar *sh_data,
 	}
 
 }
+
 template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 __global__
 void
 __launch_bounds__(64,5)
-cudaEncode
-(
-uint size,
-const Scalar* data,
-Word *blocks
-)
+cudaEncode(uint size,
+           const Scalar* data,
+           Word *blocks)
 {
   //	int mx = threadIdx.x + blockDim.x*blockIdx.x;
   //	int my = threadIdx.y + blockDim.y*blockIdx.y;
@@ -618,18 +613,19 @@ Word *blocks
 
   uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
   uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
-  uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
+  //uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
 
 
-	sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
+	sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y 
+              + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
+  
 	__syncthreads();
-	encode<Int, UInt, Scalar, bsize, intprec>(
-		sh_data,
-		size, 
-		new_smem,
-		idx * bsize,
-		blocks
-		);
+
+	encode<Int, UInt, Scalar, bsize, intprec>(sh_data,
+                                            size, 
+                                            new_smem,
+                                            idx * bsize,
+                                            blocks);
 
   __syncthreads();
 
@@ -653,7 +649,7 @@ void encode (int nx,
   grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
   std::size_t some_magic_number = (sizeof(Scalar) + 2 * sizeof(unsigned char) + 
                                    sizeof(Bitter) + sizeof(UInt) + 
-                                   sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4
+                                   sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4;
 	cudaEncode<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, some_magic_number >> >
     (size,
      d_data,

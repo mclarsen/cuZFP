@@ -8,7 +8,7 @@
 #define NBMASK 0xaaaaaaaaaaaaaaaaull
 #define LDEXP(x, e) ldexp(x, e)
 
-namespace cuZFP{
+namespace cuZFP {
 
 #ifdef __CUDA_ARCH__
 template<class Int, class Scalar>
@@ -321,13 +321,10 @@ decode_ints(Word *block, UInt* data, uint minbits, uint maxbits, uint maxprec, u
 
 template<typename Int, typename UInt, typename Scalar, uint bsize, int intprec>
 __device__ 
-void decode
-(
-	const Word *blocks,
-	unsigned char *smem,
-	uint out_idx,
-	Scalar *out
-)
+void decode(const Word *blocks,
+            unsigned char *smem,
+            uint out_idx,
+            Scalar *out)
 {
 	__shared__ uint *s_kmin;
 	__shared__ unsigned long long *s_bit_cnt;
@@ -400,11 +397,8 @@ void decode
 }
 template<class Int, class UInt>
 __global__
-void cudaInvOrder
-(
-const UInt *p,
-Int *q
-)
+void cudaInvOrder(const UInt *p,
+                  Int *q)
 {
 	int x = threadIdx.x + blockDim.x*blockIdx.x;
 	int y = threadIdx.y + blockDim.y*blockIdx.y;
@@ -416,10 +410,7 @@ Int *q
 
 template<class Int>
 __global__
-void cudaInvXForm
-(
-Int *iblock
-)
+void cudaInvXForm(Int *iblock)
 {
 	int x = threadIdx.x + blockDim.x*blockIdx.x;
 	int y = threadIdx.y + blockDim.y*blockIdx.y;
@@ -432,10 +423,7 @@ Int *iblock
 
 template<class Int>
 __global__
-void cudaInvXFormYX
-(
-Int *iblock
-)
+void cudaInvXFormYX(Int *iblock)
 {
 	int i = threadIdx.x + blockDim.x*blockIdx.x;
 	int j = threadIdx.y + blockDim.y*blockIdx.y;
@@ -448,10 +436,7 @@ Int *iblock
 
 template<class Int>
 __global__
-void cudaInvXFormXZ
-(
-Int *iblock
-)
+void cudaInvXFormXZ(Int *iblock)
 {
 	int i = threadIdx.x + blockDim.x*blockIdx.x;
 	int j = threadIdx.y + blockDim.y*blockIdx.y;
@@ -463,10 +448,7 @@ Int *iblock
 
 template<class Int>
 __global__
-void cudaInvXFormZY
-(
-Int *p
-)
+void cudaInvXFormZY(Int *p)
 {
 	int x = threadIdx.x + blockDim.x*blockIdx.x;
 	int y = threadIdx.y + blockDim.y*blockIdx.y;
@@ -482,15 +464,9 @@ template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 __global__
 void
 __launch_bounds__(64,5)
-cudaDecode
-(
-Word *blocks,
-
-Scalar *out,
-
-const unsigned long long orig_count
-
-)
+cudaDecode(Word *blocks,
+           Scalar *out,
+           const unsigned long long orig_count)
 {
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
   uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
@@ -499,32 +475,29 @@ const unsigned long long orig_count
 
 	extern __shared__ unsigned char smem[];
 
-	decode<Int, UInt, Scalar, bsize, intprec>(blocks + bsize*idx, smem,
-		(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4),
-		out
-		);
+	decode<Int, UInt, Scalar, bsize, intprec>(blocks + bsize*idx, 
+                                            smem,
+		                                        (threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4),
+                                            out);
 	//inv_cast
 }
 template<class Int, class UInt, class Scalar, uint bsize, int intprec>
-void decode
-(
-	int nx, int ny, int nz,
-  thrust::device_vector<Word > &stream,
-	Scalar *d_data,
-  unsigned long long group_count
-)
+void decode(int nx, 
+            int ny, 
+            int nz,
+            thrust::device_vector<Word > &stream,
+            Scalar *d_data,
+            unsigned long long group_count)
 {
   //ErrorCheck ec;
   dim3 emax_size(nx / 4, ny / 4, nz / 4);
-
 
   dim3 block_size = dim3(4, 4, 4);
   dim3 grid_size = dim3(nx, ny, nz);
   grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
 
-  cudaDecode<Int, UInt, Scalar, bsize, intprec> << < grid_size, block_size, 64 * (8) + 4 + 4 >> >
-		(
-		raw_pointer_cast(stream.data()),
+  const int some_magic_number = 64 * (8) + 4 + 4; 
+  cudaDecode<Int, UInt, Scalar, bsize, intprec> << < grid_size, block_size, some_magic_number >> >(raw_pointer_cast(stream.data()),
 		d_data,
 		group_count);
 	cudaStreamSynchronize(0);
@@ -535,22 +508,23 @@ void decode
   //  cudaEventElapsedTime(&millisecs, start, stop);
   //ec.chk("cudadecode");
 }
+
 template<class Int, class UInt, class Scalar, uint bsize, int intprec>
-void decode
-(
-int nx, int ny, int nz,
-thrust::device_vector<Word > &block,
-thrust::device_vector<Scalar> &d_data,
-unsigned long long group_count
-)
+void decode (int nx, 
+             int ny, 
+             int nz,
+             thrust::device_vector<Word > &block,
+             thrust::device_vector<Scalar> &d_data,
+             unsigned long long group_count)
 {
-	decode<Int, UInt, Scalar, bsize, intprec>(
-		nx, ny, nz, 
-    block,
-		thrust::raw_pointer_cast(d_data.data()),
-		group_count
-		);
+	decode<Int, UInt, Scalar, bsize, intprec>(nx, 
+                                            ny, 
+                                            nz, 
+                                            block,
+                                            thrust::raw_pointer_cast(d_data.data()),
+                                            group_count);
 }
-}
+
+} // namespace cuZFP
 
 #endif
