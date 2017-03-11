@@ -43,7 +43,6 @@ const double pi = 3.14159265358979323846;
 //e.g. if we match bits one-to-one, double -> unsigned long long
 // then BSIZE = 64 and MAXPBITS = 4096
 #define BSIZE  16
-uint minbits = BSIZE*64;
 uint MAXBITS = BSIZE*64;
 uint MAXPREC = 64;
 int MINEXP = -1074;

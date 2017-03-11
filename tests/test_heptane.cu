@@ -553,16 +553,11 @@ const Scalar tfinal
 
 
 template<class Int, class UInt, class Scalar, uint bsize>
-void gpuEncode
-(
-host_vector<Scalar> &h_u
-)
+void gpuEncode(host_vector<Scalar> &h_u)
 {
 	
   device_vector<Scalar> d_u;
   d_u = h_u;
-
-
 
 	ErrorCheck ec;
 

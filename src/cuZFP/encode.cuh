@@ -409,7 +409,7 @@ template<typename Int, typename UInt, typename Scalar, uint bsize, int intprec>
 __device__
 void 
 encode (const Scalar *sh_data,
-	      const uint size,
+	      const uint size, 
         unsigned char *smem,
         uint blk_idx,
         Word *blocks)
@@ -640,20 +640,22 @@ void encode (int nx,
              int nz,
              const Scalar *d_data,
              thrust::device_vector<Word> &stream,
-             const unsigned long long group_count,
              const uint size)
 {
   dim3 block_size, grid_size;
   block_size = dim3(4, 4, 4);
   grid_size = dim3(nx, ny, nz);
   grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
+
   std::size_t some_magic_number = (sizeof(Scalar) + 2 * sizeof(unsigned char) + 
                                    sizeof(Bitter) + sizeof(UInt) + 
                                    sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4;
+
 	cudaEncode<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, some_magic_number >> >
     (size,
      d_data,
      thrust::raw_pointer_cast(stream.data()) );
+
   cudaStreamSynchronize(0);
 }
 
@@ -666,7 +668,6 @@ void encode (int nx,
              int nz,
              thrust::device_vector<Scalar> &d_data,
              thrust::device_vector<Word > &stream,
-             const unsigned long long group_count,
              const uint size)
 {
   encode<Int, UInt, Scalar, bsize, intprec>(nx, 
@@ -674,7 +675,6 @@ void encode (int nx,
                                             nz, 
                                             thrust::raw_pointer_cast(d_data.data()),
                                             stream,
-                                            group_count,
                                             size);
 }
 
@@ -687,11 +687,10 @@ void encode(int nx,
             int nz,
             const thrust::host_vector<Scalar> &h_data,
             thrust::device_vector<Word> &stream,
-            const unsigned long long group_count,
             const uint size)
 {
   thrust::device_vector<Scalar> d_data = h_data;
-  encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, d_data, stream, group_count, size);
+  encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, d_data, stream, size);
 }
 
 //
@@ -703,11 +702,10 @@ void encode(int nx,
             int nz,
             const thrust::host_vector<Scalar> &h_data,
             thrust::host_vector<Word> &stream,
-            const unsigned long long group_count,
             const uint size)
 {
   thrust::device_vector<Word > d_stream = stream;
-  encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, h_data, d_stream, group_count, size);
+  encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, h_data, d_stream, size);
   stream = d_stream;
 }
 

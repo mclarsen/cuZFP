@@ -1,4 +1,7 @@
 #include "encode.cuh"
+#include "cuZFP.h"
+
+#include <vector>
 
 namespace cuZFP {
 
@@ -8,7 +11,6 @@ template void encode<long long int, unsigned long long int, double, 8, 64>
    int nz,
    const thrust::host_vector<double> &h_data,
    thrust::host_vector<Word> &stream,
-   const unsigned long long group_count,
    const uint size);
 
 
@@ -18,8 +20,12 @@ template void encode<long long int, unsigned long long int, float, 8, 64>
    int nz,
    const thrust::host_vector<float> &h_data,
    thrust::host_vector<Word> &stream,
-   const unsigned long long group_count,
    const uint size);
+
+void encode_vector(std::vector<double> &in_data, std::vector<int> &encoded_data)
+{
+
+}
 //
 //  Integers are not working yet
 //

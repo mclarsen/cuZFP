@@ -6,6 +6,7 @@
 
 set(cuZFP_sources
     encode.cu
+    cuZFP.cu #main entry point
     cuZFP.cuh
     decode.cuh
     encode.cuh
@@ -14,7 +15,8 @@ set(cuZFP_sources
 
 set(cuZFP_headers
     shared.h
-    ull128.h)
+    ull128.h
+    cuZFP.h)
 
 cuda_add_library(cuZFP
                  ${cuZFP_sources}

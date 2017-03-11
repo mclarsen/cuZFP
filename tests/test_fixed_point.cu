@@ -39,10 +39,7 @@ struct RandGen
 };
 
 template<class Int, class Scalar>
-void cpuTestFixedPoint
-(
-        Scalar *p
-        )
+void cpuTestFixedPoint(Scalar *p)
 {
 //#pragma omp parallel for
     for (int z=0; z<nz; z+=4){
@@ -67,12 +64,9 @@ void cpuTestFixedPoint
 }
 
 template<class Int, class Scalar>
-void gpuTestFixedPoint
-(
-        device_vector<Scalar> &data,
-        device_vector<Int> &q,
-        device_vector<int> &emax
-        )
+void gpuTestFixedPoint(device_vector<Scalar> &data,
+                       device_vector<Int> &q,
+                       device_vector<int> &emax)
 {
     dim3 emax_size(nx/4, ny/4, nz/4 );
 
