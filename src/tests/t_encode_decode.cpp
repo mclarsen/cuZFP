@@ -6,17 +6,20 @@
 #include <math.h>
 TEST(encode_decode, test_encode_decode)
 {
-  const int size = 64;
+  int x = 4;
+  int y = 5;
+  int z = 4;
+  const int size = x * y * z;
   std::vector<double> test_data;
   test_data.resize(size);
 
   for(int i = 0; i < size; ++i)
   {
-    test_data[i] = i;
+    test_data[i] = i; 
   }
 
   cuZFP::EncodedData encoded_data;
-  cuZFP::encode(4,4,4,test_data, encoded_data);
+  cuZFP::encode(x,y,z,test_data, encoded_data);
 
   for(int i = 0; i < encoded_data.m_data.size(); ++i)
   {

@@ -15,6 +15,7 @@ set(cuZFP_sources
     ErrorCheck.cu)
 
 set(cuZFP_headers
+    constant_setup.cuh
     shared.h
     ull128.h
     cuZFP.h

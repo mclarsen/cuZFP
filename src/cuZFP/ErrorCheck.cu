@@ -11,7 +11,8 @@ ErrorCheck::ErrorCheck()
 void ErrorCheck::chk(std::string msg)
 {
     error = cudaGetLastError();
-    if (error != cudaSuccess){
+    if (error != cudaSuccess)
+    {
         cout << msg << " : " << error;
         cout << " " << cudaGetErrorString(error) << endl;
     }

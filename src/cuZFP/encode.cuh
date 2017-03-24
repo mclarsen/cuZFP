@@ -645,7 +645,11 @@ void encode (int nx,
   dim3 block_size, grid_size;
   block_size = dim3(4, 4, 4);
   grid_size = dim3(nx, ny, nz);
-  grid_size.x /= block_size.x; grid_size.y /= block_size.y;  grid_size.z /= block_size.z;
+
+  grid_size.x /= block_size.x; 
+  grid_size.y /= block_size.y;  
+  if(ny % 4 != 0) grid_size.y++;
+  grid_size.z /= block_size.z;
 
   std::size_t some_magic_number = (sizeof(Scalar) + 2 * sizeof(unsigned char) + 
                                    sizeof(Bitter) + sizeof(UInt) + 
