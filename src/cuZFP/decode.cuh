@@ -164,7 +164,6 @@ read_bit(char &offset, uint &bits, Word &buffer, const Word *begin)
   return bit;
 }
 /* read 0 <= n <= 64 bits */
-template<uint BITSIZE = sizeof(unsigned long long) * CHAR_BIT>
 __host__ __device__
 unsigned long long
 read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
@@ -176,6 +175,7 @@ read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
     value += (uint64)stream_read_bit(stream) << i;
   return value;
 #elif 1
+  uint BITSIZE = sizeof(unsigned long long) * CHAR_BIT;
   unsigned long long value;
   /* because shifts by 64 are not possible, treat n = 64 specially */
 	if (n == BITSIZE) {
@@ -342,7 +342,7 @@ void decode(const Word *blocks,
 	UInt l_data = 0;
 
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
-	uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
+	//uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
 	out[out_idx] = 0;
 
 	if (tid == 0){
@@ -465,13 +465,12 @@ __global__
 void
 __launch_bounds__(64,5)
 cudaDecode(Word *blocks,
-           Scalar *out,
-           const unsigned long long orig_count)
+           Scalar *out)
 {
-	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
+	//uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
   uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
-  uint bdim = blockDim.x*blockDim.y*blockDim.z;
-  uint bidx = idx*bdim;
+  //uint bdim = blockDim.x*blockDim.y*blockDim.z;
+  //uint bidx = idx*bdim;
 
 	extern __shared__ unsigned char smem[];
 
@@ -485,9 +484,8 @@ template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 void decode(int nx, 
             int ny, 
             int nz,
-            thrust::device_vector<Word > &stream,
-            Scalar *d_data,
-            unsigned long long group_count)
+            thrust::device_vector<Word> &stream,
+            Scalar *d_data)
 {
   //ErrorCheck ec;
   dim3 emax_size(nx / 4, ny / 4, nz / 4);
@@ -498,8 +496,7 @@ void decode(int nx,
 
   const int some_magic_number = 64 * (8) + 4 + 4; 
   cudaDecode<Int, UInt, Scalar, bsize, intprec> << < grid_size, block_size, some_magic_number >> >(raw_pointer_cast(stream.data()),
-		d_data,
-		group_count);
+		d_data);
 	cudaStreamSynchronize(0);
   //ec.chk("cudaInvXformCast");
 
@@ -514,15 +511,13 @@ void decode (int nx,
              int ny, 
              int nz,
              thrust::device_vector<Word > &block,
-             thrust::device_vector<Scalar> &d_data,
-             unsigned long long group_count)
+             thrust::device_vector<Scalar> &d_data)
 {
 	decode<Int, UInt, Scalar, bsize, intprec>(nx, 
                                             ny, 
                                             nz, 
                                             block,
-                                            thrust::raw_pointer_cast(d_data.data()),
-                                            group_count);
+                                            thrust::raw_pointer_cast(d_data.data()));
 }
 
 } // namespace cuZFP

@@ -4,7 +4,7 @@
 #include <vector>
 
 namespace cuZFP {
-
+/*
 template void encode<long long int, unsigned long long int, double, 8, 64>
   (int nx, 
    int ny, 
@@ -14,18 +14,23 @@ template void encode<long long int, unsigned long long int, double, 8, 64>
    const uint size);
 
 
-template void encode<long long int, unsigned long long int, float, 8, 64>
+template void encode<long long int, unsigned long long int, float, 8, 32>
   (int nx, 
    int ny, 
    int nz,
    const thrust::host_vector<float> &h_data,
    thrust::host_vector<Word> &stream,
    const uint size);
+*/
 
-void encode_vector(std::vector<double> &in_data, std::vector<int> &encoded_data)
-{
+template void encode<long long int, unsigned long long int, double, 16, 64>
+            (int nx, 
+             int ny, 
+             int nz,
+             thrust::device_vector<double> &d_data,
+             thrust::device_vector<Word > &stream,
+             const uint size);
 
-}
 //
 //  Integers are not working yet
 //

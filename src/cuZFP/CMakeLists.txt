@@ -11,12 +11,14 @@ set(cuZFP_sources
     decode.cuh
     encode.cuh
     BitStream.cuh
-    WriteBitter.cuh)
+    WriteBitter.cuh
+    ErrorCheck.cu)
 
 set(cuZFP_headers
     shared.h
     ull128.h
-    cuZFP.h)
+    cuZFP.h
+    ErrorCheck.h)
 
 cuda_add_library(cuZFP
                  ${cuZFP_sources}

@@ -48,7 +48,6 @@ uint MAXPREC = 64;
 int MINEXP = -1074;
 const double rate = BSIZE;
 size_t  blksize = 0;
-unsigned long long group_count = 0x46acca631ull;
 uint size = 64;
 int EBITS = 11;                     /* number of exponent bits */
 const int EBIAS = 1023;
@@ -660,26 +659,14 @@ void gpu_discrete_solution
 	rme(out, x0, y0, z0, dx, dy, dz, k, tfinal - dt);
 }
 template<class Int, class UInt, class Scalar, uint bsize>
-void gpuDiffusion
-(
-int x0, int y0, int z0,
-Scalar dx,Scalar dy, Scalar dz, Scalar dt, Scalar k, Scalar tfinal,
-host_vector<Scalar> &h_u
-)
+void gpuDiffusion ( int x0, int y0, int z0,
+                    Scalar dx,Scalar dy, Scalar dz, Scalar dt, Scalar k, Scalar tfinal,
+                    host_vector<Scalar> &h_u)
 {
-	host_vector<int> h_emax;
-	host_vector<UInt> h_p;
-	host_vector<Int> h_q;
-	host_vector<UInt> h_buf(nx*ny*nz);
-	host_vector<cuZFP::Bit<bsize> > h_bits;
-	device_vector<unsigned char> d_g_cnt;
 	host_vector<Scalar> h_du(nx*ny*nz, 0.0);
-
 	thrust::fill(h_u.begin(), h_u.end(), 0.0);
 	device_vector<Scalar> d_du;
-
 	h_u[x0 + nx*y0 + nx*ny*z0] = 1;
-
 	device_vector<Scalar> d_u;
 	//tmp_u = h_data;
 
@@ -700,6 +687,7 @@ host_vector<Scalar> &h_u
 
 
 	dim3 emax_size(nx / 4, ny / 4, nz / 4);
+  // arrays where the incoded data is stored
 	device_vector<Word > u(emax_size.x * emax_size.y * emax_size.z * bsize);
 	device_vector<Word > du(emax_size.x * emax_size.y * emax_size.z * bsize);
 	cuZFP::encode<Int, UInt, Scalar, bsize, intprec>(nx, ny, nz, d_u, u, group_count, size);
