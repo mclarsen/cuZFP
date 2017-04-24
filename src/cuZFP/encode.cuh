@@ -408,27 +408,36 @@ encodeBitplane(unsigned long long count,
 template<typename Int, typename UInt, typename Scalar, uint bsize, int intprec>
 __device__
 void 
-encode (const Scalar *sh_data,
+encode (Scalar *sh_data,
 	      const uint size, 
         unsigned char *smem,
         uint blk_idx,
         Word *blocks)
 {
+  //shared mem that depends on scalar size
 	__shared__ Scalar *sh_reduce;
-	__shared__ int *sh_emax;
 	__shared__ Int *sh_q;
 	__shared__ UInt *sh_p;
+
+  // shared mem that always has the same size
+	__shared__ int *sh_emax;
 	__shared__ uint *sh_m, *sh_n;
 	__shared__ unsigned char *sh_sbits;
 	__shared__ Bitter *sh_bitters;
 	__shared__ uint *s_emax_bits;
 
-	sh_sbits = &smem[64];
-	sh_bitters = (Bitter*)&smem[64 + 64];
-	sh_p = (UInt*)&smem[64 + 64 + 16 * 64];
-	sh_reduce = (Scalar*)&sh_p[64];
-	sh_q = (Int*)&sh_reduce[32];
-	sh_m = (uint*)&sh_q[64];
+  //
+  // These memory locations do not overlap
+  // so we will re-use the same buffer to
+  // conserve precious shared mem space
+  //
+	sh_reduce = &sh_data[0];
+	sh_q = (Int*)&sh_data[0];
+	sh_p = (UInt*)&sh_data[0];
+
+	sh_sbits = &smem[0];
+	sh_bitters = (Bitter*)&sh_sbits[64];
+	sh_m = (uint*)&sh_bitters[64];
 	sh_n = (uint*)&sh_m[64];
 	s_emax_bits = (uint*)&sh_n[64];
 	sh_emax = (int*)&s_emax_bits[1];
@@ -691,9 +700,11 @@ void encode (int nx,
   if(ny % 4 != 0) grid_size.y++;
   if(nz % 4 != 0) grid_size.z++;
 
-  std::size_t some_magic_number = (sizeof(Scalar) + 2 * sizeof(unsigned char) + 
-                                   sizeof(Bitter) + sizeof(UInt) + 
-                                   sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4;
+  //std::size_t some_magic_number = (sizeof(Scalar) + 2 * sizeof(unsigned char) + 
+  //                                 sizeof(Bitter) + sizeof(UInt) + 
+  //                                 sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4;
+  std::size_t some_magic_number = sizeof(Scalar) * 64 +  sizeof(Bitter) * 64 + sizeof(unsigned char) * 64
+                                + sizeof(unsigned int) * 128 + 2 * sizeof(int);
   std::cout<<"Magic number "<<some_magic_number<<"\n";
 	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 

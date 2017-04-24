@@ -4,7 +4,7 @@
 #include <iostream>
 #include <math.h>
 #include <iomanip>
-#if 1
+#if 0
 TEST(encode_decode, test_encode_decode)
 {
   int x = 4;
