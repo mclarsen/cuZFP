@@ -457,59 +457,63 @@ encode (const Scalar *sh_data,
 		sh_reduce[0] = max(sh_reduce[tid], sh_reduce[tid + 1]);
 		sh_emax[0] = exponent(sh_reduce[0]);
 	}
+  // NO MORE sh_reduce
 	__syncthreads();
-	//if (tid == 0){
-	//	//uint mx = blockIdx.x, my = blockIdx.y, mz = blockIdx.z;
-	//	//mx *= 4; my *= 4; mz *= 4;
-	//	//sh_emax[0] = max_exp_block(data, mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
-
-	//	//fixed_point_block<Int, Scalar>(sh_q, data, sh_emax[0], mx, my, mz, 1, gridDim.x * blockDim.x, gridDim.x * gridDim.y * blockDim.x * blockDim.y);
-	//}
-	//__syncthreads();
 
 	//fixed_point
 	Scalar w = LDEXP(1.0, intprec - 2 - sh_emax[0]);
-	sh_q[tid] = (Int)(sh_data[tid] * w);
+  // w = actu
+  // sh_q  = signed integer representation of the floating point value
+  // block tranform
+  sh_q[tid] = (Int)(sh_data[tid] * w);
 
-
+  // Decorrelation
 	fwd_xform(sh_q);
 	__syncthreads();
 	//fwd_order
 	sh_p[tid] = int2uint<Int, UInt>(sh_q[c_perm[tid]]);
+  // NO MORE sh_q
+  // sh_p negabinary rep
 	if (tid == 0)
   {
+    //   
 		s_emax_bits[0] = 1;
+
 		int maxprec = precision(sh_emax[0], c_maxprec, c_minexp);
 		//kmin = intprec > maxprec ? intprec - maxprec : 0;
 
 		uint e = maxprec ? sh_emax[0] + ebias : 0;
+
 		if (e)
     {
 			//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
-			blocks[blk_idx] = 2 * e + 1;
-			s_emax_bits[0] = c_ebits + 1;
+			blocks[blk_idx] = 2 * e + 1; // the bit count?? for this block
+			s_emax_bits[0] = c_ebits + 1;// this c_ebit = ebias
 		}
 	}
 	__syncthreads();
 
 	/* extract bit plane k to x[k] */
+  // size  is probaly bit per value
 	unsigned long long y = 0;
 	for (uint i = 0; i < size; i++)
   {
 		y += ((sh_p[i] >> tid) & (unsigned long long)1) << i;
   }
-
+  // NO MORE sh_q
 	unsigned long long x = y;
 
 	__syncthreads();
-	sh_m[tid] = 0;
+	sh_m[tid] = 0; // is  
 	sh_n[tid] = 0;
 
 	//temporarily use sh_n as a buffer
 	//uint *sh_test = sh_n;
+  // these are setting up indices to things that have value
+  // this is basically a scan
 	for (int i = 0; i < 64; i++)
   {
-		if (!!(x >> i))
+		if (!!(x >> i)) // !! is this bit zero
     {
 			sh_n[tid] = i + 1;
     }
@@ -521,6 +525,7 @@ encode (const Scalar *sh_data,
 	}
 
 	__syncthreads();
+  // 
 	if (tid == 0)
   {
 		for (int i = intprec - 1; i-- > 0;)
@@ -532,8 +537,8 @@ encode (const Scalar *sh_data,
 		}
 	}
 	__syncthreads();
-
-	int bits = 128;
+  /// maybe don't use write bitter with float 32
+	int bits = 128; // worst possible encoding outcome
 	int n = 0;
 	/* step 2: encode first n bits of bit plane */
 	bits -= sh_m[tid];
@@ -597,7 +602,10 @@ void
 __launch_bounds__(64,5)
 cudaEncode(uint size,
            const Scalar* data,
-           Word *blocks)
+           Word *blocks,
+           const int nx,
+           const int ny,
+           const int nz)
 {
   //	int mx = threadIdx.x + blockDim.x*blockIdx.x;
   //	int my = threadIdx.y + blockDim.y*blockIdx.y;
@@ -615,10 +623,36 @@ cudaEncode(uint size,
   uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
   //uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
 
+  //
+  //  The number of threads launched can be larger than total size of
+  //  the array in cases where it cannot be devided into perfect block
+  //  sizes. To account for this, we will clamp the values in each block
+  //  to the bounds of the data set. 
+  //
 
-	sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y 
-              + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
+  const uint x_coord = min(threadIdx.x + blockIdx.x * 4, nx - 1);
+  const uint y_coord = min(threadIdx.y + blockIdx.y * 4, ny - 1);
+  const uint z_coord = min(threadIdx.z + blockIdx.z * 4, nz - 1);
+  const uint x_coord1 = threadIdx.x + blockIdx.x * 4;
+  const uint y_coord1 = threadIdx.y + blockIdx.y * 4;
+  const uint z_coord1 = threadIdx.z + blockIdx.z * 4;
+      
+	//sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y 
+  //            + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
   
+	uint id1 = (threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y 
+              + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4);
+
+	uint id = z_coord * nx * ny 
+          + y_coord * nx 
+          + x_coord;
+  //printf(" ids %u %u\n", id, id1);
+
+	sh_data[tid] = data[id];
+  //printf(" coord (%u, %u, %u)(%u, %u, %u) %f index %u\n", x_coord, y_coord, z_coord, x_coord1, y_coord1, z_coord1, data[id], id);
+	//sh_data[tid] = data[z_coord * gridDim.x * gridDim.y * blockDim.x * blockDim.y 
+  //             + y_coord * gridDim.x * blockDim.x 
+  //             + x_coord];
 	__syncthreads();
 
 	encode<Int, UInt, Scalar, bsize, intprec>(sh_data,
@@ -648,17 +682,25 @@ void encode (int nx,
 
   grid_size.x /= block_size.x; 
   grid_size.y /= block_size.y;  
-  if(ny % 4 != 0) grid_size.y++;
   grid_size.z /= block_size.z;
+  // Check to see if we need to increase the block sizes
+  // in the case where dim[x] is not a multiple of 4
+  if(nx % 4 != 0) grid_size.x++;
+  if(ny % 4 != 0) grid_size.y++;
+  if(nz % 4 != 0) grid_size.z++;
 
   std::size_t some_magic_number = (sizeof(Scalar) + 2 * sizeof(unsigned char) + 
                                    sizeof(Bitter) + sizeof(UInt) + 
                                    sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4;
-
+  std::cout<<"Magic number "<<some_magic_number<<"\n";
+	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 	cudaEncode<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, some_magic_number >> >
     (size,
      d_data,
-     thrust::raw_pointer_cast(stream.data()) );
+     thrust::raw_pointer_cast(stream.data()),
+     nx,
+     ny,
+     nz);
 
   cudaStreamSynchronize(0);
 }

@@ -1,14 +1,15 @@
-
 #include <gtest/gtest.h>
 #include <cuZFP.h>
 #include <vector>
 #include <iostream>
 #include <math.h>
+#include <iomanip>
+#if 0
 TEST(encode_decode, test_encode_decode)
 {
   int x = 4;
-  int y = 5;
-  int z = 4;
+  int y = 7;
+  int z = 3;
   const int size = x * y * z;
   std::vector<double> test_data;
   test_data.resize(size);
@@ -30,10 +31,48 @@ TEST(encode_decode, test_encode_decode)
 
   std::vector<double> test_out_data;
   cuZFP::decode(encoded_data, test_out_data);
-
+  std::cout<<"Size "<<size<<"\n";
   for(int i = 0; i < size; ++i)
   {
-    std::cout<<test_out_data.at(i)<<"\n";
+    std::cout<<"i "<<i<<" "<<test_out_data.at(i)<<"\n";
   }
+}
+#endif
+TEST(encode_decode_large, test_encode_decode_large)
+{
+  int nx = 128;
+  int ny = 128;
+  int nz = 128;
+  const int size = nx * ny * nz;
+  std::vector<double> test_data;
+  test_data.resize(size);
+
+  for(int z = 0; z < nz; ++z)
+    for(int y = 0; y < ny; ++y)
+      for(int x = 0; x < nx; ++x)
+  {
+
+    double val = sqrt(double(z*z) + double(x*x) + double(y*y));
+    val =  1. / val;
+    int index = z * nx *ny + y * nx + x;
+    test_data[index] = val;
+  }
+
+  cuZFP::EncodedData encoded_data;
+  cuZFP::encode(nx,ny,nz,test_data, encoded_data);
+
+
+  std::vector<double> test_data_out;
+  cuZFP::decode(encoded_data, test_data_out);
+  double tot_err = 0;
+  for(int i = 0; i < size; ++i)
+  {
+      tot_err += abs((test_data[i] - test_data_out[i]) / test_data[i]);
+  }
+  std::cout<<std::setprecision(15);
+  std::cout<<abs((test_data[100] - test_data_out[100]) / test_data[100])<<"\n";
+
+  tot_err /= double(size);
+  std::cout<<"Total error "<<tot_err<<" in "<<size<<" values.\n";
 }
 

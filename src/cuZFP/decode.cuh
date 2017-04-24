@@ -310,7 +310,8 @@ decode_ints(Word *block, UInt* data, uint minbits, uint maxbits, uint maxprec, u
 	}
 
 	/* read at least minbits bits */
-	while (bits > maxbits - minbits) {
+	while (bits > maxbits - minbits) 
+  {
 		bits--;
     read_bit(offset, sbits, buffer, block);
 	}
@@ -319,12 +320,14 @@ decode_ints(Word *block, UInt* data, uint minbits, uint maxbits, uint maxprec, u
 
 }
 
-template<typename Int, typename UInt, typename Scalar, uint bsize, int intprec>
+template<typename Int, 
+         typename UInt, 
+         typename Scalar, 
+         uint bsize, 
+         int intprec>
 __device__ 
-void decode(const Word *blocks,
-            unsigned char *smem,
-            uint out_idx,
-            Scalar *out)
+Scalar  decode(const Word *blocks,
+               unsigned char *smem)
 {
 	__shared__ uint *s_kmin;
 	__shared__ unsigned long long *s_bit_cnt;
@@ -339,23 +342,27 @@ void decode(const Word *blocks,
 	s_emax = (int*)&s_kmin[1];
 	s_cont = (int *)&s_emax[1];
 
-	UInt l_data = 0;
 
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 	//uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
-	out[out_idx] = 0;
+	Scalar result = 0;
 
-	if (tid == 0){
+	if (tid == 0)
+  {
 		//Bit<bsize> stream(blocks + idx * bsize);
 		uint sbits = 0;
 		Word buffer = 0;
 		char offset = 0;
 
 		s_cont[0] = read_bit(offset, sbits, buffer, blocks);
-	}__syncthreads();
+	}
 
-	if (s_cont[0]){
-		if (tid == 0){
+  __syncthreads();
+
+	if (s_cont[0])
+  {
+		if (tid == 0)
+    {
 			uint sbits = 0;
 			Word buffer = 0;
 			char offset = 0;
@@ -367,7 +374,8 @@ void decode(const Word *blocks,
 			int maxprec = precision(s_emax[0], c_maxprec, c_minexp);
 			s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
 			uint bits = c_maxbits - ebits;
-			for (uint k = intprec, n = 0; k-- > 0;){
+			for (uint k = intprec, n = 0; k-- > 0;)
+      {
 				//					idx_n[k] = n;
 				//					bit_rmn_bits[k] = bits;
 				uint m = MIN(n, bits);
@@ -380,6 +388,7 @@ void decode(const Word *blocks,
 
 		}	__syncthreads();
 
+	UInt l_data = 0;
 #pragma unroll 64
 		for (int i = 0; i < 64; i++)
 			l_data += (UInt)((s_bit_cnt[i] >> tid) & 1u) << i;
@@ -391,10 +400,12 @@ void decode(const Word *blocks,
 		__syncthreads();
 
 		//inv_cast
-		out[out_idx] = dequantize<Int, Scalar>(1, s_emax[0]);
-		out[out_idx] *= (Scalar)(s_iblock[tid]);
+		result = dequantize<Int, Scalar>(1, s_emax[0]);
+		result  *= (Scalar)(s_iblock[tid]);
+    return result;
 	}
 }
+
 template<class Int, class UInt>
 __global__
 void cudaInvOrder(const UInt *p,
@@ -465,7 +476,10 @@ __global__
 void
 __launch_bounds__(64,5)
 cudaDecode(Word *blocks,
-           Scalar *out)
+           Scalar *out,
+           const int nx,
+           const int ny,
+           const int nz)
 {
 	//uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
   uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
@@ -474,10 +488,37 @@ cudaDecode(Word *blocks,
 
 	extern __shared__ unsigned char smem[];
 
-	decode<Int, UInt, Scalar, bsize, intprec>(blocks + bsize*idx, 
-                                            smem,
-		                                        (threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4),
-                                            out);
+  const uint x_coord = threadIdx.x + blockIdx.x * 4;
+  const uint y_coord = threadIdx.y + blockIdx.y * 4;
+  const uint z_coord = threadIdx.z + blockIdx.z * 4;
+
+  const uint index = z_coord * gridDim.x * gridDim.y * blockDim.x * blockDim.y 
+                   + y_coord * gridDim.x * blockDim.x 
+                   + x_coord;
+	Scalar val = decode<Int, 
+                      UInt, 
+                      Scalar, 
+                      bsize, 
+                      intprec>(blocks + bsize*idx, 
+                               smem);
+  bool real_data = true;
+  //
+  // make sure we don't write out data that was padded out to make 
+  // the block sizes all 4^3
+  //
+  if(x_coord >= nx || y_coord >= ny || z_coord >= nz)
+  {
+    real_data = false;
+    //printf("i %u %f\n", index,val);
+  }
+  const uint out_index = z_coord * nx * ny 
+                       + y_coord * nx
+                       + x_coord;
+  if(real_data)
+  {
+    out[out_index] = val;
+  }
+  
 	//inv_cast
 }
 template<class Int, class UInt, class Scalar, uint bsize, int intprec>
@@ -487,16 +528,27 @@ void decode(int nx,
             thrust::device_vector<Word> &stream,
             Scalar *d_data)
 {
-  //ErrorCheck ec;
-  dim3 emax_size(nx / 4, ny / 4, nz / 4);
 
   dim3 block_size = dim3(4, 4, 4);
   dim3 grid_size = dim3(nx, ny, nz);
-  grid_size.x /= block_size.x; grid_size.y /= block_size.y; grid_size.z /= block_size.z;
+
+  grid_size.x /= block_size.x; 
+  grid_size.y /= block_size.y; 
+  grid_size.z /= block_size.z;
+
+  // Check to see if we need to increase the block sizes
+  // in the case where dim[x] is not a multiple of 4
+  if(nx % 4 != 0) grid_size.x++;
+  if(ny % 4 != 0) grid_size.y++;
+  if(nz % 4 != 0) grid_size.z++;
 
   const int some_magic_number = 64 * (8) + 4 + 4; 
-  cudaDecode<Int, UInt, Scalar, bsize, intprec> << < grid_size, block_size, some_magic_number >> >(raw_pointer_cast(stream.data()),
-		d_data);
+  cudaDecode<Int, UInt, Scalar, bsize, intprec> << < grid_size, block_size, some_magic_number >> >
+    (raw_pointer_cast(stream.data()),
+		 d_data,
+     nx,
+     ny,
+     nz);
 	cudaStreamSynchronize(0);
   //ec.chk("cudaInvXformCast");
 
