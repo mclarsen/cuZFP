@@ -437,10 +437,11 @@ encode (const Scalar *sh_data,
 	Bitter bitter = make_bitter(0, 0);
 	unsigned char sbit = 0;
 	//uint kmin = 0;
-
 	if (tid < bsize)
 		blocks[blk_idx + tid] = 0; 
 
+  // cache the value this thread is resposible for
+  Scalar thread_val = sh_data[tid];
 	__syncthreads();
 	//max_exp
 	if (tid < 32)
@@ -465,7 +466,8 @@ encode (const Scalar *sh_data,
   // w = actu
   // sh_q  = signed integer representation of the floating point value
   // block tranform
-  sh_q[tid] = (Int)(sh_data[tid] * w);
+  sh_q[tid] = (Int)(thread_val * w);
+  // NO MORE sh_data
 
   // Decorrelation
 	fwd_xform(sh_q);
@@ -567,7 +569,7 @@ encode (const Scalar *sh_data,
   }
 	__syncthreads();
 
-
+  // First use of both bitters and sbits
 	sh_bitters[63 - tid] = bitter;
 	sh_sbits[63 - tid] = sbit;
 	__syncthreads();
@@ -575,7 +577,7 @@ encode (const Scalar *sh_data,
 	if (tid == 0)
   {
 		uint tot_sbits = s_emax_bits[0];// sbits[0];
-		uint  rem_sbits = s_emax_bits[0];// sbits[0];
+		uint rem_sbits = s_emax_bits[0];// sbits[0];
 		uint offset = 0;
 		for (int i = 0; i < intprec && tot_sbits < c_maxbits; i++)
     {
@@ -694,6 +696,12 @@ void encode (int nx,
                                    sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4;
   std::cout<<"Magic number "<<some_magic_number<<"\n";
 	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
+
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+
+  cudaEventRecord(start);
 	cudaEncode<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, some_magic_number >> >
     (size,
      d_data,
@@ -701,8 +709,17 @@ void encode (int nx,
      nx,
      ny,
      nz);
-
+  cudaEventRecord(stop);
+  cudaEventSynchronize(stop);
   cudaStreamSynchronize(0);
+  float miliseconds = 0;
+  cudaEventElapsedTime(&miliseconds, start, stop);
+  float seconds = miliseconds / 1000.f;
+  printf("Encode elapsed time: %.5f (s)\n", seconds);
+  float rate = (float(nx*ny*nz) * sizeof(Scalar) ) / seconds;
+  rate /= 1024.f;
+  rate /= 1024.f;
+  printf("Encode rate: %.2f (MB / sec)\n", rate);
 }
 
 //
