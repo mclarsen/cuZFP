@@ -51,90 +51,6 @@ exponent(Scalar x)
   return -ebias;
 }
 
-template<class T, bool mult_only>
-__device__ __host__
-void setLDEXP(uint idx,
-              const T *in,
-              T *out,
-              const T w,
-              const int exp)
-{
-  if (mult_only)
-  {
-    out[idx] = in[idx] * w;
-  }
-  else
-  {
-    out[idx] = LDEXP(in[idx], exp);
-  }
-}
-
-
-template<class T>
-__host__ __device__
-void setFREXP(uint idx,
-              const T *in,
-              T *out,
-              int *nptr)
-{
-  out[idx] = FREXP(in[idx], &nptr[ idx] );
-}
-
-// block-floating-point transform to signed integers
-template<class Int, class Scalar, int intprec>
-int fwd_cast(Int* q, const Scalar* p, uint sx, uint sy, uint sz)
-{
-  // compute maximum exponent
-  Scalar fmax = 0;
-  for (uint z = 0; z < 4; z++, p += sz - 4 * sy)
-    for (uint y = 0; y < 4; y++, p += sy - 4 * sx)
-      for (uint x = 0; x < 4; x++, p += sx)
-        fmax = MAX(fmax, FABS(*p));
-  p -= 4 * sz;
-  int emax = exponent(fmax);
-
-  double w = LDEXP(1, intprec -2 -emax);
-  // normalize by maximum exponent and convert to fixed-point
-  for (uint z = 0; z < 4; z++, p += sz - 4 * sy)
-    for (uint y = 0; y < 4; y++, p += sy - 4 * sx)
-      for (uint x = 0; x < 4; x++, p += sx, q++){
-          *q =(Int)(*p*w);
-      }
-
-  return emax;
-}
-
-__host__ __device__
-void decompIdx(uint sx,
-               uint sy,
-               uint sz,
-               int idx,
-               uint &x,
-               uint &y,
-               uint &z)
-{
-    z = sz == 0 ? 0 : idx / (sz);
-    uint rem = sz == 0 ? 0: idx % sz;
-    y = sy == 0  ? 0  : rem / sy;
-    x = sy == 0 ? 0 : rem % sy;
-}
-
-template<class Scalar>
-__device__ __host__
-int max_exp_block(const Scalar *p, uint mx, uint my, uint mz, uint sx, uint sy, uint sz)
-{
-//    uint mx,my,mz;
-//    decompIdx(sx,sy,sz, idx, mx,my,mz);
-    Scalar fmax = 0;
-    for (int z=mz; z<mz+4; z++)
-        for (int y=my; y<my+4; y++)
-            for (int x=mx; x<mx+4; x++)
-                fmax = MAX(fmax, FABS(p[z*sz+y*sy+x]));
-
-    return exponent(fmax);
-}
-
-
 //gather from p into q
 template<class Int, class Scalar, int intprec>
 __host__  __device__
@@ -151,36 +67,6 @@ void  fixed_point_block(Int *q, const Scalar *p, int emax, uint mx, uint my, uin
         for (int y=my; y<my+4; y++)
             for (int x=mx; x<mx+4; x++,i++)
                 q[i] =(Int)(p[z*sz+y*sy+x]*w);
-
-}
-
-template<class Scalar>
-__device__ __host__
-int max_exp_flat(const Scalar *p, uint begin_idx, uint end_idx)
-{
-  //    uint mx,my,mz;
-  //    decompIdx(sx,sy,sz, idx, mx,my,mz);
-  Scalar fmax = 0;
-  for (int i = begin_idx; i < end_idx; i++)
-    fmax = MAX(fmax, FABS(p[i]));
-
-  return exponent(fmax);
-}
-
-//gather from p into q
-template<class Int, class Scalar, int intprec>
-__host__  __device__
-void  fixed_point_flat(Int *q, const Scalar *p, int emax, uint begin_idx, uint end_idx)
-{
-  //    uint mx,my,mz;
-  //    decompIdx(sx,sy,sz, idx, mx,my,mz);
-
-  //quantize
-  //ASSUME CHAR_BIT is 8 and Scalar is 8
-  Scalar w = LDEXP(1.0, intprec - 2 - emax);
-
-  for (uint i = begin_idx; i < end_idx; i++)
-        q[i] = (Int)(p[i] * w);
 
 }
 
@@ -217,13 +103,7 @@ __device__ __host__
 static void
 fwd_xform_zy(Int* p)
 {
-
 	fwd_lift<Int,1>(p + 4 * threadIdx.x + 16 * threadIdx.z);
-
-	//for (uint z = 0; z < 4; z++)
-	//	for (uint y = 4; y-- > 0;)
- //       fwd_lift<Int, 1>(p + 4 * y + 16 * z);
-
 }
 // forward decorrelating transform
 template<class Int>
@@ -232,10 +112,6 @@ static void
 fwd_xform_xz(Int* p)
 {
 	fwd_lift<Int, 4>(p + 16 * threadIdx.z + 1 * threadIdx.x);
-	//for (uint x = 4; x-- > 0;)
-    //  for (uint z = 4; z-- > 0;)
-				//fwd_lift<Int, 4>(p + 16 * z + 1 * x);
-
 }
 // forward decorrelating transform
 template<class Int>
@@ -244,10 +120,6 @@ static void
 fwd_xform_yx(Int* p)
 {
 	fwd_lift<Int, 16>(p + 1 * threadIdx.x + 4 * threadIdx.z);
-	//for (uint y = 4; y-- > 0;)
- //     for (uint x = 4; x-- > 0;)
-	//			fwd_lift<Int, 16>(p + 1 * x + 4 * y);
-
 }
 
 // forward decorrelating transform
@@ -261,148 +133,6 @@ fwd_xform(Int* p)
 	fwd_xform_xz(p);
 	__syncthreads();
 	fwd_xform_yx(p);
-//	if (tid == 0){
-////    fwd_xform_zy(p, tid);
-//		fwd_xform_yx(p);
-//
-//	}
-}
-
-template<class Int, class UInt>
-__global__
-void cudaint2uint(const Int *p, 
-                  UInt *q)
-{
-    int x = threadIdx.x + blockDim.x*blockIdx.x;
-    int y = threadIdx.y  + blockDim.y*blockIdx.y;
-    int z = threadIdx.z + blockDim.z*blockIdx.z;
-    int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
-    q[idx] = int2uint<Int, UInt>(p[c_perm[idx%64] + idx - idx % 64]);
-}
-
-template<class Int>
-__global__
-void cudaDecorrelate(Int *p)
-{
-    int x = threadIdx.x + blockDim.x*blockIdx.x;
-    int y = threadIdx.y  + blockDim.y*blockIdx.y;
-    int z = threadIdx.z + blockDim.z*blockIdx.z;
-    int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
-    fwd_xform(p + idx*64);
-}
-
-template<class Int>
-__global__
-void cudaDecorrelateZY(Int *p)
-{
-    int x = threadIdx.x + blockDim.x*blockIdx.x;
-    int y = threadIdx.y  + blockDim.y*blockIdx.y;
-    int z = threadIdx.z + blockDim.z*blockIdx.z;
-    int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
-    fwd_lift(p+4*idx,1);
-}
-
-template<class Int>
-__global__
-void cudaDecorrelateXZ(Int *p)
-{
-    int i = threadIdx.x + blockDim.x*blockIdx.x;
-    int j = threadIdx.y  + blockDim.y*blockIdx.y;
-    int k = threadIdx.z  + blockDim.z*blockIdx.z;
-
-    int idx = j*gridDim.x*blockDim.x + i;
-    fwd_lift(p + k%4 + 16*idx,4);
-}
-
-template<class Int>
-__global__
-void cudaDecorrelateYX(Int *p)
-{
-    int i = threadIdx.x + blockDim.x*blockIdx.x;
-    int j = threadIdx.y  + blockDim.y*blockIdx.y;
-    int k = threadIdx.z  + blockDim.z*blockIdx.z;
-
-    int idx = j*gridDim.x*blockDim.x + i;
-    fwd_lift(p + k % 16 + 64*idx, 16);
-}
-
-template<class Int, class Scalar>
-__global__
-void cudaFixedPoint(const int *emax,
-                    const Scalar *data,
-                    Int *q)
-{
-    int x = threadIdx.x + blockDim.x*blockIdx.x;
-    int y = threadIdx.y  + blockDim.y*blockIdx.y;
-    int z = threadIdx.z + blockDim.z*blockIdx.z;
-    int eidx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
-
-    x *= 4; y*=4; z*=4;
-    //int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
-    fixed_point_block(q + eidx*64, 
-                      data, 
-                      emax[eidx], 
-                      x,
-                      y,
-                      z, 
-                      1, 
-                      gridDim.x*blockDim.x*4, 
-                      gridDim.x*blockDim.x*4*gridDim.y*blockDim.y*4);
-}
-
-template<class Scalar>
-__global__
-void cudaMaxExp(int *emax,
-                Scalar *data)
-{
-    int x = threadIdx.x + blockDim.x*blockIdx.x;
-    int y = threadIdx.y  + blockDim.y*blockIdx.y;
-    int z = threadIdx.z + blockDim.z*blockIdx.z;
-    int eidx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
-
-    x *= 4; y*=4; z*=4;
-    //int idx = z*gridDim.x*gridDim.y*blockDim.x*blockDim.y*16 + y*gridDim.x*blockDim.x*4+ x;
-    emax[eidx] = max_exp_block(data, x,y,z, 1, gridDim.x*blockDim.x*4, gridDim.x*blockDim.x*4*gridDim.y*blockDim.y*4);
-
-}
-
-inline
-__device__ __host__
-void
-encodeBitplane(unsigned long long count,
-               unsigned long long x,
-               const unsigned char g,
-               unsigned char h,
-               const unsigned char *g_cnt,
-               //uint &h, uint &n_cnt, unsigned long long &cnt,
-               Bitter &bitters,
-               unsigned char &sbits)
-{ 
-  unsigned long long cnt = count;
-  cnt >>= h * 4;
-  uint n_cnt = g_cnt[h];
-
-  /* serial: output one bit plane at a time from MSB to LSB */
-
-  sbits = 0;
-  /* encode bit k for first n values */
-  x = write_bitters(bitters, make_bitter(x, 0), n_cnt, sbits);
-  while (h++ < g) 
-  {
-    /* output a one bit for a positive group test */
-    write_bitter(bitters, make_bitter(1, 0), sbits);
-    /* add next group of m values to significant set */
-    uint m = cnt & 0xfu;
-    cnt >>= 4;
-    n_cnt += m;
-    /* encode next group of m values */
-    x = write_bitters(bitters, make_bitter(x, 0), m, sbits);
-  }
-  /* if there are more groups, output a zero bit for a negative group test */
-  if (cnt) 
-  {
-    write_bitter(bitters, make_bitter(0, 0), sbits);
-  }
 }
 
 template<typename Int, typename UInt, typename Scalar, uint bsize, int intprec>
@@ -632,7 +362,6 @@ cudaEncode(uint size,
 
   uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
   uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
-  //uint bidx = idx*blockDim.x*blockDim.y*blockDim.z;
 
   //
   //  The number of threads launched can be larger than total size of
@@ -644,26 +373,13 @@ cudaEncode(uint size,
   const uint x_coord = min(threadIdx.x + blockIdx.x * 4, nx - 1);
   const uint y_coord = min(threadIdx.y + blockIdx.y * 4, ny - 1);
   const uint z_coord = min(threadIdx.z + blockIdx.z * 4, nz - 1);
-  const uint x_coord1 = threadIdx.x + blockIdx.x * 4;
-  const uint y_coord1 = threadIdx.y + blockIdx.y * 4;
-  const uint z_coord1 = threadIdx.z + blockIdx.z * 4;
       
-	//sh_data[tid] = data[(threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y 
-  //            + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4)];
-  
-	uint id1 = (threadIdx.z + blockIdx.z * 4)*gridDim.x * gridDim.y * blockDim.x * blockDim.y 
-              + (threadIdx.y + blockIdx.y * 4)*gridDim.x * blockDim.x + (threadIdx.x + blockIdx.x * 4);
-
 	uint id = z_coord * nx * ny 
           + y_coord * nx 
           + x_coord;
-  //printf(" ids %u %u\n", id, id1);
 
 	sh_data[tid] = data[id];
-  //printf(" coord (%u, %u, %u)(%u, %u, %u) %f index %u\n", x_coord, y_coord, z_coord, x_coord1, y_coord1, z_coord1, data[id], id);
-	//sh_data[tid] = data[z_coord * gridDim.x * gridDim.y * blockDim.x * blockDim.y 
-  //             + y_coord * gridDim.x * blockDim.x 
-  //             + x_coord];
+
 	__syncthreads();
 
 	encode<Int, UInt, Scalar, bsize, intprec>(sh_data,
