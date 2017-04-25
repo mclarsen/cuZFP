@@ -4,12 +4,12 @@
 #include <iostream>
 #include <math.h>
 #include <iomanip>
-#if 0
+#if 1
 TEST(encode_decode, test_encode_decode)
 {
   int x = 4;
-  int y = 7;
-  int z = 3;
+  int y = 4;
+  int z = 4;
   const int size = x * y * z;
   std::vector<double> test_data;
   test_data.resize(size);
@@ -38,11 +38,12 @@ TEST(encode_decode, test_encode_decode)
   }
 }
 #endif
+#if 1
 TEST(encode_decode_large, test_encode_decode_large)
 {
-  int nx = 128;
-  int ny = 128;
-  int nz = 128;
+  int nx = 256;
+  int ny = 256;
+  int nz = 256;
   const int size = nx * ny * nz;
   std::vector<double> test_data;
   test_data.resize(size);
@@ -75,4 +76,5 @@ TEST(encode_decode_large, test_encode_decode_large)
   tot_err /= double(size);
   std::cout<<"Total error "<<tot_err<<" in "<<size<<" values.\n";
 }
+#endif
 

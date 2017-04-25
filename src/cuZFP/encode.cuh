@@ -51,24 +51,6 @@ exponent(Scalar x)
   return -ebias;
 }
 
-//gather from p into q
-template<class Int, class Scalar, int intprec>
-__host__  __device__
-void  fixed_point_block(Int *q, const Scalar *p, int emax, uint mx, uint my, uint mz, uint sx, uint sy, uint sz)
-{
-//    uint mx,my,mz;
-//    decompIdx(sx,sy,sz, idx, mx,my,mz);
-
-    //quantize
-    //ASSUME CHAR_BIT is 8 and Scalar is 8
-    Scalar w = LDEXP(1.0, intprec -2 -emax);
-    uint i = 0;
-    for (int z=mz; z<mz+4; z++)
-        for (int y=my; y<my+4; y++)
-            for (int x=mx; x<mx+4; x++,i++)
-                q[i] =(Int)(p[z*sz+y*sy+x]*w);
-
-}
 
 // lifting transform of 4-vector
 template <class Int, uint s>
@@ -197,7 +179,9 @@ encode (Scalar *sh_data,
 		sh_reduce[0] = max(sh_reduce[tid], sh_reduce[tid + 1]);
 		sh_emax[0] = exponent(sh_reduce[0]);
 	}
-  // NO MORE sh_reduce
+
+  //if(tid == 0) printf(" sh_emax %d\n", sh_emax[0]);
+  //if(tid == 0) printf(" max %f\n", sh_reduce[0]);
 	__syncthreads();
 
 	//fixed_point
@@ -213,7 +197,6 @@ encode (Scalar *sh_data,
 	__syncthreads();
 	//fwd_order
 	sh_p[tid] = int2uint<Int, UInt>(sh_q[c_perm[tid]]);
-  // NO MORE sh_q
   // sh_p negabinary rep
 	if (tid == 0)
   {
@@ -224,7 +207,7 @@ encode (Scalar *sh_data,
 		//kmin = intprec > maxprec ? intprec - maxprec : 0;
 
 		uint e = maxprec ? sh_emax[0] + ebias : 0;
-
+    //printf(" e %u\n", e);
 		if (e)
     {
 			//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
@@ -251,7 +234,8 @@ encode (Scalar *sh_data,
 	//temporarily use sh_n as a buffer
 	//uint *sh_test = sh_n;
   // these are setting up indices to things that have value
-  // this is basically a scan
+  // find the first 1 (in terms of most significant 
+  // bit
 	for (int i = 0; i < 64; i++)
   {
 		if (!!(x >> i)) // !! is this bit zero
@@ -266,7 +250,7 @@ encode (Scalar *sh_data,
 	}
 
 	__syncthreads();
-  // 
+  // this is basically a scan
 	if (tid == 0)
   {
 		for (int i = intprec - 1; i-- > 0;)
@@ -318,6 +302,7 @@ encode (Scalar *sh_data,
 		uint tot_sbits = s_emax_bits[0];// sbits[0];
 		uint rem_sbits = s_emax_bits[0];// sbits[0];
 		uint offset = 0;
+
 		for (int i = 0; i < intprec && tot_sbits < c_maxbits; i++)
     {
 			if (sh_sbits[i] <= 64)
@@ -421,6 +406,7 @@ void encode (int nx,
   //                                 sizeof(Int) + sizeof(Scalar) + 3 * sizeof(int)) * 64 + 32 * sizeof(Scalar) + 4;
   std::size_t some_magic_number = sizeof(Scalar) * 64 +  sizeof(Bitter) * 64 + sizeof(unsigned char) * 64
                                 + sizeof(unsigned int) * 128 + 2 * sizeof(int);
+  std::cout<<"Bitter size "<<sizeof(Bitter)<<"\n";
   std::cout<<"Magic number "<<some_magic_number<<"\n";
 	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 
