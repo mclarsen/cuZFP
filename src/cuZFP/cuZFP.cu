@@ -7,7 +7,7 @@
 #include <thrust/device_vector.h>
 #include <iostream>
 
-#define BSIZE  16
+#define BSIZE 2 
 //uint MAXBITS = BSIZE*64;
 //uint MAXPREC = 64;
 //int MINEXP = -1074;
@@ -24,7 +24,7 @@ void encode(int nx, int ny, int nz, std::vector<double> &in_data, EncodedData &e
   ErrorCheck errors;
   assert(in_data.size() == nx * ny * nz);
   thrust::device_vector<double> d_in_data(in_data); 
-  const size_t bits_per_val = 16;// THIS is bits per value 
+  const size_t bits_per_val = BSIZE;// THIS is bits per value 
                                 // total allocated space is (num_values / num_blocks) * 64 bits per word /
   size_t total_blocks = in_data.size() / 64; 
   if(in_data.size() % 64 != 0) total_blocks++;
@@ -36,7 +36,7 @@ void encode(int nx, int ny, int nz, std::vector<double> &in_data, EncodedData &e
   d_encoded.resize(alloc_size);
   std::cout<<"Encoding\n";
   ConstantSetup::setup_3d(double() , BSIZE);
-  encode<long long int, unsigned long long, double, 16, 64>(nx, ny, nz, d_in_data, d_encoded, 64); 
+  encode<long long int, unsigned long long, double, BSIZE, 64>(nx, ny, nz, d_in_data, d_encoded, 64); 
   errors.chk("Encode");
   encoded_data.m_data.resize(d_encoded.size());
 
@@ -61,7 +61,7 @@ void decode(const EncodedData &encoded_data, std::vector<double> &out_data)
   thrust::device_vector<double> d_out_data(out_size); 
   thrust::device_vector<Word> d_encoded(encoded_data.m_data);
 
-  decode<long long int, unsigned long long, double, 16, 64>(nx, ny, nz, d_encoded, d_out_data); 
+  decode<long long int, unsigned long long, double, BSIZE, 64>(nx, ny, nz, d_encoded, d_out_data); 
 
   out_data.resize(out_size); 
   thrust::copy(d_out_data.begin(), 
