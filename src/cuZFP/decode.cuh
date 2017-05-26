@@ -406,85 +406,15 @@ Scalar  decode(const Word *blocks,
 	}
 }
 
-template<class Int, class UInt>
-__global__
-void cudaInvOrder(const UInt *p,
-                  Int *q)
-{
-	int x = threadIdx.x + blockDim.x*blockIdx.x;
-	int y = threadIdx.y + blockDim.y*blockIdx.y;
-	int z = threadIdx.z + blockDim.z*blockIdx.z;
-	int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
-	q[c_perm[idx % 64] + idx - idx % 64] = uint2int<Int, UInt>(p[idx]);
-
-}
-
-template<class Int>
-__global__
-void cudaInvXForm(Int *iblock)
-{
-	int x = threadIdx.x + blockDim.x*blockIdx.x;
-	int y = threadIdx.y + blockDim.y*blockIdx.y;
-	int z = threadIdx.z + blockDim.z*blockIdx.z;
-	int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
-	inv_xform(iblock + idx * 64);
-
-}
-
-
-template<class Int>
-__global__
-void cudaInvXFormYX(Int *iblock)
-{
-	int i = threadIdx.x + blockDim.x*blockIdx.x;
-	int j = threadIdx.y + blockDim.y*blockIdx.y;
-	int k = threadIdx.z + blockDim.z*blockIdx.z;
-	int idx = j*gridDim.x*blockDim.x + i;
-	inv_lift(iblock + k % 16 + 64 * idx, 16);
-
-}
-
-
-template<class Int>
-__global__
-void cudaInvXFormXZ(Int *iblock)
-{
-	int i = threadIdx.x + blockDim.x*blockIdx.x;
-	int j = threadIdx.y + blockDim.y*blockIdx.y;
-	int k = threadIdx.z + blockDim.z*blockIdx.z;
-	int idx = j*gridDim.x*blockDim.x + i;
-	inv_lift(iblock + k % 4 + 16 * idx, 4);
-
-}
-
-template<class Int>
-__global__
-void cudaInvXFormZY(Int *p)
-{
-	int x = threadIdx.x + blockDim.x*blockIdx.x;
-	int y = threadIdx.y + blockDim.y*blockIdx.y;
-	int z = threadIdx.z + blockDim.z*blockIdx.z;
-	int idx = z*gridDim.x*blockDim.x*gridDim.y*blockDim.y + y*gridDim.x*blockDim.x + x;
-	inv_lift(p + 4 * idx, 1);
-}
-
-
-
-
 template<class Int, class UInt, class Scalar, uint bsize, int intprec>
 __global__
 void
 __launch_bounds__(64,5)
 cudaDecode(Word *blocks,
            Scalar *out,
-           const int nx,
-           const int ny,
-           const int nz)
+           const int3 dims)
 {
-	//uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
   uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
-  //uint bdim = blockDim.x*blockDim.y*blockDim.z;
-  //uint bidx = idx*bdim;
 
 	extern __shared__ unsigned char smem[];
 
@@ -492,9 +422,9 @@ cudaDecode(Word *blocks,
   const uint y_coord = threadIdx.y + blockIdx.y * 4;
   const uint z_coord = threadIdx.z + blockIdx.z * 4;
 
-  const uint index = z_coord * gridDim.x * gridDim.y * blockDim.x * blockDim.y 
-                   + y_coord * gridDim.x * blockDim.x 
-                   + x_coord;
+  //const uint index = z_coord * gridDim.x * gridDim.y * blockDim.x * blockDim.y 
+  //                 + y_coord * gridDim.x * blockDim.x 
+  //                 + x_coord;
 	Scalar val = decode<Int, 
                       UInt, 
                       Scalar, 
@@ -506,13 +436,13 @@ cudaDecode(Word *blocks,
   // make sure we don't write out data that was padded out to make 
   // the block sizes all 4^3
   //
-  if(x_coord >= nx || y_coord >= ny || z_coord >= nz)
+  if(x_coord >= dims.x || y_coord >= dims.y || z_coord >= dims.z)
   {
     real_data = false;
-    //printf("i %u %f\n", index,val);
   }
-  const uint out_index = z_coord * nx * ny 
-                       + y_coord * nx
+
+  const uint out_index = z_coord * dims.x * dims.y 
+                       + y_coord * dims.x 
                        + x_coord;
   if(real_data)
   {
@@ -522,15 +452,13 @@ cudaDecode(Word *blocks,
 	//inv_cast
 }
 template<class Int, class UInt, class Scalar, uint bsize, int intprec>
-void decode(int nx, 
-            int ny, 
-            int nz,
+void decode(int3 dims, 
             thrust::device_vector<Word> &stream,
             Scalar *d_data)
 {
 
   dim3 block_size = dim3(4, 4, 4);
-  dim3 grid_size = dim3(nx, ny, nz);
+  dim3 grid_size = dim3(dims.x, dims.y, dims.z);
 
   grid_size.x /= block_size.x; 
   grid_size.y /= block_size.y; 
@@ -538,17 +466,15 @@ void decode(int nx,
 
   // Check to see if we need to increase the block sizes
   // in the case where dim[x] is not a multiple of 4
-  if(nx % 4 != 0) grid_size.x++;
-  if(ny % 4 != 0) grid_size.y++;
-  if(nz % 4 != 0) grid_size.z++;
+  if(dims.x % 4 != 0) grid_size.x++;
+  if(dims.y % 4 != 0) grid_size.y++;
+  if(dims.z % 4 != 0) grid_size.z++;
 
   const int some_magic_number = 64 * (8) + 4 + 4; 
   cudaDecode<Int, UInt, Scalar, bsize, intprec> << < grid_size, block_size, some_magic_number >> >
     (raw_pointer_cast(stream.data()),
 		 d_data,
-     nx,
-     ny,
-     nz);
+     dims);
 	cudaStreamSynchronize(0);
   //ec.chk("cudaInvXformCast");
 
@@ -559,15 +485,11 @@ void decode(int nx,
 }
 
 template<class Int, class UInt, class Scalar, uint bsize, int intprec>
-void decode (int nx, 
-             int ny, 
-             int nz,
+void decode (int3 dims, 
              thrust::device_vector<Word > &block,
              thrust::device_vector<Scalar> &d_data)
 {
-	decode<Int, UInt, Scalar, bsize, intprec>(nx, 
-                                            ny, 
-                                            nz, 
+	decode<Int, UInt, Scalar, bsize, intprec>(dims, 
                                             block,
                                             thrust::raw_pointer_cast(d_data.data()));
 }

@@ -12,7 +12,7 @@ struct EncodedData
 {
   int                m_dims[3];
   std::vector<Word>  m_data;
-  //int              m_rate;
+  int                m_rate;
   EncodedData()
   {
     m_dims[0] = 0;

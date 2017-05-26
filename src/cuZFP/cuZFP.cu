@@ -23,44 +23,45 @@ void encode(int nx, int ny, int nz, std::vector<double> &in_data, EncodedData &e
 {
   ErrorCheck errors;
   assert(in_data.size() == nx * ny * nz);
-  thrust::device_vector<double> d_in_data(in_data); 
-  const size_t bits_per_val = BSIZE;// THIS is bits per value 
-                                // total allocated space is (num_values / num_blocks) * 64 bits per word /
-  size_t total_blocks = in_data.size() / 64; 
-  if(in_data.size() % 64 != 0) total_blocks++;
-  const size_t bits_per_block = 64 * bits_per_val;
-  const size_t bits_per_word = sizeof(Word) * 8;
-  const size_t total_bits = bits_per_block * total_blocks;
-  const size_t alloc_size = total_bits / bits_per_word;
+  
+
+  // device mem where encoded data is stored
+  // allocate in encode
   thrust::device_vector<Word> d_encoded;
-  d_encoded.resize(alloc_size);
+  thrust::device_vector<double> d_in_data(in_data); 
+
   ConstantSetup::setup_3d(double() , BSIZE);
-  encode<long long int, unsigned long long, double, BSIZE, 64>(nx, ny, nz, d_in_data, d_encoded, 64); 
+  int3 dims = make_int3(nx, ny, nz);
+  encode<long long int, unsigned long long, double, BSIZE, 64>(dims, d_in_data, d_encoded, 64); 
   errors.chk("Encode");
   encoded_data.m_data.resize(d_encoded.size());
 
-  //thrust::copy(encoded_data.m_data.begin(), 
-  //             encoded_data.m_data.end(),
-  //             d_encoded.begin());
   Word * d_ptr = thrust::raw_pointer_cast(d_encoded.data());
   Word * h_ptr = &encoded_data.m_data[0];
-  cudaMemcpy(h_ptr, d_ptr, alloc_size * sizeof(Word), cudaMemcpyDeviceToHost);
+
+  cudaMemcpy(h_ptr, d_ptr, d_encoded.size() * sizeof(Word), cudaMemcpyDeviceToHost);
+
+  // set the actual dims and padded dims
   encoded_data.m_dims[0] = nx;
   encoded_data.m_dims[1] = ny;
   encoded_data.m_dims[2] = nz;
+
+  
+  
 }
 
 void decode(const EncodedData &encoded_data, std::vector<double> &out_data)
 {
-  const int nx = encoded_data.m_dims[0];
-  const int ny = encoded_data.m_dims[1];
-  const int nz = encoded_data.m_dims[2];
-  const size_t out_size = nx * ny * nz;
+  int3 dims = make_int3(encoded_data.m_dims[0],
+                        encoded_data.m_dims[1],
+                        encoded_data.m_dims[2]);
+
+  const size_t out_size = dims.x * dims.y * dims.z;
 
   thrust::device_vector<double> d_out_data(out_size); 
   thrust::device_vector<Word> d_encoded(encoded_data.m_data);
 
-  decode<long long int, unsigned long long, double, BSIZE, 64>(nx, ny, nz, d_encoded, d_out_data); 
+  decode<long long int, unsigned long long, double, BSIZE, 64>(dims, d_encoded, d_out_data); 
 
   out_data.resize(out_size); 
   thrust::copy(d_out_data.begin(), 

@@ -7,9 +7,14 @@
 
 TEST(sanity_check, test_sanity_check)
 {
+  //
+  // this test is a simple sanity checjk to see if
+  // we can actually encode and decode with block size.
+  // that is not a multiple of four.
+  //
   int x = 4;
   int y = 4;
-  int z = 4;
+  int z = 5;
   const int size = x * y * z;
   std::vector<double> test_data;
   test_data.resize(size);
