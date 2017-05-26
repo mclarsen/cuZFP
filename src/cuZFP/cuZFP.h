@@ -11,9 +11,10 @@ namespace cuZFP {
 struct EncodedData
 {
   int                m_dims[3];
+  int                m_bsize;
   std::vector<Word>  m_data;
-  int                m_rate;
   EncodedData()
+    : m_bsize(8) // default rate 
   {
     m_dims[0] = 0;
     m_dims[1] = 0;

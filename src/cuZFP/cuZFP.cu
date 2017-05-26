@@ -7,7 +7,7 @@
 #include <thrust/device_vector.h>
 #include <iostream>
 
-#define BSIZE 4 
+#define BSIZE 8 
 //uint MAXBITS = BSIZE*64;
 //uint MAXPREC = 64;
 //int MINEXP = -1074;
@@ -22,17 +22,22 @@ namespace cuZFP {
 void encode(int nx, int ny, int nz, std::vector<double> &in_data, EncodedData &encoded_data)
 {
   ErrorCheck errors;
-  assert(in_data.size() == nx * ny * nz);
-  
+   
+  int3 dims = make_int3(nx, ny, nz);
+  const int bsize = encoded_data.m_bsize;
 
+  assert(BSIZE == bsize); // check to make sure this us valid while I remove the template param
+  assert(in_data.size() == nx * ny * nz);
   // device mem where encoded data is stored
   // allocate in encode
   thrust::device_vector<Word> d_encoded;
   thrust::device_vector<double> d_in_data(in_data); 
 
-  ConstantSetup::setup_3d(double() , BSIZE);
-  int3 dims = make_int3(nx, ny, nz);
-  encode<long long int, unsigned long long, double, BSIZE, 64>(dims, d_in_data, d_encoded, 64); 
+  // TODO: this does not need to be here, ie, this sets up no
+  //       information we can't figure out on the fly
+  ConstantSetup::setup_3d(double() , bsize);
+
+  encode<long long int, unsigned long long, double, 64>(dims, d_in_data, d_encoded, bsize, 64); 
   errors.chk("Encode");
   encoded_data.m_data.resize(d_encoded.size());
 

@@ -118,15 +118,17 @@ fwd_xform(Int* p)
 	fwd_xform_yx(p);
 }
 
-template<typename Int, typename UInt, typename Scalar, uint bsize, int intprec>
+template<typename Int, typename UInt, typename Scalar, int intprec>
 __device__
 void 
 encode (Scalar *sh_data,
-	      const uint size, 
+	      const uint bsize, 
         unsigned char *smem,
         uint blk_idx,
         Word *blocks)
 {
+  // number of bits in the incoming type
+  const uint size = sizeof(Scalar) * 8; 
   //shared mem that depends on scalar size
 	__shared__ Scalar *sh_reduce;
 	__shared__ Int *sh_q;
@@ -308,14 +310,15 @@ encode (Scalar *sh_data,
     {
 			if (sh_sbits[i] <= 64)
       {
-				write_outx<bsize>(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, sh_sbits[i]);
+				write_outx(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, sh_sbits[i], bsize);
 			}
 			else
       {
-				write_outx<bsize>(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, 64);
+        // I think  the 64 here is just capping out the bits it writes?
+				write_outx(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, 64, bsize);
         if (tot_sbits < c_maxbits)
         {
-          write_outy<bsize>(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64);
+          write_outy(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64, bsize);
         }
 			}
 		}
@@ -323,11 +326,11 @@ encode (Scalar *sh_data,
 
 }
 
-template<class Int, class UInt, class Scalar, uint bsize, int intprec>
+template<class Int, class UInt, class Scalar, int intprec>
 __global__
 void
 __launch_bounds__(64,5)
-cudaEncode(uint size,
+cudaEncode(const uint  bsize,
            const Scalar* data,
            Word *blocks,
            const int3 dims)
@@ -366,11 +369,11 @@ cudaEncode(uint size,
 
 	__syncthreads();
 
-	encode<Int, UInt, Scalar, bsize, intprec>(sh_data,
-                                            size, 
-                                            new_smem,
-                                            idx * bsize,
-                                            blocks);
+	encode<Int, UInt, Scalar, intprec>(sh_data,
+                                     bsize, 
+                                     new_smem,
+                                     idx * bsize,
+                                     blocks);
 
   __syncthreads();
 
@@ -394,11 +397,11 @@ void allocate_device_mem3d(const int3 encoded_dims,
 //
 // Launch the encode kernel
 //
-template<class Int, class UInt, class Scalar, uint bsize, int intprec>
+template<class Int, class UInt, class Scalar, int intprec>
 void encode (int3 dims, 
              const Scalar *d_data,
              thrust::device_vector<Word> &stream,
-             const uint size)
+             const int bsize)
 {
   dim3 block_size, grid_size;
   block_size = dim3(4, 4, 4);
@@ -441,8 +444,8 @@ void encode (int3 dims,
   cudaEventCreate(&stop);
 
   cudaEventRecord(start);
-	cudaEncode<Int, UInt, Scalar, bsize, intprec> << <grid_size, block_size, shared_mem_size>> >
-    (size,
+	cudaEncode<Int, UInt, Scalar, intprec> << <grid_size, block_size, shared_mem_size>> >
+    (bsize,
      d_data,
      thrust::raw_pointer_cast(stream.data()),
      dims);
@@ -464,42 +467,45 @@ void encode (int3 dims,
 //
 // Just pass the raw pointer to the "real" encode
 //
-template<class Int, class UInt, class Scalar, uint bsize, int intprec>
+template<class Int, class UInt, class Scalar, int intprec>
 void encode (int3 dims, 
              thrust::device_vector<Scalar> &d_data,
              thrust::device_vector<Word > &stream,
+             const int bsize,
              const uint size)
 {
-  encode<Int, UInt, Scalar, bsize, intprec>(dims,
-                                            thrust::raw_pointer_cast(d_data.data()),
-                                            stream,
-                                            size);
+  encode<Int, UInt, Scalar, intprec>(dims,
+                                     thrust::raw_pointer_cast(d_data.data()),
+                                     stream,
+                                     bsize);
 }
 
 //
 // Encode a host vector and output a encoded device vector
 //
-template<class Int, class UInt, class Scalar, uint bsize, int intprec>
+template<class Int, class UInt, class Scalar, int intprec>
 void encode(int3 dims,
             const thrust::host_vector<Scalar> &h_data,
             thrust::device_vector<Word> &stream,
+            const int bsize,
             const uint size)
 {
   thrust::device_vector<Scalar> d_data = h_data;
-  encode<Int, UInt, Scalar, bsize, intprec>(dims, d_data, stream, size);
+  encode<Int, UInt, Scalar, intprec>(dims, d_data, stream, bsize, size);
 }
 
 //
 //  Encode a host vector and output and encoded host vector
 //
-template<class Int, class UInt, class Scalar, uint bsize, int intprec>
+template<class Int, class UInt, class Scalar, int intprec>
 void encode(int3 dims,
             const thrust::host_vector<Scalar> &h_data,
             thrust::host_vector<Word> &stream,
+            const int bsize,
             const uint size)
 {
   thrust::device_vector<Word > d_stream = stream;
-  encode<Int, UInt, Scalar, bsize, intprec>(dims, h_data, d_stream, size);
+  encode<Int, UInt, Scalar, intprec>(dims, h_data, d_stream, bsize, size);
   stream = d_stream;
 }
 

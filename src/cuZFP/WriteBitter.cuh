@@ -62,10 +62,16 @@ write_out(unsigned long long *out, uint &tot_sbits, uint &offset, unsigned long 
 
 
 //__shared__ Bitter sh_bitters[64];
-template<uint bsize>
 __device__ __host__
 void
-write_outx(const Bitter *bitters, Word*out, uint &rem_sbits, uint &tot_sbits, uint &offset, unsigned long idx, uint sbits)
+write_outx(const Bitter *bitters, 
+           Word *out, 
+           uint &rem_sbits, 
+           uint &tot_sbits, 
+           uint &offset, 
+           unsigned long idx, 
+           uint sbits,
+           const uint &bsize)
 {
 
 	out[offset] += bitters[idx].x << rem_sbits;
@@ -74,15 +80,21 @@ write_outx(const Bitter *bitters, Word*out, uint &rem_sbits, uint &tot_sbits, ui
 	if (rem_sbits >= wsize) {
 		rem_sbits -= wsize;
 		offset++;
-    if (rem_sbits > 0 && tot_sbits < bsize*64)
+    if (rem_sbits > 0 && tot_sbits < bsize * 64)
 			out[offset] = bitters[idx].x >> (sbits - rem_sbits);
 	}
 }
 
-template<uint bsize>
 __device__ __host__
 void
-write_outy(const Bitter *bitters, Word *out, uint &rem_sbits, uint &tot_sbits, uint &offset, unsigned long idx, uint sbits)
+write_outy(const Bitter *bitters, 
+           Word *out, 
+           uint &rem_sbits, 
+           uint &tot_sbits, 
+           uint &offset, 
+           unsigned long idx, 
+           uint sbits,
+           const uint &bsize)
 {
 
 	out[offset] += bitters[idx].y << rem_sbits;
@@ -91,7 +103,7 @@ write_outy(const Bitter *bitters, Word *out, uint &rem_sbits, uint &tot_sbits, u
 	if (rem_sbits >= wsize) {
 		rem_sbits -= wsize;
 		offset++;
-    if (rem_sbits > 0 && tot_sbits < bsize*64)
+    if (rem_sbits > 0 && tot_sbits < bsize * 64)
       out[offset] = bitters[idx].y >> (sbits - rem_sbits);
 	}
 }
