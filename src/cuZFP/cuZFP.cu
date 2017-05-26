@@ -7,7 +7,7 @@
 #include <thrust/device_vector.h>
 #include <iostream>
 
-#define BSIZE 32
+#define BSIZE 4 
 //uint MAXBITS = BSIZE*64;
 //uint MAXPREC = 64;
 //int MINEXP = -1074;

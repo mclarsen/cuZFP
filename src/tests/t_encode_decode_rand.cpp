@@ -6,7 +6,7 @@
 #include <iomanip>
 #include <stdlib.h>
 
-TEST(encode_decode, test_encode_decode)
+TEST(encode_decode_rand, test_encode_decode_rand)
 {
   int nx = 256;
   int ny = 256;
@@ -20,15 +20,7 @@ TEST(encode_decode, test_encode_decode)
       for(int x = 0; x < nx; ++x)
   {
 
-    double val = sqrt(double(z*z) + double(x*x) + double(y*y));
-    if(val != 0.)
-    {
-      val =  1. / val;
-    }
-    else
-    {
-      val = 1.;
-    }
+    double val = rand() / 1000000000.;
     int index = z * nx *ny + y * nx + x;
     test_data[index] = val;
   }
