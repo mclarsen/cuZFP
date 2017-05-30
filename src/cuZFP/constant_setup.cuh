@@ -1,23 +1,12 @@
 #ifndef cuZFP_CONSTANT_SETUP
 #define cuZFP_CONSTANT_SETUP
-#
+
 #include <constants.h>
 #include <shared.h>
 #include <ErrorCheck.h>
+#include <type_info.cuh>
 
 namespace cuZFP {
-
-
-inline __host__ __device__ int get_ebias(double) { return 1023; }
-inline __host__ __device__ int get_ebias(float) { return 127; }
-
-inline __host__ __device__ int get_ebits(double) { return 11; }
-inline __host__ __device__ int get_ebits(float) { return 8; }
-
-inline __host__ __device__ uint get_max_prec(double) { return 64; }
-inline __host__ __device__ uint get_max_prec(float) { return 32; }
-
-inline __host__ __device__ int get_min_exp(double) { return -1074; }
 
 class ConstantSetup
 {
@@ -29,17 +18,7 @@ public:
     cudaMemcpyToSymbol(c_perm, perm_3d, sizeof(unsigned char) * 64, 0); 
     ec.chk("setupConst: c_perm");
 
-    const int vals_per_block = 64;
-    const uint max_bits = rate * vals_per_block; 
-    cudaMemcpyToSymbol(c_maxbits, &max_bits, sizeof(uint)); 
-    ec.chk("setupConst: c_maxbits");
-
-    const uint sizeof_scalar = sizeof(Scalar);
-
-    cudaMemcpyToSymbol(c_sizeof_scalar, &sizeof_scalar, sizeof(uint)); 
-    ec.chk("setupConst: c_sizeof_scalar");
-
-    const uint max_prec = get_max_prec(Scalar());
+    const uint max_prec = get_precision<Scalar>();
     cudaMemcpyToSymbol(c_maxprec, &max_prec, sizeof(uint)); 
     ec.chk("setupConst: c_maxprec");
     

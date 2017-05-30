@@ -11,6 +11,7 @@
 #include <thrust/device_vector.h>
 
 #include <cuZFP.h>
+#include <type_info.cuh>
 
 #define LDEXP(x, e) ldexp(x, e)
 #define FREXP(x, e) frexp(x, e)
@@ -21,23 +22,20 @@ const int ebias = 1023;
 namespace cuZFP{
 
 // map two's complement signed integer to negabinary unsigned integer
-template<class Int, class UInt>
-__device__ __host__
-UInt int2uint(const Int x)
+inline __device__ __host__
+unsigned long long int int2uint(const long long int x)
 {
-    return (x + (UInt)0xaaaaaaaaaaaaaaaaull) ^ (UInt)0xaaaaaaaaaaaaaaaaull;
+    return (x + (unsigned long long int)0xaaaaaaaaaaaaaaaaull) ^ 
+                (unsigned long long int)0xaaaaaaaaaaaaaaaaull;
 }
 
-template<typename Int, typename UInt>
-struct int_2_uint : public thrust::unary_function<Int, UInt>
+inline __device__ __host__
+unsigned int int2uint(const int x)
 {
-  __host__ __device__ Int operator()(const UInt &x) const
-  {
-    return (x + (UInt)0xaaaaaaaaaaaaaaaaull) ^ (UInt)0xaaaaaaaaaaaaaaaaull;
-  }
-};
+    return (x + (unsigned int)0xaaaaaaaau) ^ 
+                (unsigned int)0xaaaaaaaau;
+}
 
-// return normalized floating-point exponent for x >= 0
 template<class Scalar>
 __host__ __device__
 static int
@@ -129,6 +127,7 @@ encode (Scalar *sh_data,
 {
   // number of bits in the incoming type
   const uint size = sizeof(Scalar) * 8; 
+  const uint vals_per_block = 64;
   //shared mem that depends on scalar size
 	__shared__ Scalar *sh_reduce;
 	__shared__ Int *sh_q;
@@ -151,11 +150,12 @@ encode (Scalar *sh_data,
 	sh_p = (UInt*)&sh_data[0];
 
 	sh_sbits = &smem[0];
-	sh_bitters = (Bitter*)&sh_sbits[64];
-	sh_m = (uint*)&sh_bitters[64];
-	sh_n = (uint*)&sh_m[64];
-	s_emax_bits = (uint*)&sh_n[64];
+	sh_bitters = (Bitter*)&sh_sbits[vals_per_block];
+	sh_m = (uint*)&sh_bitters[vals_per_block];
+	sh_n = (uint*)&sh_m[vals_per_block];
+	s_emax_bits = (uint*)&sh_n[vals_per_block];
 	sh_emax = (int*)&s_emax_bits[1];
+
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 
 	Bitter bitter = make_bitter(0, 0);
@@ -188,7 +188,7 @@ encode (Scalar *sh_data,
 	__syncthreads();
 
 	//fixed_point
-	Scalar w = LDEXP(1.0, intprec - 2 - sh_emax[0]);
+	Scalar w = LDEXP(1.0, get_precision<Scalar>() - 2 - sh_emax[0]);
   // w = actu
   // sh_q  = signed integer representation of the floating point value
   // block tranform
@@ -199,7 +199,7 @@ encode (Scalar *sh_data,
 	fwd_xform(sh_q);
 	__syncthreads();
 	//fwd_order
-	sh_p[tid] = int2uint<Int, UInt>(sh_q[c_perm[tid]]);
+	sh_p[tid] = int2uint(sh_q[c_perm[tid]]);
   // sh_p negabinary rep
 	if (tid == 0)
   {
@@ -266,7 +266,7 @@ encode (Scalar *sh_data,
 	}
 	__syncthreads();
   /// maybe don't use write bitter with float 32
-	int bits = 128; // worst possible encoding outcome
+	int bits = 128; // worst possible encoding outcome (128 is probably size of 'word')
 	int n = 0;
 	/* step 2: encode first n bits of bit plane */
 	bits -= sh_m[tid];
@@ -305,8 +305,8 @@ encode (Scalar *sh_data,
 		uint tot_sbits = s_emax_bits[0];// sbits[0];
 		uint rem_sbits = s_emax_bits[0];// sbits[0];
 		uint offset = 0;
-
-		for (int i = 0; i < intprec && tot_sbits < c_maxbits; i++)
+    const uint maxbits = bsize * vals_per_block; 
+		for (int i = 0; i < intprec && tot_sbits < maxbits; i++)
     {
 			if (sh_sbits[i] <= 64)
       {
@@ -316,7 +316,7 @@ encode (Scalar *sh_data,
       {
         // I think  the 64 here is just capping out the bits it writes?
 				write_outx(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, 64, bsize);
-        if (tot_sbits < c_maxbits)
+        if (tot_sbits < maxbits)
         {
           write_outy(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64, bsize);
         }

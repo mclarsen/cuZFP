@@ -5,8 +5,9 @@
 
 namespace cuZFP {
 
-template void decode<long long int, unsigned long long int, double, 16, 64>
+template void decode<long long int, unsigned long long int, double, 64>
             (int3 dims, 
              thrust::device_vector<Word> &stream,
-             thrust::device_vector<double> &d_data);
+             thrust::device_vector<double> &d_data,
+             uint bsize);
 }

@@ -57,6 +57,8 @@ void encode(int nx, int ny, int nz, std::vector<double> &in_data, EncodedData &e
 
 void decode(const EncodedData &encoded_data, std::vector<double> &out_data)
 {
+  const unsigned int bsize = encoded_data.m_bsize;
+
   int3 dims = make_int3(encoded_data.m_dims[0],
                         encoded_data.m_dims[1],
                         encoded_data.m_dims[2]);
@@ -66,7 +68,9 @@ void decode(const EncodedData &encoded_data, std::vector<double> &out_data)
   thrust::device_vector<double> d_out_data(out_size); 
   thrust::device_vector<Word> d_encoded(encoded_data.m_data);
 
-  decode<long long int, unsigned long long, double, BSIZE, 64>(dims, d_encoded, d_out_data); 
+  ConstantSetup::setup_3d(double() , bsize);
+
+  decode<long long int, unsigned long long, double, 64>(dims, d_encoded, d_out_data, bsize); 
 
   out_data.resize(out_size); 
   thrust::copy(d_out_data.begin(), 

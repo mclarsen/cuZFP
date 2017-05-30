@@ -11,6 +11,7 @@ set(cuZFP_sources
     decode.cuh
     encode.cuh
     BitStream.cuh
+    type_info.cuh
     WriteBitter.cuh
     ErrorCheck.cu)
 

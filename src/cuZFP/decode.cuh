@@ -5,6 +5,7 @@
 //dealing with doubles
 #include "BitStream.cuh"
 #include <thrust/device_vector.h>
+#include <type_info.cuh>
 #define NBMASK 0xaaaaaaaaaaaaaaaaull
 #define LDEXP(x, e) ldexp(x, e)
 
@@ -16,7 +17,7 @@ __device__
 Scalar
 dequantize(Int x, int e)
 {
-	return LDEXP((double)x, e - (CHAR_BIT * c_sizeof_scalar - 2));
+	return LDEXP((double)x, e - (CHAR_BIT * scalar_sizeof<Scalar>() - 2));
 }
 #else
 template<class Int, class Scalar, uint sizeof_scalar>
@@ -140,12 +141,16 @@ inv_xform(Int* p)
 }
 
 /* map two's complement signed integer to negabinary unsigned integer */
-template<class Int, class UInt>
-__host__ __device__
-Int
-uint2int(UInt x)
+inline __host__ __device__
+long long int uint2int(unsigned long long int x)
 {
-	return (x ^ NBMASK) - NBMASK;
+	return (x ^0xaaaaaaaaaaaaaaaaull) - 0xaaaaaaaaaaaaaaaaull;
+}
+
+inline __host__ __device__
+int uint2int(unsigned int x)
+{
+	return (x ^0xaaaaaaaau) - 0xaaaaaaaau;
 }
 
 
@@ -206,128 +211,15 @@ read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
 #endif
 }
 
-/* decompress sequence of unsigned integers */
-template<class Int, class UInt>
-static uint
-decode_ints_old(BitStream* stream, uint minbits, uint maxbits, uint maxprec, UInt* data, uint size, unsigned long long count)
-{
-  BitStream s = *stream;
-  uint intprec = CHAR_BIT * (uint)sizeof(UInt);
-  uint kmin = intprec > maxprec ? intprec - maxprec : 0;
-  uint bits = maxbits;
-  uint i, k, m, n, test;
-  unsigned long long x;
-
-  /* initialize data array to all zeros */
-  for (i = 0; i < size; i++)
-    data[i] = 0;
-
-  /* input one bit plane at a time from MSB to LSB */
-  for (k = intprec, n = 0; k-- > kmin;) {
-    /* decode bit plane k */
-    UInt* p = data;
-    for (m = n;;) {
-      /* decode bit k for the next set of m values */
-      m = MIN(m, bits);
-      bits -= m;
-      for (x = stream->read_bits(m); m; m--, x >>= 1)
-        *p++ += (UInt)(x & 1u) << k;
-      /* continue with next bit plane if there are no more groups */
-      if (!count || !bits)
-        break;
-      /* perform group test */
-      bits--;
-      test = stream->read_bit();
-      /* continue with next bit plane if there are no more significant bits */
-      if (!test || !bits)
-        break;
-      /* decode next group of m values */
-      m = count & 0xfu;
-      count >>= 4;
-      n += m;
-    }
-    /* exit if there are no more bits to read */
-    if (!bits)
-      goto exit;
-  }
-
-  /* read at least minbits bits */
-  while (bits > maxbits - minbits) {
-    bits--;
-    stream->read_bit();
-  }
-
-exit:
-  *stream = s;
-  return maxbits - bits;
-}
-
-template<class UInt, uint bsize>
-__device__ __host__
-uint
-decode_ints(Word *block, UInt* data, uint minbits, uint maxbits, uint maxprec, unsigned long long count, uint size)
-{
-	uint intprec = CHAR_BIT * (uint)sizeof(UInt);
-	uint kmin = intprec > maxprec ? intprec - maxprec : 0;
-	uint bits = maxbits;
-	uint i, k, m, n, test;
-	unsigned long long x;
-
-  char offset = 0;
-  uint sbits = 0;
-  Word buffer = 0;
-
-	/* initialize data array to all zeros */
-	for (i = 0; i < size; i++)
-		data[i] = 0;
-
-	/* input one bit plane at a time from MSB to LSB */
-	for (k = intprec, n = 0; k-- > kmin;) {
-		/* decode bit plane k */
-		UInt* p = data;
-		for (m = n;;) {
-			if (bits){
-				/* decode bit k for the next set of m values */
-				m = MIN(m, bits);
-				bits -= m;
-        for (x = read_bits(m, offset, sbits, buffer, block); m; m--, x >>= 1)
-					*p++ += (UInt)(x & 1u) << k;
-				/* continue with next bit plane if there are no more groups */
-				if (!count || !bits)
-					break;
-				/* perform group test */
-				bits--;
-        test = read_bit(offset, sbits, buffer, block);
-				/* continue with next bit plane if there are no more significant bits */
-				if (!test || !bits)
-					break;
-				/* decode next group of m values */
-				m = count & 0xfu;
-				count >>= 4;
-				n += m;
-			}
-		}
-	}
-
-	/* read at least minbits bits */
-	while (bits > maxbits - minbits) 
-  {
-		bits--;
-    read_bit(offset, sbits, buffer, block);
-	}
-
-	return maxbits - bits;
-
-}
 
 template<typename Int, 
          typename UInt, 
          typename Scalar, 
-         uint bsize, 
          int intprec>
 __device__ 
 Scalar  decode(const Word *blocks,
-               unsigned char *smem)
+               unsigned char *smem,
+               const uint bsize)
 {
 	__shared__ uint *s_kmin;
 	__shared__ unsigned long long *s_bit_cnt;
@@ -344,7 +236,6 @@ Scalar  decode(const Word *blocks,
 
 
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
-	//uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
 	Scalar result = 0;
 
 	if (tid == 0)
@@ -373,7 +264,9 @@ Scalar  decode(const Word *blocks,
 			s_emax[0] = read_bits(ebits - 1, offset, sbits, buffer, blocks) - c_ebias;
 			int maxprec = precision(s_emax[0], c_maxprec, c_minexp);
 			s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
-			uint bits = c_maxbits - ebits;
+      const uint vals_per_block = 64;
+      const uint maxbits = bsize * vals_per_block;
+			uint bits = maxbits - ebits;
 			for (uint k = intprec, n = 0; k-- > 0;)
       {
 				//					idx_n[k] = n;
@@ -386,15 +279,19 @@ Scalar  decode(const Word *blocks,
 						;
 			}
 
-		}	__syncthreads();
+		}	
+    
+    __syncthreads();
 
-	UInt l_data = 0;
+	  UInt l_data = 0;
 #pragma unroll 64
 		for (int i = 0; i < 64; i++)
+    {
 			l_data += (UInt)((s_bit_cnt[i] >> tid) & 1u) << i;
+    }
 
 		__syncthreads();
-		s_iblock[c_perm[tid]] = uint2int<Int, UInt>(l_data);
+		s_iblock[c_perm[tid]] = uint2int(l_data);
 		__syncthreads();
 		inv_xform(s_iblock);
 		__syncthreads();
@@ -406,13 +303,14 @@ Scalar  decode(const Word *blocks,
 	}
 }
 
-template<class Int, class UInt, class Scalar, uint bsize, int intprec>
+template<class Int, class UInt, class Scalar, int intprec>
 __global__
 void
 __launch_bounds__(64,5)
 cudaDecode(Word *blocks,
            Scalar *out,
-           const int3 dims)
+           const int3 dims,
+           uint bsize)
 {
   uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
 
@@ -428,9 +326,9 @@ cudaDecode(Word *blocks,
 	Scalar val = decode<Int, 
                       UInt, 
                       Scalar, 
-                      bsize, 
                       intprec>(blocks + bsize*idx, 
-                               smem);
+                               smem,
+                               bsize);
   bool real_data = true;
   //
   // make sure we don't write out data that was padded out to make 
@@ -451,10 +349,11 @@ cudaDecode(Word *blocks,
   
 	//inv_cast
 }
-template<class Int, class UInt, class Scalar, uint bsize, int intprec>
+template<class Int, class UInt, class Scalar, int intprec>
 void decode(int3 dims, 
             thrust::device_vector<Word> &stream,
-            Scalar *d_data)
+            Scalar *d_data,
+            uint bsize)
 {
 
   dim3 block_size = dim3(4, 4, 4);
@@ -471,10 +370,11 @@ void decode(int3 dims,
   if(dims.z % 4 != 0) grid_size.z++;
 
   const int some_magic_number = 64 * (8) + 4 + 4; 
-  cudaDecode<Int, UInt, Scalar, bsize, intprec> << < grid_size, block_size, some_magic_number >> >
+  cudaDecode<Int, UInt, Scalar, intprec> << < grid_size, block_size, some_magic_number >> >
     (raw_pointer_cast(stream.data()),
 		 d_data,
-     dims);
+     dims,
+     bsize);
 	cudaStreamSynchronize(0);
   //ec.chk("cudaInvXformCast");
 
@@ -484,14 +384,16 @@ void decode(int3 dims,
   //ec.chk("cudadecode");
 }
 
-template<class Int, class UInt, class Scalar, uint bsize, int intprec>
+template<class Int, class UInt, class Scalar,int intprec>
 void decode (int3 dims, 
              thrust::device_vector<Word > &block,
-             thrust::device_vector<Scalar> &d_data)
+             thrust::device_vector<Scalar> &d_data,
+             uint bsize)
 {
-	decode<Int, UInt, Scalar, bsize, intprec>(dims, 
-                                            block,
-                                            thrust::raw_pointer_cast(d_data.data()));
+	decode<Int, UInt, Scalar, intprec>(dims, 
+                                     block,
+                                     thrust::raw_pointer_cast(d_data.data()),
+                                     bsize);
 }
 
 } // namespace cuZFP
