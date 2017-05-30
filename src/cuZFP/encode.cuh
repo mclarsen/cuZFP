@@ -116,7 +116,7 @@ fwd_xform(Int* p)
 	fwd_xform_yx(p);
 }
 
-template<typename Int, typename UInt, typename Scalar, int intprec>
+template<typename Scalar, int intprec>
 __device__
 void 
 encode (Scalar *sh_data,
@@ -125,6 +125,9 @@ encode (Scalar *sh_data,
         uint blk_idx,
         Word *blocks)
 {
+  typedef typename zfp_traits<Scalar>::UInt UInt;
+  typedef typename zfp_traits<Scalar>::Int Int;
+
   // number of bits in the incoming type
   const uint size = sizeof(Scalar) * 8; 
   const uint vals_per_block = 64;
@@ -369,11 +372,11 @@ cudaEncode(const uint  bsize,
 
 	__syncthreads();
 
-	encode<Int, UInt, Scalar, intprec>(sh_data,
-                                     bsize, 
-                                     new_smem,
-                                     idx * bsize,
-                                     blocks);
+	encode< Scalar, intprec>(sh_data,
+                           bsize, 
+                           new_smem,
+                           idx * bsize,
+                           blocks);
 
   __syncthreads();
 

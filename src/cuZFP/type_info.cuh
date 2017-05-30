@@ -30,7 +30,6 @@ template<> struct zfp_traits<double>
 {
   typedef unsigned long long int UInt;
   typedef long long int Int;
-
 };
 
 } // namespace cuZFP

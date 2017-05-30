@@ -28,29 +28,6 @@ dequantize(Int x, int e)
 	return LDEXP((double)x, e - (CHAR_BIT * sizeof_scalar - 2));
 }
 #endif
-/* inverse block-floating-point transform from signed integers */
-template<class Int, class Scalar>
-__host__ __device__
-void
-inv_cast(const Int* p, Scalar* q, int emax, uint mx, uint my, uint mz, uint sx, uint sy, uint sz)
-{
-	Scalar s;
-#ifndef __CUDA_ARCH__
-	s = dequantize<Int, Scalar, sizeof(Scalar)>(1, emax);
-#else
-	/* compute power-of-two scale factor s */
-	s = dequantize<Int, Scalar>(1, emax);
-#endif
-	/* compute p-bit float x = s*y where |y| <= 2^(p-2) - 1 */
-	//  do
-	//    *fblock++ = (Scalar)(s * *iblock++);
-	//  while (--n);
-	for (int z = mz; z < mz + 4; z++)
-		for (int y = my; y < my + 4; y++)
-			for (int x = mx; x < mx + 4; x++, p++)
-				q[z*sz + y*sy + x*sx] = (Scalar)(s * *p);
-
-}
 
 /* inverse lifting transform of 4-vector */
 template<class Int, uint s>
@@ -212,15 +189,16 @@ read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
 }
 
 
-template<typename Int, 
-         typename UInt, 
-         typename Scalar, 
+template<typename Scalar, 
          int intprec>
 __device__ 
 Scalar  decode(const Word *blocks,
                unsigned char *smem,
                const uint bsize)
 {
+  typedef typename zfp_traits<Scalar>::UInt UInt;
+  typedef typename zfp_traits<Scalar>::Int Int;
+
 	__shared__ uint *s_kmin;
 	__shared__ unsigned long long *s_bit_cnt;
 	__shared__ Int *s_iblock;
@@ -323,12 +301,8 @@ cudaDecode(Word *blocks,
   //const uint index = z_coord * gridDim.x * gridDim.y * blockDim.x * blockDim.y 
   //                 + y_coord * gridDim.x * blockDim.x 
   //                 + x_coord;
-	Scalar val = decode<Int, 
-                      UInt, 
-                      Scalar, 
-                      intprec>(blocks + bsize*idx, 
-                               smem,
-                               bsize);
+	Scalar val = decode<Scalar, intprec>(blocks + bsize*idx, smem, bsize);
+
   bool real_data = true;
   //
   // make sure we don't write out data that was padded out to make 
