@@ -23,7 +23,7 @@ template void encode<long long int, unsigned long long int, float, 8, 32>
    const uint size);
 */
 
-template void encode<long long int, unsigned long long int, double, 64>
+template void encode<double>
             (int3 dims,
              thrust::device_vector<double> &d_data,
              thrust::device_vector<Word > &stream,

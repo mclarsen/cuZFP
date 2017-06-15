@@ -189,8 +189,7 @@ read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
 }
 
 
-template<typename Scalar, 
-         int intprec>
+template<typename Scalar>
 __device__ 
 Scalar  decode(const Word *blocks,
                unsigned char *smem,
@@ -198,7 +197,7 @@ Scalar  decode(const Word *blocks,
 {
   typedef typename zfp_traits<Scalar>::UInt UInt;
   typedef typename zfp_traits<Scalar>::Int Int;
-
+  const int intprec = get_precision<Scalar>();
 	__shared__ uint *s_kmin;
 	__shared__ unsigned long long *s_bit_cnt;
 	__shared__ Int *s_iblock;
@@ -281,7 +280,7 @@ Scalar  decode(const Word *blocks,
 	}
 }
 
-template<class Int, class UInt, class Scalar, int intprec>
+template<class Scalar>
 __global__
 void
 __launch_bounds__(64,5)
@@ -301,7 +300,7 @@ cudaDecode(Word *blocks,
   //const uint index = z_coord * gridDim.x * gridDim.y * blockDim.x * blockDim.y 
   //                 + y_coord * gridDim.x * blockDim.x 
   //                 + x_coord;
-	Scalar val = decode<Scalar, intprec>(blocks + bsize*idx, smem, bsize);
+	Scalar val = decode<Scalar>(blocks + bsize*idx, smem, bsize);
 
   bool real_data = true;
   //
@@ -323,7 +322,7 @@ cudaDecode(Word *blocks,
   
 	//inv_cast
 }
-template<class Int, class UInt, class Scalar, int intprec>
+template<class Scalar>
 void decode(int3 dims, 
             thrust::device_vector<Word> &stream,
             Scalar *d_data,
@@ -344,7 +343,7 @@ void decode(int3 dims,
   if(dims.z % 4 != 0) grid_size.z++;
 
   const int some_magic_number = 64 * (8) + 4 + 4; 
-  cudaDecode<Int, UInt, Scalar, intprec> << < grid_size, block_size, some_magic_number >> >
+  cudaDecode<Scalar> << < grid_size, block_size, some_magic_number >> >
     (raw_pointer_cast(stream.data()),
 		 d_data,
      dims,
@@ -358,16 +357,13 @@ void decode(int3 dims,
   //ec.chk("cudadecode");
 }
 
-template<class Int, class UInt, class Scalar,int intprec>
+template<class Scalar>
 void decode (int3 dims, 
              thrust::device_vector<Word > &block,
              thrust::device_vector<Scalar> &d_data,
              uint bsize)
 {
-	decode<Int, UInt, Scalar, intprec>(dims, 
-                                     block,
-                                     thrust::raw_pointer_cast(d_data.data()),
-                                     bsize);
+	decode<Scalar>(dims, block, thrust::raw_pointer_cast(d_data.data()), bsize);
 }
 
 } // namespace cuZFP

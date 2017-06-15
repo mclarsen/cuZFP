@@ -9,11 +9,11 @@ inline __host__ __device__ int get_ebias(float) { return 127; }
 inline __host__ __device__ int get_ebits(double) { return 11; }
 inline __host__ __device__ int get_ebits(float) { return 8; }
 
-template<typename T> inline __host__ __device__ uint get_precision();
-template<> inline __host__ __device__ uint get_precision<double>() { return 64; }
-template<> inline __host__ __device__ uint get_precision<long long int>() { return 64; }
-template<> inline __host__ __device__ uint get_precision<float>() { return 32; }
-template<> inline __host__ __device__ uint get_precision<int>() { return 32; }
+template<typename T> inline __host__ __device__ int get_precision();
+template<> inline __host__ __device__ int get_precision<double>() { return 64; }
+template<> inline __host__ __device__ int get_precision<long long int>() { return 64; }
+template<> inline __host__ __device__ int get_precision<float>() { return 32; }
+template<> inline __host__ __device__ int get_precision<int>() { return 32; }
 
 inline __host__ __device__ int get_min_exp(double) { return -1074; }
 

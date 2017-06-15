@@ -37,7 +37,7 @@ void encode(int nx, int ny, int nz, std::vector<double> &in_data, EncodedData &e
   //       information we can't figure out on the fly
   ConstantSetup::setup_3d(double() , bsize);
 
-  encode<long long int, unsigned long long, double, 64>(dims, d_in_data, d_encoded, bsize, 64); 
+  encode<double>(dims, d_in_data, d_encoded, bsize, 64); 
   errors.chk("Encode");
   encoded_data.m_data.resize(d_encoded.size());
 
@@ -70,7 +70,7 @@ void decode(const EncodedData &encoded_data, std::vector<double> &out_data)
 
   ConstantSetup::setup_3d(double() , bsize);
 
-  decode<long long int, unsigned long long, double, 64>(dims, d_encoded, d_out_data, bsize); 
+  decode<double>(dims, d_encoded, d_out_data, bsize); 
 
   out_data.resize(out_size); 
   thrust::copy(d_out_data.begin(), 

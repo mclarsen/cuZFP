@@ -116,7 +116,7 @@ fwd_xform(Int* p)
 	fwd_xform_yx(p);
 }
 
-template<typename Scalar, int intprec>
+template<typename Scalar>
 __device__
 void 
 encode (Scalar *sh_data,
@@ -127,6 +127,7 @@ encode (Scalar *sh_data,
 {
   typedef typename zfp_traits<Scalar>::UInt UInt;
   typedef typename zfp_traits<Scalar>::Int Int;
+  const int intprec = get_precision<Scalar>();
 
   // number of bits in the incoming type
   const uint size = sizeof(Scalar) * 8; 
@@ -144,7 +145,7 @@ encode (Scalar *sh_data,
 	__shared__ uint *s_emax_bits;
 
   //
-  // These memory locations do not overlap
+  // These memory locations do not overlap (in time)
   // so we will re-use the same buffer to
   // conserve precious shared mem space
   //
@@ -329,10 +330,9 @@ encode (Scalar *sh_data,
 
 }
 
-template<class Int, class UInt, class Scalar, int intprec>
+template<class Scalar>
 __global__
-void
-__launch_bounds__(64,5)
+void __launch_bounds__(64,5)
 cudaEncode(const uint  bsize,
            const Scalar* data,
            Word *blocks,
@@ -372,11 +372,11 @@ cudaEncode(const uint  bsize,
 
 	__syncthreads();
 
-	encode< Scalar, intprec>(sh_data,
-                           bsize, 
-                           new_smem,
-                           idx * bsize,
-                           blocks);
+	encode< Scalar>(sh_data,
+                  bsize, 
+                  new_smem,
+                  idx * bsize,
+                  blocks);
 
   __syncthreads();
 
@@ -400,7 +400,7 @@ void allocate_device_mem3d(const int3 encoded_dims,
 //
 // Launch the encode kernel
 //
-template<class Int, class UInt, class Scalar, int intprec>
+template<class Scalar>
 void encode (int3 dims, 
              const Scalar *d_data,
              thrust::device_vector<Word> &stream,
@@ -447,7 +447,7 @@ void encode (int3 dims,
   cudaEventCreate(&stop);
 
   cudaEventRecord(start);
-	cudaEncode<Int, UInt, Scalar, intprec> << <grid_size, block_size, shared_mem_size>> >
+	cudaEncode<Scalar> << <grid_size, block_size, shared_mem_size>> >
     (bsize,
      d_data,
      thrust::raw_pointer_cast(stream.data()),
@@ -470,23 +470,20 @@ void encode (int3 dims,
 //
 // Just pass the raw pointer to the "real" encode
 //
-template<class Int, class UInt, class Scalar, int intprec>
+template<class Scalar>
 void encode (int3 dims, 
              thrust::device_vector<Scalar> &d_data,
              thrust::device_vector<Word > &stream,
              const int bsize,
              const uint size)
 {
-  encode<Int, UInt, Scalar, intprec>(dims,
-                                     thrust::raw_pointer_cast(d_data.data()),
-                                     stream,
-                                     bsize);
+  encode<Scalar>(dims, thrust::raw_pointer_cast(d_data.data()), stream, bsize);
 }
 
 //
 // Encode a host vector and output a encoded device vector
 //
-template<class Int, class UInt, class Scalar, int intprec>
+template<class Scalar>
 void encode(int3 dims,
             const thrust::host_vector<Scalar> &h_data,
             thrust::device_vector<Word> &stream,
@@ -494,13 +491,13 @@ void encode(int3 dims,
             const uint size)
 {
   thrust::device_vector<Scalar> d_data = h_data;
-  encode<Int, UInt, Scalar, intprec>(dims, d_data, stream, bsize, size);
+  encode<Scalar>(dims, d_data, stream, bsize, size);
 }
 
 //
 //  Encode a host vector and output and encoded host vector
 //
-template<class Int, class UInt, class Scalar, int intprec>
+template<class Scalar>
 void encode(int3 dims,
             const thrust::host_vector<Scalar> &h_data,
             thrust::host_vector<Word> &stream,
@@ -508,7 +505,7 @@ void encode(int3 dims,
             const uint size)
 {
   thrust::device_vector<Word > d_stream = stream;
-  encode<Int, UInt, Scalar, intprec>(dims, h_data, d_stream, bsize, size);
+  encode<Scalar>(dims, h_data, d_stream, bsize, size);
   stream = d_stream;
 }
 
