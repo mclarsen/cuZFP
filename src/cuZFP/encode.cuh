@@ -17,7 +17,7 @@
 #define FREXP(x, e) frexp(x, e)
 #define FABS(x) fabs(x)
 
-const int ebias = 1023;
+//const int ebias = 1023;
 
 namespace cuZFP{
 
@@ -45,9 +45,9 @@ exponent(Scalar x)
     int e;
     FREXP(x, &e);
     // clamp exponent in case x is denormalized
-    return MAX(e, 1 - ebias);
+    return MAX(e, 1 - get_ebias<Scalar>());
   }
-  return -ebias;
+  return -get_ebias<Scalar>();
 }
 
 
@@ -114,6 +114,30 @@ fwd_xform(Int* p)
 	fwd_xform_xz(p);
 	__syncthreads();
 	fwd_xform_yx(p);
+}
+template<typename UInt>
+__device__ 
+void Print(int tid, UInt val, const char* msg);
+
+template<>
+__device__ 
+void Print<long long unsigned>(int tid, long long unsigned val, const char*msg)
+{
+  printf(" %s tid(%d): %llu\n", msg, tid, val);
+}
+
+template<>
+__device__ 
+void Print<unsigned int>(int tid, unsigned int val, const char*msg)
+{
+  printf(" %s tid(%d): %u\n", msg, tid, val);
+}
+
+template<>
+__device__ 
+void Print<unsigned char>(int tid, unsigned char val, const char*msg)
+{
+  printf(" %s tid(%d): %d\n", msg, tid, (int)val);
 }
 
 template<typename Scalar>
@@ -190,7 +214,6 @@ encode (Scalar *sh_data,
   //if(tid == 0) printf(" sh_emax %d\n", sh_emax[0]);
   //if(tid == 0) printf(" max %f\n", sh_reduce[0]);
 	__syncthreads();
-
 	//fixed_point
 	Scalar w = LDEXP(1.0, get_precision<Scalar>() - 2 - sh_emax[0]);
   // w = actu
@@ -210,39 +233,45 @@ encode (Scalar *sh_data,
     //   
 		s_emax_bits[0] = 1;
 
-		int maxprec = precision(sh_emax[0], c_maxprec, c_minexp);
+		int maxprec = precision(sh_emax[0], get_precision<Scalar>(), get_min_exp<Scalar>());
+    //printf("max prec %d\n", maxprec);
 		//kmin = intprec > maxprec ? intprec - maxprec : 0;
 
-		uint e = maxprec ? sh_emax[0] + ebias : 0;
-    //printf(" e %u\n", e);
+		uint e = maxprec ? sh_emax[0] + get_ebias<Scalar>() : 0;
 		if (e)
     {
 			//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
 			blocks[blk_idx] = 2 * e + 1; // the bit count?? for this block
-			s_emax_bits[0] = c_ebits + 1;// this c_ebit = ebias
+			s_emax_bits[0] = get_ebits<Scalar>() + 1;// this c_ebit = ebias
 		}
 	}
 	__syncthreads();
 
 	/* extract bit plane k to x[k] */
   // size  is probaly bit per value
-	unsigned long long y = 0;
-	for (uint i = 0; i < size; i++)
+	long long unsigned y = 0;
+	for (uint i = 0; i < vals_per_block; i++)
   {
-		y += ((sh_p[i] >> tid) & (unsigned long long)1) << i;
+		y += ((sh_p[i] >> tid) & (long long unsigned)1) << i;
   }
   // NO MORE sh_q
-	unsigned long long x = y;
+	long long unsigned x = y;
+  //
+  // From this pont on for 32 bit types,
+  // only tids < 32 have valid data
+  //
+  
+  //Print(tid, y, "bit plane");
 
 	__syncthreads();
 	sh_m[tid] = 0; // is  
 	sh_n[tid] = 0;
 
 	//temporarily use sh_n as a buffer
-	//uint *sh_test = sh_n;
   // these are setting up indices to things that have value
   // find the first 1 (in terms of most significant 
   // bit
+  const int values_in_block = 64; // or number of bit planes
 	for (int i = 0; i < 64; i++)
   {
 		if (!!(x >> i)) // !! is this bit zero
@@ -250,6 +279,8 @@ encode (Scalar *sh_data,
 			sh_n[tid] = i + 1;
     }
 	}
+  
+  //Print(tid, sh_n[tid], "sh_n ");
 
 	if (tid < 63)
   {
@@ -268,9 +299,11 @@ encode (Scalar *sh_data,
       }
 		}
 	}
+
+  //Print(tid, sh_m[tid], "sh_m ");
+
 	__syncthreads();
-  /// maybe don't use write bitter with float 32
-	int bits = 128; // worst possible encoding outcome (128 is probably size of 'word')
+	int bits = 128; // same for both 32 and 64 bit values 
 	int n = 0;
 	/* step 2: encode first n bits of bit plane */
 	bits -= sh_m[tid];
@@ -291,18 +324,26 @@ encode (Scalar *sh_data,
 	//y[tid] = stream[bidx].write_bits(y[tid], sh_m[tid]);
 	y = write_bitters(bitter, make_bitter(y, 0), sh_m[tid], sbit);
 	n = sh_n[tid];
-
 	/* step 3: unary run-length encode remainder of bit plane */
 	for (; n < size && bits && (bits-- && write_bitter(bitter, !!y, sbit)); y >>= 1, n++)
   {
 		for (; n < size - 1 && bits && (bits-- && !write_bitter(bitter, y & 1u, sbit)); y >>= 1, n++);
   }
 	__syncthreads();
+  
 
   // First use of both bitters and sbits
-	sh_bitters[63 - tid] = bitter;
-	sh_sbits[63 - tid] = sbit;
+  if(tid < intprec)
+  {
+    sh_bitters[intprec - 1 - tid] = bitter;
+    sh_sbits[intprec - 1 - tid] = sbit;
+    //Print(tid, sh_sbits[intprec - 1 -tid], "sbits ");
+  }
 	__syncthreads();
+
+  // Bitter is a ulonglong2. It is just a way to have a single type
+  // that contains 128bits
+  // write out x writes to the first 64 bits and write out y writes to the second
 
 	if (tid == 0)
   {
@@ -338,11 +379,6 @@ cudaEncode(const uint  bsize,
            Word *blocks,
            const int3 dims)
 {
-  //	int mx = threadIdx.x + blockDim.x*blockIdx.x;
-  //	int my = threadIdx.y + blockDim.y*blockIdx.y;
-  //	int mz = threadIdx.z + blockDim.z*blockIdx.z;
-  //	int eidx = mz*gridDim.x*blockDim.x*gridDim.y*blockDim.y + my*gridDim.x*blockDim.x + mx;
-
   extern __shared__ unsigned char smem[];
 	__shared__ Scalar *sh_data;
 	unsigned char *new_smem;
@@ -369,9 +405,9 @@ cudaEncode(const uint  bsize,
           + x_coord;
 
 	sh_data[tid] = data[id];
-
+  //printf(" S %f", sh_data[tid]);
 	__syncthreads();
-
+  //if(tid == 0) printf("\n");
 	encode< Scalar>(sh_data,
                   bsize, 
                   new_smem,
@@ -474,8 +510,7 @@ template<class Scalar>
 void encode (int3 dims, 
              thrust::device_vector<Scalar> &d_data,
              thrust::device_vector<Word > &stream,
-             const int bsize,
-             const uint size)
+             const int bsize)
 {
   encode<Scalar>(dims, thrust::raw_pointer_cast(d_data.data()), stream, bsize);
 }
@@ -487,11 +522,10 @@ template<class Scalar>
 void encode(int3 dims,
             const thrust::host_vector<Scalar> &h_data,
             thrust::device_vector<Word> &stream,
-            const int bsize,
-            const uint size)
+            const int bsize)
 {
   thrust::device_vector<Scalar> d_data = h_data;
-  encode<Scalar>(dims, d_data, stream, bsize, size);
+  encode<Scalar>(dims, d_data, stream, bsize);
 }
 
 //
@@ -501,11 +535,10 @@ template<class Scalar>
 void encode(int3 dims,
             const thrust::host_vector<Scalar> &h_data,
             thrust::host_vector<Word> &stream,
-            const int bsize,
-            const uint size)
+            const int bsize)
 {
   thrust::device_vector<Word > d_stream = stream;
-  encode<Scalar>(dims, h_data, d_stream, bsize, size);
+  encode<Scalar>(dims, h_data, d_stream, bsize);
   stream = d_stream;
 }
 

@@ -340,8 +340,8 @@ public:
 
 // maximum number of bit planes to encode
 __device__ __host__
-static uint
-precision(int maxexp, uint maxprec, int minexp)
+static int
+precision(int maxexp, int maxprec, int minexp)
 {
   return MIN(maxprec, MAX(0, maxexp - minexp + 8));
 }

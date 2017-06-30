@@ -237,9 +237,11 @@ Scalar  decode(const Word *blocks,
 			//do it again, it won't hurt anything
 			read_bit(offset, sbits, buffer, blocks);
 
-			uint ebits = c_ebits + 1;
-			s_emax[0] = read_bits(ebits - 1, offset, sbits, buffer, blocks) - c_ebias;
-			int maxprec = precision(s_emax[0], c_maxprec, c_minexp);
+			uint ebits = get_ebits<Scalar>() + 1;
+			s_emax[0] = read_bits(ebits - 1, offset, sbits, buffer, blocks) - get_ebias<Scalar>();
+      //printf("Decode shemax %d\n", s_emax[0]);
+			int maxprec = precision(s_emax[0], get_precision<Scalar>(), get_min_exp<Scalar>());
+      //printf("max prec %d\n", maxprec);
 			s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
       const uint vals_per_block = 64;
       const uint maxbits = bsize * vals_per_block;
@@ -261,8 +263,9 @@ Scalar  decode(const Word *blocks,
     __syncthreads();
 
 	  UInt l_data = 0;
+
 #pragma unroll 64
-		for (int i = 0; i < 64; i++)
+		for (int i = 0; i < intprec; i++)
     {
 			l_data += (UInt)((s_bit_cnt[i] >> tid) & 1u) << i;
     }

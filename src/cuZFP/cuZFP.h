@@ -23,10 +23,16 @@ struct EncodedData
 };
 
 extern "C"
-void encode(int nx, int ny, int nz, std::vector<double> &in_data, EncodedData  &encoded_data);
+void encode_float64(int nx, int ny, int nz, std::vector<double> &in_data, EncodedData  &encoded_data);
 
 extern "C"
-void decode(const EncodedData &encoded_data, std::vector<double> &out_data);
+void encode_float32(int nx, int ny, int nz, std::vector<float> &in_data, EncodedData  &encoded_data);
+
+extern "C"
+void decode_float64(const EncodedData &encoded_data, std::vector<double> &out_data);
+
+extern "C"
+void decode_float32(const EncodedData &encoded_data, std::vector<float> &out_data);
 
 } // namespace cuZFP
 

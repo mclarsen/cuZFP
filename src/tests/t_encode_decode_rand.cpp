@@ -26,11 +26,11 @@ TEST(encode_decode_rand, test_encode_decode_rand)
   }
 
   cuZFP::EncodedData encoded_data;
-  cuZFP::encode(nx,ny,nz,test_data, encoded_data);
+  cuZFP::encode_float64(nx,ny,nz,test_data, encoded_data);
 
 
   std::vector<double> test_data_out;
-  cuZFP::decode(encoded_data, test_data_out);
+  cuZFP::decode_float64(encoded_data, test_data_out);
   double tot_err = 0;
   for(int i = 0; i < size; ++i)
   {
