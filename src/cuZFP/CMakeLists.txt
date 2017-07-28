@@ -7,7 +7,6 @@
 set(cuZFP_sources
     encode.cu
     cuZFP.cu #main entry point
-    cuZFP.cuh
     decode.cuh
     encode.cuh
     BitStream.cuh
