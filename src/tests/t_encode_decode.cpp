@@ -7,11 +7,8 @@
 #include <stdlib.h>
 
 template<typename T>
-void run_test()
+void run_test(int nx, int ny, int nz)
 {
-  int nx = 256;
-  int ny = 256;
-  int nz = 256;
   const int size = nx * ny * nz;
   std::vector<T> test_data;
   test_data.resize(size);
@@ -50,23 +47,22 @@ void run_test()
   printf("Average abosulte error %2.20f with %d values.\n", average_err, size);
 }
 
-TEST(encode_decode, test_encode_decode_float64)
-{
-  run_test<double>();
-}
+//TEST(encode_decode, test_encode_decode_float64)
+//{
+//  run_test<double>(256, 256 ,256);
+//}
 
 TEST(encode_decode, test_encode_decode_float32)
 {
-  run_test<float>();
+  run_test<float>(512, 512, 512);
 }
 
-TEST(encode_decode, test_encode_decode_int64)
-{
-  run_test<long long int>();
-}
-
-TEST(encode_decode, test_encode_decode_int32)
-{
-  run_test<int>();
-}
-
+//TEST(encode_decode, test_encode_decode_int64)
+//{
+//  run_test<long long int>(256, 256, 256);
+//}
+//
+//TEST(encode_decode, test_encode_decode_int32)
+//{
+//  run_test<int>(512, 512, 512);
+//}
