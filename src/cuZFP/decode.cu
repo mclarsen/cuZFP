@@ -16,4 +16,16 @@ template void decode<float>
              thrust::device_vector<Word> &stream,
              thrust::device_vector<float> &d_data,
              uint bsize);
+
+template void decode<long long int>
+            (int3 dims, 
+             thrust::device_vector<Word> &stream,
+             thrust::device_vector<long long int> &d_data,
+             uint bsize);
+
+template void decode<int>
+            (int3 dims, 
+             thrust::device_vector<Word> &stream,
+             thrust::device_vector<int> &d_data,
+             uint bsize);
 }

@@ -1,5 +1,5 @@
-#ifndef DECODE_CUH
-#define DECODE_CUH
+#ifndef CUZFP_DECODE_CUH
+#define CUZFP_DECODE_CUH
 
 //#include <helper_math.h>
 //dealing with doubles
@@ -11,23 +11,44 @@
 
 namespace cuZFP {
 
-#ifdef __CUDA_ARCH__
-template<class Int, class Scalar>
+
+template<typename Int, typename Scalar>
 __device__
 Scalar
-dequantize(Int x, int e)
+dequantize(const Int &x, const int &e);
+
+template<>
+__device__
+double
+dequantize<long long int, double>(const long long int &x, const int &e)
 {
-	return LDEXP((double)x, e - (CHAR_BIT * scalar_sizeof<Scalar>() - 2));
+	return LDEXP((double)x, e - (CHAR_BIT * scalar_sizeof<double>() - 2));
 }
-#else
-template<class Int, class Scalar, uint sizeof_scalar>
-__host__
-Scalar
-dequantize(Int x, int e)
+
+template<>
+__device__
+float
+dequantize<int, float>(const int &x, const int &e)
 {
-	return LDEXP((double)x, e - (CHAR_BIT * sizeof_scalar - 2));
+	return LDEXP((float)x, e - (CHAR_BIT * scalar_sizeof<float>() - 2));
 }
-#endif
+
+template<>
+__device__
+int
+dequantize<int, int>(const int &x, const int &e)
+{
+	return 1;
+}
+
+template<>
+__device__
+long long int
+dequantize<long long int, long long int>(const long long int &x, const int &e)
+{
+	return 1;
+}
+
 
 /* inverse lifting transform of 4-vector */
 template<class Int, uint s>
@@ -67,11 +88,6 @@ static void
 inv_xform_yx(Int* p)
 {
 	inv_lift<Int, 16>(p + 1 * threadIdx.x + 4 * threadIdx.z);
-	//uint x, y;
-	//for (y = 0; y < 4; y++)
-	//	for (x = 0; x < 4; x++)
-	//		inv_lift(p + 1 * x + 4 * y, 16);
-
 }
 
 /* transform along y */
@@ -81,11 +97,6 @@ static void
 inv_xform_xz(Int* p)
 {
 	inv_lift<Int, 4>(p + 16 * threadIdx.z + 1 * threadIdx.x);
-	//uint x, z;
-	//for (x = 0; x < 4; x++)
-	//	for (z = 0; z < 4; z++)
-	//		inv_lift(p + 16 * z + 1 * x, 4);
-
 }
 
 /* transform along x */
@@ -95,11 +106,6 @@ static void
 inv_xform_zy(Int* p)
 {
 	inv_lift<Int, 1>(p + 4 * threadIdx.x + 16 * threadIdx.z);
-	//uint y, z;
-	//for (z = 0; z < 4; z++)
-	//	for (y = 0; y < 4; y++)
-	//		inv_lift(p + 4 * y + 16 * z, 1);
-
 }
 
 /* inverse decorrelating 3D transform */
@@ -145,25 +151,21 @@ read_bit(char &offset, uint &bits, Word &buffer, const Word *begin)
   buffer >>= 1;
   return bit;
 }
+
 /* read 0 <= n <= 64 bits */
 __host__ __device__
 unsigned long long
 read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
 {
-#if 0
-  /* read bits in LSB to MSB order */
-  uint64 value = 0;
-  for (uint i = 0; i < n; i++)
-    value += (uint64)stream_read_bit(stream) << i;
-  return value;
-#elif 1
   uint BITSIZE = sizeof(unsigned long long) * CHAR_BIT;
   unsigned long long value;
   /* because shifts by 64 are not possible, treat n = 64 specially */
-	if (n == BITSIZE) {
+	if (n == BITSIZE) 
+  {
     if (!bits)
       value = begin[offset++];//*ptr++;
-    else {
+    else 
+    {
       value = buffer;
       buffer = begin[offset++];//*ptr++;
       value += buffer << bits;
@@ -172,7 +174,8 @@ read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
   }
   else {
     value = buffer;
-    if (bits < n) {
+    if (bits < n) 
+    {
       /* not enough bits buffered; fetch wsize more */
       buffer = begin[offset++];//*ptr++;
       value += buffer << bits;
@@ -180,12 +183,13 @@ read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
       bits += wsize;
     }
     else
+    {
       buffer >>= n;
+    }
     value -= buffer << n;
     bits -= n;
   }
   return value;
-#endif
 }
 
 
@@ -198,18 +202,15 @@ Scalar  decode(const Word *blocks,
   typedef typename zfp_traits<Scalar>::UInt UInt;
   typedef typename zfp_traits<Scalar>::Int Int;
   const int intprec = get_precision<Scalar>();
-	__shared__ uint *s_kmin;
 	__shared__ unsigned long long *s_bit_cnt;
 	__shared__ Int *s_iblock;
 	__shared__ int *s_emax;
 	__shared__ int *s_cont;
-
 	s_bit_cnt = (unsigned long long*)&smem[0];
 	s_iblock = (Int*)&s_bit_cnt[0];
-	s_kmin = (uint*)&s_iblock[64];
+	s_emax = (int*)&s_iblock[64];
 
-	s_emax = (int*)&s_kmin[1];
-	s_cont = (int *)&s_emax[1];
+	s_cont = (int*)&s_emax[1];
 
 
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
@@ -217,17 +218,24 @@ Scalar  decode(const Word *blocks,
 
 	if (tid == 0)
   {
-		//Bit<bsize> stream(blocks + idx * bsize);
 		uint sbits = 0;
 		Word buffer = 0;
 		char offset = 0;
-
 		s_cont[0] = read_bit(offset, sbits, buffer, blocks);
+
+    //
+    // there is no skip path for integers so just continue
+    //
+    if(is_int<Scalar>())
+    {
+      s_cont[0] = 1;
+    }
+
 	}
 
   __syncthreads();
 
-	if (s_cont[0])
+	if(s_cont[0])
   {
 		if (tid == 0)
     {
@@ -238,18 +246,25 @@ Scalar  decode(const Word *blocks,
 			read_bit(offset, sbits, buffer, blocks);
 
 			uint ebits = get_ebits<Scalar>() + 1;
-			s_emax[0] = read_bits(ebits - 1, offset, sbits, buffer, blocks) - get_ebias<Scalar>();
-      //printf("Decode shemax %d\n", s_emax[0]);
-			int maxprec = precision(s_emax[0], get_precision<Scalar>(), get_min_exp<Scalar>());
-      //printf("max prec %d\n", maxprec);
-			s_kmin[0] = intprec > maxprec ? intprec - maxprec : 0;
+
+      if(!is_int<Scalar>())
+      {
+        // read in the shared exponent
+			  s_emax[0] = read_bits(ebits - 1, offset, sbits, buffer, blocks) - get_ebias<Scalar>();
+      }
+      else
+      {
+        ebits = 0;
+        offset = 0;
+        sbits = 0;
+      }
+
       const uint vals_per_block = 64;
       const uint maxbits = bsize * vals_per_block;
 			uint bits = maxbits - ebits;
+
 			for (uint k = intprec, n = 0; k-- > 0;)
       {
-				//					idx_n[k] = n;
-				//					bit_rmn_bits[k] = bits;
 				uint m = MIN(n, bits);
 				bits -= m;
 				s_bit_cnt[k] = read_bits(m, offset, sbits, buffer, blocks);
@@ -263,7 +278,8 @@ Scalar  decode(const Word *blocks,
     __syncthreads();
 
 	  UInt l_data = 0;
-
+ 
+    // reconstruct the value from decoded bitplanes
 #pragma unroll 64
 		for (int i = 0; i < intprec; i++)
     {
@@ -271,16 +287,21 @@ Scalar  decode(const Word *blocks,
     }
 
 		__syncthreads();
+
 		s_iblock[c_perm[tid]] = uint2int(l_data);
 		__syncthreads();
 		inv_xform(s_iblock);
 		__syncthreads();
 
 		//inv_cast
+    // returns 1 if int type 
 		result = dequantize<Int, Scalar>(1, s_emax[0]);
-		result  *= (Scalar)(s_iblock[tid]);
+		result *= (Scalar)(s_iblock[tid]);
     return result;
 	}
+
+  //printf(" tid after %d result %d\n", tid,  result);
+  ///return result;
 }
 
 template<class Scalar>
@@ -300,9 +321,6 @@ cudaDecode(Word *blocks,
   const uint y_coord = threadIdx.y + blockIdx.y * 4;
   const uint z_coord = threadIdx.z + blockIdx.z * 4;
 
-  //const uint index = z_coord * gridDim.x * gridDim.y * blockDim.x * blockDim.y 
-  //                 + y_coord * gridDim.x * blockDim.x 
-  //                 + x_coord;
 	Scalar val = decode<Scalar>(blocks + bsize*idx, smem, bsize);
 
   bool real_data = true;
@@ -318,12 +336,12 @@ cudaDecode(Word *blocks,
   const uint out_index = z_coord * dims.x * dims.y 
                        + y_coord * dims.x 
                        + x_coord;
+
   if(real_data)
   {
     out[out_index] = val;
   }
   
-	//inv_cast
 }
 template<class Scalar>
 void decode(int3 dims, 
@@ -346,18 +364,32 @@ void decode(int3 dims,
   if(dims.z % 4 != 0) grid_size.z++;
 
   const int some_magic_number = 64 * (8) + 4 + 4; 
+
+  // setup some timing code
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+
+  cudaEventRecord(start);
+
   cudaDecode<Scalar> << < grid_size, block_size, some_magic_number >> >
     (raw_pointer_cast(stream.data()),
 		 d_data,
      dims,
      bsize);
-	cudaStreamSynchronize(0);
-  //ec.chk("cudaInvXformCast");
 
-  //  cudaEventRecord(stop, 0);
-  //  cudaEventSynchronize(stop);
-  //  cudaEventElapsedTime(&millisecs, start, stop);
-  //ec.chk("cudadecode");
+  cudaEventRecord(stop);
+  cudaEventSynchronize(stop);
+	cudaStreamSynchronize(0);
+
+  float miliseconds = 0;
+  cudaEventElapsedTime(&miliseconds, start, stop);
+  float seconds = miliseconds / 1000.f;
+  printf("Decode elapsed time: %.5f (s)\n", seconds);
+  float rate = (float(dims.x * dims.y * dims.z) * sizeof(Scalar) ) / seconds;
+  rate /= 1024.f;
+  rate /= 1024.f;
+  printf("Decode rate: %.2f (MB / sec)\n", rate);
 }
 
 template<class Scalar>

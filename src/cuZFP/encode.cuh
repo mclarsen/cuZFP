@@ -1,5 +1,5 @@
-#ifndef ENCODE_CUH
-#define ENCODE_CUH
+#ifndef CUZFP_ENCODE_CUH
+#define CUZFP_ENCODE_CUH
 
 //#include <helper_math.h>
 #include "shared.h"
@@ -11,13 +11,13 @@
 #include <thrust/device_vector.h>
 
 #include <cuZFP.h>
+#include <debug_utils.cuh>
 #include <type_info.cuh>
 
 #define LDEXP(x, e) ldexp(x, e)
 #define FREXP(x, e) frexp(x, e)
 #define FABS(x) fabs(x)
 
-//const int ebias = 1023;
 
 namespace cuZFP{
 
@@ -115,29 +115,132 @@ fwd_xform(Int* p)
 	__syncthreads();
 	fwd_xform_yx(p);
 }
-template<typename UInt>
-__device__ 
-void Print(int tid, UInt val, const char* msg);
+
+template<typename Scalar>
+Scalar
+inline __device__
+quantize_factor(const int &exponent, Scalar);
 
 template<>
-__device__ 
-void Print<long long unsigned>(int tid, long long unsigned val, const char*msg)
+float
+inline __device__
+quantize_factor<float>(const int &exponent, float)
 {
-  printf(" %s tid(%d): %llu\n", msg, tid, val);
+	return  LDEXP(1.0, get_precision<float>() - 2 - exponent);
 }
 
 template<>
-__device__ 
-void Print<unsigned int>(int tid, unsigned int val, const char*msg)
+double
+inline __device__
+quantize_factor<double>(const int &exponent, double)
 {
-  printf(" %s tid(%d): %u\n", msg, tid, val);
+	return  LDEXP(1.0, get_precision<double>() - 2 - exponent);
 }
 
-template<>
-__device__ 
-void Print<unsigned char>(int tid, unsigned char val, const char*msg)
+template<typename Scalar, typename Int>
+void 
+inline __device__ floating_point_ops(const int &tid,
+                                     Int *sh_q,
+                                     uint *s_emax_bits,
+                                     const Scalar *sh_data,
+                                     Scalar *sh_reduce,
+                                     int *sh_emax,
+                                     const Scalar &thread_val,
+                                     Word *blocks,
+                                     uint &blk_idx)
 {
-  printf(" %s tid(%d): %d\n", msg, tid, (int)val);
+
+  /** FLOATING POINT ONLY ***/
+  get_max_exponent(tid, sh_data, sh_reduce, sh_emax);
+	__syncthreads();
+  /*** FLOATING POINT ONLY ***/
+	Scalar w = quantize_factor(sh_emax[0], Scalar());
+  /*** FLOATING POINT ONLY ***/
+  // block tranform
+  sh_q[tid] = (Int)(thread_val * w); // sh_q  = signed integer representation of the floating point value
+  /*** FLOATING POINT ONLY ***/
+	if (tid == 0)
+  {
+		s_emax_bits[0] = 1;
+
+		int maxprec = precision(sh_emax[0], get_precision<Scalar>(), get_min_exp<Scalar>());
+
+		uint e = maxprec ? sh_emax[0] + get_ebias<Scalar>() : 0;
+		if(e)
+    {
+			blocks[blk_idx] = 2 * e + 1; // the bit count?? for this block
+			s_emax_bits[0] = get_ebits<Scalar>() + 1;// this c_ebit = ebias
+		}
+	}
+}
+
+
+template<>
+void 
+inline __device__ floating_point_ops<int,int>(const int &tid,
+                                     int *sh_q,
+                                     uint *s_emax_bits,
+                                     const int *sh_data,
+                                     int *sh_reduce,
+                                     int *sh_emax,
+                                     const int &thread_val,
+                                     Word *blocks,
+                                     uint &blk_idx)
+{
+  s_emax_bits[0] = 0;
+  sh_q[tid] = thread_val;
+}
+
+
+template<>
+void 
+inline __device__ floating_point_ops<long long int, long long int>(const int &tid,
+                                     long long int *sh_q,
+                                     uint *s_emax_bits,
+                                     const long long int*sh_data,
+                                     long long int *sh_reduce,
+                                     int *sh_emax,
+                                     const long long int &thread_val,
+                                     Word *blocks,
+                                     uint &blk_idx)
+{
+  s_emax_bits[0] = 0;
+  sh_q[tid] = thread_val;
+}
+
+template<typename Scalar>
+void
+inline __device__
+get_max_exponent(const int &tid, 
+                      const Scalar *sh_data,
+                      Scalar *sh_reduce, 
+                      int *max_exponent)
+{
+	if (tid < 32)
+  {
+		sh_reduce[tid] = max(fabs(sh_data[tid]), fabs(sh_data[tid + 32]));
+  }
+	if (tid < 16)
+  {
+		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 16]);
+  }
+	if (tid < 8)
+  {
+		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 8]);
+  }
+	if (tid < 4)
+  {
+		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 4]);
+  }
+	if (tid < 2)
+  {
+		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 2]);
+  }
+	if (tid == 0)
+  {
+		sh_reduce[0] = max(sh_reduce[tid], sh_reduce[tid + 1]);
+		max_exponent[0] = exponent(sh_reduce[0]);
+	}
 }
 
 template<typename Scalar>
@@ -192,86 +295,57 @@ encode (Scalar *sh_data,
 	if (tid < bsize)
 		blocks[blk_idx + tid] = 0; 
 
-  // cache the value this thread is resposible for
   Scalar thread_val = sh_data[tid];
 	__syncthreads();
-	//max_exp
-	if (tid < 32)
-		sh_reduce[tid] = max(fabs(sh_data[tid]), fabs(sh_data[tid + 32]));
-	if (tid < 16)
-		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 16]);
-	if (tid < 8)
-		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 8]);
-	if (tid < 4)
-		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 4]);
-	if (tid < 2)
-		sh_reduce[tid] = max(sh_reduce[tid], sh_reduce[tid + 2]);
-	if (tid == 0){
-		sh_reduce[0] = max(sh_reduce[tid], sh_reduce[tid + 1]);
-		sh_emax[0] = exponent(sh_reduce[0]);
-	}
-
-  //if(tid == 0) printf(" sh_emax %d\n", sh_emax[0]);
-  //if(tid == 0) printf(" max %f\n", sh_reduce[0]);
+  
+  //
+  // this is basically a no-op for int types
+  //
+  floating_point_ops(tid,
+                     sh_q,
+                     s_emax_bits,
+                     sh_data,
+                     sh_reduce,
+                     sh_emax,
+                     thread_val,
+                     blocks,
+                     blk_idx);
+ 
 	__syncthreads();
-	//fixed_point
-	Scalar w = LDEXP(1.0, get_precision<Scalar>() - 2 - sh_emax[0]);
-  // w = actu
-  // sh_q  = signed integer representation of the floating point value
-  // block tranform
-  sh_q[tid] = (Int)(thread_val * w);
-  // NO MORE sh_data
 
   // Decorrelation
 	fwd_xform(sh_q);
+
 	__syncthreads();
-	//fwd_order
+
+  // get negabinary representation
+  // fwd_order in cpu code
 	sh_p[tid] = int2uint(sh_q[c_perm[tid]]);
-  // sh_p negabinary rep
-	if (tid == 0)
-  {
-    //   
-		s_emax_bits[0] = 1;
 
-		int maxprec = precision(sh_emax[0], get_precision<Scalar>(), get_min_exp<Scalar>());
-    //printf("max prec %d\n", maxprec);
-		//kmin = intprec > maxprec ? intprec - maxprec : 0;
-
-		uint e = maxprec ? sh_emax[0] + get_ebias<Scalar>() : 0;
-		if (e)
-    {
-			//write_bitters(bitter[0], make_bitter(2 * e + 1, 0), ebits, sbit[0]);
-			blocks[blk_idx] = 2 * e + 1; // the bit count?? for this block
-			s_emax_bits[0] = get_ebits<Scalar>() + 1;// this c_ebit = ebias
-		}
-	}
-	__syncthreads();
-
+  /**********************Begin encode block *************************/
 	/* extract bit plane k to x[k] */
-  // size  is probaly bit per value
 	long long unsigned y = 0;
 	for (uint i = 0; i < vals_per_block; i++)
   {
 		y += ((sh_p[i] >> tid) & (long long unsigned)1) << i;
   }
-  // NO MORE sh_q
+  
 	long long unsigned x = y;
   //
-  // From this pont on for 32 bit types,
+  // From this point on for 32 bit types,
   // only tids < 32 have valid data
   //
   
   //Print(tid, y, "bit plane");
 
 	__syncthreads();
-	sh_m[tid] = 0; // is  
+	sh_m[tid] = 0;   
 	sh_n[tid] = 0;
 
-	//temporarily use sh_n as a buffer
+	// temporarily use sh_n as a buffer
   // these are setting up indices to things that have value
   // find the first 1 (in terms of most significant 
   // bit
-  const int values_in_block = 64; // or number of bit planes
 	for (int i = 0; i < 64; i++)
   {
 		if (!!(x >> i)) // !! is this bit zero
@@ -281,7 +355,7 @@ encode (Scalar *sh_data,
 	}
   
   //Print(tid, sh_n[tid], "sh_n ");
-
+  // shift
 	if (tid < 63)
   {
 		sh_m[tid] = sh_n[tid + 1];
@@ -329,6 +403,7 @@ encode (Scalar *sh_data,
   {
 		for (; n < size - 1 && bits && (bits-- && !write_bitter(bitter, y & 1u, sbit)); y >>= 1, n++);
   }
+
 	__syncthreads();
   
 
@@ -351,6 +426,9 @@ encode (Scalar *sh_data,
 		uint rem_sbits = s_emax_bits[0];// sbits[0];
 		uint offset = 0;
     const uint maxbits = bsize * vals_per_block; 
+    //printf("total bits %d\n", (int)tot_sbits);
+    //printf("rem bits %d\n", (int)rem_sbits);
+    //printf("max bits %d\n", (int)maxbits);
 		for (int i = 0; i < intprec && tot_sbits < maxbits; i++)
     {
 			if (sh_sbits[i] <= 64)
@@ -367,7 +445,9 @@ encode (Scalar *sh_data,
         }
 			}
 		}
+    //printf("end total bits %d\n", (int)tot_sbits);
 	}
+
 
 }
 
@@ -405,7 +485,7 @@ cudaEncode(const uint  bsize,
           + x_coord;
 
 	sh_data[tid] = data[id];
-  //printf(" S %f", sh_data[tid]);
+  //printf("tid %d data  %d\n",tid, sh_data[tid]);
 	__syncthreads();
   //if(tid == 0) printf("\n");
 	encode< Scalar>(sh_data,

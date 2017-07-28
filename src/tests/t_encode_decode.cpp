@@ -6,13 +6,14 @@
 #include <iomanip>
 #include <stdlib.h>
 
-TEST(encode_decode, test_encode_decode)
+template<typename T>
+void run_test()
 {
   int nx = 256;
   int ny = 256;
   int nz = 256;
   const int size = nx * ny * nz;
-  std::vector<double> test_data;
+  std::vector<T> test_data;
   test_data.resize(size);
 
   for(int z = 0; z < nz; ++z)
@@ -20,7 +21,7 @@ TEST(encode_decode, test_encode_decode)
       for(int x = 0; x < nx; ++x)
   {
 
-    double val = sqrt(double(z*z) + double(x*x) + double(y*y));
+    T val = static_cast<T>(sqrt(double(z*z) + double(x*x) + double(y*y)));
     if(val != 0.)
     {
       val =  1. / val;
@@ -34,11 +35,10 @@ TEST(encode_decode, test_encode_decode)
   }
 
   cuZFP::EncodedData encoded_data;
-  cuZFP::encode_float64(nx,ny,nz,test_data, encoded_data);
+  cuZFP::encode(nx,ny,nz,test_data, encoded_data);
 
-
-  std::vector<double> test_data_out;
-  cuZFP::decode_float64(encoded_data, test_data_out);
+  std::vector<T> test_data_out;
+  cuZFP::decode(encoded_data, test_data_out);
   double tot_err = 0;
   for(int i = 0; i < size; ++i)
   {
@@ -48,5 +48,25 @@ TEST(encode_decode, test_encode_decode)
   double average_err = tot_err /  double(size);
   printf("Total absolute error %2.20f\n", tot_err);
   printf("Average abosulte error %2.20f with %d values.\n", average_err, size);
+}
+
+TEST(encode_decode, test_encode_decode_float64)
+{
+  run_test<double>();
+}
+
+TEST(encode_decode, test_encode_decode_float32)
+{
+  run_test<float>();
+}
+
+TEST(encode_decode, test_encode_decode_int64)
+{
+  run_test<long long int>();
+}
+
+TEST(encode_decode, test_encode_decode_int32)
+{
+  run_test<int>();
 }
 
