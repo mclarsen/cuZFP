@@ -469,7 +469,8 @@ encode1(Scalar *sh_data,
 
   // number of bits in the incoming type
   const uint size = sizeof(Scalar) * 8; 
-  const uint vals_per_block = 64;
+  const uint vals_per_block = 4;
+  const uint vals_per_cuda_block = 64;
   //shared mem that depends on scalar size
 	__shared__ Scalar *sh_reduce;
 	__shared__ Int *sh_q;
@@ -492,10 +493,11 @@ encode1(Scalar *sh_data,
 	sh_p = (UInt*)&sh_data[0];
 
 	sh_sbits = &smem[0];
-	sh_bitters = (Bitter*)&sh_sbits[vals_per_block];
-	sh_m = (uint*)&sh_bitters[vals_per_block];
-	sh_n = (uint*)&sh_m[vals_per_block];
-	s_emax_bits = (uint*)&sh_n[vals_per_block];
+	sh_bitters = (Bitter*)&sh_sbits[vals_per_cuda_block];
+	sh_m = (uint*)&sh_bitters[vals_per_cuda_block];
+	sh_n = (uint*)&sh_m[vals_per_cuda_block];
+	s_emax_bits = (uint*)&sh_n[vals_per_cuda_block];
+  //TODO: this is different for 1D
 	sh_emax = (int*)&s_emax_bits[1];
 
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
@@ -508,7 +510,8 @@ encode1(Scalar *sh_data,
 
   Scalar thread_val = sh_data[tid];
 	__syncthreads();
-  
+  printf("val %f\n", thread_val); 
+  return;
   //
   // this is basically a no-op for int types
   //
@@ -822,6 +825,7 @@ void encode1(int dim,
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
 
+  std:::cout<<"Running kernel\n";
   cudaEventRecord(start);
 	cudaEncode1<Scalar> << <grid_size, block_size, shared_mem_size>> >
     (bsize,

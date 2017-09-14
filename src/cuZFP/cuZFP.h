@@ -34,7 +34,7 @@ void encode(int nx, int ny, int nz, std::vector<int> &in_data, EncodedData  &enc
 void encode(int nx, int ny, int nz, std::vector<long long int> &in_data, EncodedData  &encoded_data);
 
 // 1D encoding
-void encode(int nx, std::vector<double> &in_data, EncodedData  &encoded_data);
+void encode(int nx, std::vector<float> &in_data, EncodedData  &encoded_data);
 
 // 3D decoding 
 void decode(const EncodedData &encoded_data, std::vector<double> &out_data);
