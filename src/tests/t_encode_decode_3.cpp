@@ -32,6 +32,7 @@ void run_test(int nx, int ny, int nz)
   }
 
   cuZFP::EncodedData encoded_data;
+  encoded_data.m_bsize = 1;
   cuZFP::encode(nx,ny,nz,test_data, encoded_data);
 
   std::vector<T> test_data_out;
@@ -54,9 +55,10 @@ void run_test(int nx, int ny, int nz)
 
 TEST(encode_decode, test_encode_decode_float32)
 {
-  run_test<float>(512, 512, 512);
+  //run_test<float>(512, 512, 512);
+  run_test<float>(128, 128, 128);
 }
-
+//
 //TEST(encode_decode, test_encode_decode_int64)
 //{
 //  run_test<long long int>(256, 256, 256);

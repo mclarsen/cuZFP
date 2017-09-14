@@ -28,4 +28,10 @@ template void encode<int>
              thrust::device_vector<int> &d_data,
              thrust::device_vector<Word> &stream,
              int bsize);
+
+template void encode1<float>
+            (int dim,
+             thrust::device_vector<float> &d_data,
+             thrust::device_vector<Word> &stream,
+             int bsize);
 }

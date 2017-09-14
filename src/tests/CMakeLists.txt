@@ -4,9 +4,11 @@
 #
 ###############################################################################
 
-set(TESTS t_encode_decode
-          t_encode_decode_rand 
-          t_sanity_check)
+set(TESTS t_encode_decode_3
+          t_encode_decode_rand_3
+          t_sanity_check_3
+          t_sanity_check_1
+          )
 
 foreach(TEST ${TESTS})
   message(STATUS "Adding unit test: ${TEST}")
