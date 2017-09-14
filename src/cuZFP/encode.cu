@@ -1,4 +1,5 @@
 #include "encode.cuh"
+#include "encode1.cuh"
 #include "cuZFP.h"
 
 #include <vector>

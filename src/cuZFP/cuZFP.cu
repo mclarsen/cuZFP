@@ -1,6 +1,7 @@
 #include <assert.h>
 #include "cuZFP.h"
 #include "encode.cuh"
+#include "encode1.cuh"
 #include "ErrorCheck.h"
 #include "decode.cuh"
 #include <constant_setup.cuh>
@@ -58,9 +59,11 @@ void encode(int nx, std::vector<T> &in_data, EncodedData &encoded_data)
   // allocate in encode
   thrust::device_vector<Word> d_encoded;
   thrust::device_vector<T> d_in_data(in_data); 
-
+  
+  std::cout<<"setting up constants\n";
   ConstantSetup::setup_1d();
 
+  std::cout<<"calling encode\n";
   cuZFP::encode1<T>(dim, d_in_data, d_encoded, bsize); 
 
   errors.chk("encode1");
