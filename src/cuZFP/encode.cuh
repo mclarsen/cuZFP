@@ -173,8 +173,6 @@ encode (Scalar *sh_data,
   typedef typename zfp_traits<Scalar>::Int Int;
   const int intprec = get_precision<Scalar>();
 
-  // number of bits in the incoming type
-  const uint size = sizeof(Scalar) * 8; 
   const uint vals_per_block = 64;
   //shared mem that depends on scalar size
 	__shared__ Scalar *sh_reduce;
@@ -271,7 +269,9 @@ encode (Scalar *sh_data,
   // find the first 1 (in terms of most significant 
   // __clzll -- intrinsic for count the # of leading zeros 	
   sh_n[tid] = 64 - __clzll(x);
-  //Print(tid, sh_n[tid], "sh_n ");
+  //printf("tid %d msb %d\n", tid, (int)sh_n[tid]);
+	__syncthreads();
+
 	if (tid < 63)
   {
 		sh_m[tid] = sh_n[tid + 1];
@@ -281,17 +281,22 @@ encode (Scalar *sh_data,
   // this is basically a scan
 	if (tid == 0)
   {
-		for (int i = intprec - 1; i-- > 0;)
+		for (int i = intprec - 2; i >= 0; --i)
     {
 			if (sh_m[i] < sh_m[i + 1])
       {
 				sh_m[i] = sh_m[i + 1];
       }
+      //printf("i %d\n", i);
 		}
 	}
 
-  //Print(tid, sh_m[tid], "sh_m ");
-
+	//__syncthreads();
+  //if(tid == 0)
+  //{
+  //  for(int i = 0; i < 64; ++i)
+  //    printf("tid %d scan %d msb %d\n", i, sh_m[i], sh_n[i]);
+  //}
 	__syncthreads();
 	int bits = 128; // same for both 32 and 64 bit values 
 	int n = 0;
@@ -301,9 +306,9 @@ encode (Scalar *sh_data,
 	x = (sh_m[tid] != 64) * x;
 	n = sh_m[tid];
 	/* step 3: unary run-length encode remainder of bit plane */
-	for (; n < size && bits && (bits--, !!x); x >>= 1, n++)
+	for (; n < vals_per_block && bits && (bits--, !!x); x >>= 1, n++)
   {
-		for (; n < size - 1 && bits && (bits--, !(x & 1u)); x >>= 1, n++);
+		for (; n < vals_per_block - 1 && bits && (bits--, !(x & 1u)); x >>= 1, n++);
   }
 	__syncthreads();
 
@@ -315,9 +320,9 @@ encode (Scalar *sh_data,
 	y = write_bitters(bitter, make_bitter(y, 0), sh_m[tid], sbit);
 	n = sh_n[tid];
 	/* step 3: unary run-length encode remainder of bit plane */
-	for (; n < size && bits && (bits-- && write_bitter(bitter, !!y, sbit)); y >>= 1, n++)
+	for (; n < vals_per_block && bits && (bits-- && write_bitter(bitter, !!y, sbit)); y >>= 1, n++)
   {
-		for (; n < size - 1 && bits && (bits-- && !write_bitter(bitter, y & 1u, sbit)); y >>= 1, n++);
+		for (; n < vals_per_block - 1 && bits && (bits-- && !write_bitter(bitter, y & 1u, sbit)); y >>= 1, n++);
   }
 
 	__syncthreads();

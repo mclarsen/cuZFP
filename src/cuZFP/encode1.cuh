@@ -14,8 +14,118 @@
 #include <debug_utils.cuh>
 #include <type_info.cuh>
 
+#define CUDA_BLK_SIZE_1D 128
+#define ZFP_BLK_PER_BLK_1D 32 
+
 namespace cuZFP
 {
+
+template<typename T>
+__device__ void print_bits(const T &bits)
+{
+  const int bit_size = sizeof(T) * 8;
+
+  for(int i = bit_size - 1; i >= 0; --i)
+  {
+    T one = 1;
+    T mask = one << i;
+    T val = (bits & mask) >> i ;
+    printf("%d", (int) val);
+  }
+  printf("\n");
+}
+
+struct BitStream32
+{
+  int current_bits; 
+  unsigned int bits;
+  __device__ BitStream32()
+    : current_bits(0), bits(0)
+  {
+  }
+
+  inline __device__ 
+  unsigned short write_bits(const unsigned int &src, 
+                            const uint &n_bits)
+  {
+    // set the first n bits to 0
+    unsigned int left = (src >> n_bits) << n_bits;
+    unsigned int b = src - left;
+    b = b << current_bits;  
+    current_bits += n_bits;
+    bits += b;
+    unsigned int res = left >> n_bits;
+    return res;
+  }
+
+  inline __device__ 
+  unsigned short write_bit(const unsigned short bit)
+  {
+    bits += bit << current_bits;   
+    current_bits += 1;
+    return bit;
+  }
+
+};
+
+template<int block_size>
+struct BlockWriter
+{
+  int m_word_index;
+  int m_start_bit;
+  const int m_bsize; 
+  Word *m_words;
+  __device__ BlockWriter(Word *b, const int &bsize, const int &block_idx)
+    : m_words(b), m_bsize(bsize)
+  {
+    m_word_index = (block_idx * bsize * block_size)  / (sizeof(Word) * 8); 
+    m_start_bit = (block_idx * bsize * block_size) % (sizeof(Word) * 8); 
+    printf(" Writer start word %d start bit %d \n", (int)m_word_index, (int)m_start_bit);
+  }
+
+  inline __device__ 
+  void write_bits(const unsigned int &bits, const uint &n_bits, const uint &bit_offset)
+  {
+    //if(bits == 0) { printf("no\n"); return;}
+    uint seg_start = m_start_bit + bit_offset;
+    uint seg_end = seg_start + n_bits - 1;
+    int write_index = m_word_index;
+    uint shift = seg_start; 
+
+    // handle the case where all of the bits reside in the
+    // next word. This is mutually exclusive with straddle.
+    if(seg_start >= sizeof(Word) * 8) 
+    { 
+      write_index++;
+      shift -= sizeof(Word) * 8;
+    }
+    // we may be asked to write less bits than exist in 'bits'
+    // so we have to make sure that anything after n is zero.
+    // If this does not happen, then we may write into a zfp
+    // block not at the specified index
+    // uint zero_shift = sizeof(Word) * 8 - n_bits;
+    Word left = (bits >> n_bits) << n_bits;
+    
+    Word b = bits - left;
+    Word add = b << shift;
+    atomicAdd(&m_words[write_index], add); 
+    // n_bits straddles the word boundary
+    bool straddle = seg_start < sizeof(Word) * 8 && seg_end >= sizeof(Word) * 8;
+    if(straddle)
+    {
+      printf("straddle\n");
+      Word rem = b >> (sizeof(Word) * 8 - shift);
+      print_bits(rem);
+      atomicAdd(&m_words[write_index + 1], rem); 
+    }
+  }
+
+  private:
+  __device__ BlockWriter()
+  {
+  }
+
+};
 
 template<typename Scalar, typename Int>
 void 
@@ -26,12 +136,16 @@ inline __device__ floating_point_ops1(const int &tid,
                                       Scalar *sh_reduce,
                                       int *sh_emax,
                                       const Scalar &thread_val,
-                                      Word *blocks,
-                                      uint &blk_idx)
+                                      Word blocks[],
+                                      uint &blk_idx,  // this is the start of all 32 blocks 
+                                      const int &bsize)
 {
+  const int block = tid / 4 /*vals_per_block*/;
+  const int block_start = block * 4 /*vals_per_block*/;
+  const int local_pos = tid % 4;
 
   /** FLOATING POINT ONLY ***/
-  int max_exp = get_max_exponent1(tid, sh_data, sh_reduce);
+  int max_exp = get_max_exponent1(tid, sh_data, sh_reduce, block_start, local_pos);
 	__syncthreads();
 
   /*** FLOATING POINT ONLY ***/
@@ -40,18 +154,22 @@ inline __device__ floating_point_ops1(const int &tid,
   // block tranform
   sh_q[tid] = (Int)(thread_val * w); // sh_q  = signed integer representation of the floating point value
   /*** FLOATING POINT ONLY ***/
-	if (tid == 0)
+	if (local_pos == 0)
   {
-		s_emax_bits[0] = 1;
+		s_emax_bits[block] = 1;
 
-		int maxprec = precision(max_exp, get_precision<Scalar>(), get_min_exp<Scalar>());
+		unsigned int maxprec = precision(max_exp, get_precision<Scalar>(), get_min_exp<Scalar>());
 
-		uint e = maxprec ? max_exp + get_ebias<Scalar>() : 0;
+	  unsigned int e = maxprec ? max_exp + get_ebias<Scalar>() : 0;
 		if(e)
     {
       // this is writing the exponent out
-			blocks[blk_idx] = 2 * e + 1; // the bit count?? for this block
-			s_emax_bits[0] = get_ebits<Scalar>() + 1;// this c_ebit = ebias
+			s_emax_bits[block] = get_ebits<Scalar>() + 1;// this c_ebit = ebias
+      BlockWriter<4> writer(blocks, bsize, blk_idx + block);
+      unsigned int bits = 2 * e + 1; // the bit count?? for this block
+      // writing to shared mem
+      writer.write_bits(bits, s_emax_bits[block], 0);
+      //print_bits(blocks[0]);
 		}
 	}
 }
@@ -67,9 +185,16 @@ inline __device__ floating_point_ops1<int,int>(const int &tid,
                                                int *sh_emax,
                                                const int &thread_val,
                                                Word *blocks,
-                                               uint &blk_idx)
+                                               uint &blk_idx,
+                                               const int &bsize)
 {
-  s_emax_bits[0] = 0;
+
+  const int offset = tid / 4 /*vals_per_block*/;
+  const int local_pos = tid % 4;
+  if(local_pos == 0)
+  {
+    s_emax_bits[offset] = 0;
+  }
   sh_q[tid] = thread_val;
 }
 
@@ -83,9 +208,15 @@ inline __device__ floating_point_ops1<long long int, long long int>(const int &t
                                      int *sh_emax,
                                      const long long int &thread_val,
                                      Word *blocks,
-                                     uint &blk_idx)
+                                     uint &blk_idx,
+                                     const int &bize)
 {
-  s_emax_bits[0] = 0;
+  const int offset = tid / 4 /*vals_per_block*/;
+  const int local_pos = tid % 4;
+  if(local_pos == 0)
+  {
+    s_emax_bits[offset] = 0;
+  }
   sh_q[tid] = thread_val;
 }
 
@@ -94,15 +225,14 @@ int
 inline __device__
 get_max_exponent1(const int &tid, 
                   const Scalar *sh_data,
-                  Scalar *sh_reduce)
+                  Scalar *sh_reduce,
+                  const int &offset,
+                  const int &local_pos)
 {
-  Scalar val = sh_data[tid];
-  const int offset = tid / 4 /*vals_per_block*/;
-  const int local_pos = tid % 4;
 	if (local_pos < 2)
   {
-		sh_reduce[offset+local_pos] = 
-      max(fabs(sh_data[offset+local_pos]), fabs(sh_data[offset+local_pos + 2]));
+		sh_reduce[offset + local_pos] = 
+      max(fabs(sh_data[offset + local_pos]), fabs(sh_data[offset + local_pos + 2]));
   }
 
 	if (local_pos == 0)
@@ -110,7 +240,6 @@ get_max_exponent1(const int &tid,
 		sh_reduce[offset] = max(sh_reduce[offset], sh_reduce[offset + 1]);
 	}
 
-  printf("max exp %d of %f in offset %d\n", exponent(sh_reduce[offset]), val, offset);
 	return exponent(sh_reduce[offset]);
 }
 
@@ -122,30 +251,24 @@ __device__
 void 
 encode1(Scalar *sh_data,
 	      const uint bsize, 
-        unsigned char *smem,
-        uint blk_idx,
+        uint blk_idx, // the start index of the set of zfp blocks we are encoding
         Word *blocks)
 {
   typedef typename zfp_traits<Scalar>::UInt UInt;
   typedef typename zfp_traits<Scalar>::Int Int;
   const int intprec = get_precision<Scalar>();
 
+  extern __shared__ Word sh_output[];
+  typedef unsigned short PlaneType;
   // number of bits in the incoming type
-  const uint size = sizeof(Scalar) * 8; 
+  //const uint size = sizeof(Scalar) * 8; 
   const uint vals_per_block = 4;
-  const uint vals_per_cuda_block = 128;
+  const uint vals_per_cuda_block = CUDA_BLK_SIZE_1D;
+  const uint zfp_blocks_per_cuda_block = 32;
   //shared mem that depends on scalar size
 	__shared__ Scalar *sh_reduce;
 	__shared__ Int *sh_q;
 	__shared__ UInt *sh_p;
-
-  // shared mem that always has the same size
-	__shared__ int *sh_emax;
-	__shared__ uint *sh_m, *sh_n;
-	__shared__ unsigned char *sh_sbits;
-	__shared__ Bitter *sh_bitters;
-	__shared__ uint *s_emax_bits;
-
   //
   // These memory locations do not overlap (in time)
   // so we will re-use the same buffer to
@@ -155,19 +278,17 @@ encode1(Scalar *sh_data,
 	sh_q = (Int*)&sh_data[0];
 	sh_p = (UInt*)&sh_data[0];
 
-	sh_sbits = &smem[0];
-	sh_bitters = (Bitter*)&sh_sbits[vals_per_cuda_block];
-	sh_m = (uint*)&sh_bitters[vals_per_cuda_block];
-	sh_n = (uint*)&sh_m[vals_per_cuda_block];
-	s_emax_bits = (uint*)&sh_n[vals_per_cuda_block];
-  //TODO: this is different for 1D
-	sh_emax = (int*)&s_emax_bits[1];
-
+  // shared mem that always has the same size
+	__shared__ uint sh_m[CUDA_BLK_SIZE_1D];
+	__shared__ PlaneType sh_n[CUDA_BLK_SIZE_1D];
+	__shared__ unsigned char sh_sbits[CUDA_BLK_SIZE_1D];
+	__shared__ uint sh_encoded_bit_planes[CUDA_BLK_SIZE_1D];
+	__shared__ int sh_emax[ZFP_BLK_PER_BLK_1D];
+	__shared__ uint s_emax_bits[ZFP_BLK_PER_BLK_1D];
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 
 	Bitter bitter = make_bitter(0, 0);
 	unsigned char sbit = 0;
-	//uint kmin = 0;
   const uint word_bits = sizeof(Word) * 8;
   const uint total_words = (bsize * vals_per_cuda_block) / word_bits; 
   const uint words_per_block =  word_bits  / (bsize * vals_per_block);
@@ -179,15 +300,18 @@ encode1(Scalar *sh_data,
   }
   // init output stream 
 	if (tid < total_words)
+  {
 		blocks[blk_idx + tid] = 0; 
+    sh_output[tid] = 0;
+  }
 
   Scalar thread_val = sh_data[tid];
 	__syncthreads();
-  printf("val %f\n", thread_val); 
 
   //
   // this is basically a no-op for int types
   //
+  //if(tid < 4)
   floating_point_ops1(tid,
                       sh_q,
                       s_emax_bits,
@@ -196,11 +320,210 @@ encode1(Scalar *sh_data,
                       sh_emax,
                       thread_val,
                       blocks,
-                      blk_idx);
- 
+                      blk_idx,
+                      bsize);
+  #pragma warning "need to pass global index for writing exponents" 
 	__syncthreads();
-  return;
 
+  //
+  // In 1D we have zfp blocks of 4,
+  // and we need to know the local position
+  // of each thread
+  //
+
+  const int local_pos = tid % 4;
+  const int block_start = (tid / 4) * 4/*vals_per_block*/;
+  //printf("tid %d block_start %d local pos %d in val %d\n", (int) tid, (int) block_start, local_pos, (int) sh_q[tid]); 
+  // Decorrelation
+  if(local_pos == 0)
+  { 
+    fwd_lift<Int,1>(sh_q + block_start);
+  }
+
+	__syncthreads();
+  // get negabinary representation
+  // fwd_order in cpu code
+	//sh_p[tid] = int2uint(sh_q[block_start + c_perm_1[local_pos]]);
+	sh_p[tid] = int2uint(sh_q[tid]);
+
+  
+  // for 32 bit values, each warp will compress
+  // 8 1D blocks (no need for synchs). for 64 bit values, 
+  // two warps will compress 16 blocks (synchs needed).
+  //TODO: perhaps each group should process a contiguous set of block
+  // to avoid mem contention
+  const uint work_size = intprec == 32 ? 8 : 16; // this is 1D specific
+  const int block_stride = intprec == 32 ? 4 : 2; // works for both 1d and 2d
+  int current_block = tid / intprec;
+  const int bit_index = tid % intprec;
+  //printf("tid %d bit index %d nb %u\n", (int) tid, (int) bit_index, sh_p[tid]);
+  /**********************Begin encode block *************************/
+  for(uint block = 0; block < work_size; ++block)
+  {
+    const int block_start = current_block * vals_per_block;
+    //if(current_block != 1) return;
+    //if(bit_index == 0) printf("warp %d processing block %d\n", tid / intprec,current_block);
+    PlaneType y = 0;
+    const PlaneType mask = 1;
+	  /* extract bit plane k to x[k] */
+    #pragma unroll 4 
+    for (uint i = 0; i < vals_per_block; i++)
+    {
+      // TODO: this is the main bottlenect in terms 
+      // of # of instructions. We could could change
+      // this to a lookup table or some sort of
+      // binary matrix transpose.
+      y += ((sh_p[block_start + i] >> bit_index) & mask) << i;
+      if(tid == 0)
+      {
+        //printf(" value %d (%d)\n", (int)sh_p[block_start + i], (int)i);
+      }
+    }
+  
+    //
+    // For 1d blocks we only use 4 bits of the 16 bit 
+    // unsigned short, so we will shift the bits left and 
+    // ignore the remaining 12 bits when encoding
+    //
+    //printf("tid %d y %d\n", tid, (int)y);
+    PlaneType z = y;
+    int x = y;// << 16;
+    PlaneType debug_plane = y; 
+    // temporarily use sh_n as a buffer
+    // these are setting up indices to things that have value
+    // find the first 1 (in terms of most significant 
+    // __clzll -- intrinsic for count the # of leading zeros 	
+    sh_n[tid] = 32 /*total int bits*/ - __clz(x);
+    
+    //printf("tid %d msb %d\n", tid, (int)sh_n[tid]);
+    // init sh_m each iteration
+    sh_m[tid] = 0;
+	  __syncthreads();
+    if (bit_index < intprec - 1)
+    {
+      sh_m[tid] = sh_n[tid + 1];
+    }
+	  __syncthreads();
+     
+    // this is basically a scan
+    if (bit_index == 0)
+    {
+      // begining of shared memory segment for each
+      // block processed in parallel. Each block has
+      // a bit_index == 0 at 0,32,64, and 96 (for 32bit)
+      // and 0 and 64 for (64 bit types) == tid
+      for (int i = intprec - 2; i >= 0; --i)
+      {
+        if (sh_m[tid + i] < sh_m[tid + i + 1])
+        {
+          sh_m[tid + i] = sh_m[tid + i + 1];
+        }
+      }
+    }
+    //if(tid < 32) printf("tid %d scan %d msb %d\n", tid, sh_m[tid], sh_n[tid]);
+    __syncthreads();
+    // maximum number of bits output per bit plane is 
+    // 2 * 4^d - 1, i.e., 7, 31, and 127 for 1D, 2D, and 3D
+    int bits = 32; // this is maxbits (line:82 encode.c -- zfp) 
+    int n = 0;
+    /* step 2: encode first n bits of bit plane */
+    // substract the minimum number of bits needed to encode this number
+    // which is at least the intprec - msb(tid+1)
+    bits -= sh_m[tid]; 
+    z >>= sh_m[tid]; // this only makes sense if bit plane msb is 0
+    z = (sh_m[tid] != vals_per_block) * z; //if == size_of_bitplane set z to 0
+    n = sh_m[tid];
+
+    //if (tid == 0)
+    //{
+    //  printf("BLOCK 0\n");
+    //  for (int i = intprec - 1; i >= 0; --i)
+    //  {
+    //    printf(" %d )", (int) sh_m[i]);
+    //  }
+    //  printf("\n");
+    //  
+    //}
+
+    //printf("tid %d write out %d bits\n", (int) tid, (int) n);
+    /* step 3.0 : count the number of bits for a run-length encoding*/
+    for (; n < vals_per_block && bits && (bits--, !!z); z >>= 1, n++)
+    {
+      for (; n < vals_per_block - 1 && bits && (bits--, !(z & 1u)); z >>= 1, n++);
+    }
+
+    __syncthreads();
+
+    bits = (32 - bits);
+    sh_n[tid] = min(sh_m[tid], bits);
+
+    BitStream32 out; 
+    y = out.write_bits(y, sh_m[tid]);
+    n = sh_n[tid];
+  
+	  /* step 3.1: unary run-length encode remainder of bit plane */
+    for (; n < vals_per_block && bits && (bits-- && out.write_bit(!!y)); y >>= 1, n++)
+    {
+      for (; n < vals_per_block - 1 && bits && (bits-- && !out.write_bit(y & 1u)); y >>= 1, n++);
+    }
+	  __syncthreads();
+    // reverse the order of the encoded bitplanes in shared mem
+    // TODO: can't we just invert the bit plane from the beginning?
+    //       that would just make this tid
+
+    const int sh_mem_index = intprec - 1 - bit_index + (tid / intprec) * intprec; 
+    sh_encoded_bit_planes[sh_mem_index] = out.bits;
+    sh_sbits[sh_mem_index] = out.current_bits; // number of bits for bitplane
+    //for(int i = 31; i >= 0; --i)
+    //{
+    //  if(tid == i)
+    //  {
+    //    printf("tid %d sh_mem index %d bits %d\n", (int)tid, sh_mem_index, (int) out.current_bits);
+    //    print_bits(out.bits);
+    //  }
+    //}
+
+    // TODO: we need to get a scan of the number of bits each values is going 
+    // to write so we can bitshift in parallel. We will resuse sh_m
+    //sh_m[tid] = 0;
+	  __syncthreads();
+
+    if (bit_index == 0)
+    {
+      const uint max_bits = bsize * vals_per_block; 
+      uint tot_sbits = s_emax_bits[current_block];// sbits[0];
+      uint rem_sbits = max_bits - s_emax_bits[current_block];// sbits[0];
+      //printf("total bits %d\n", (int)tot_sbits);
+      //printf("rem bits %d\n", (int)rem_sbits);
+      //printf("max bits %d\n", (int)maxbits);
+      //printf(" thread %d compressing\n", (int) tid);
+      BlockWriter<4> writer(blocks, bsize, blk_idx + current_block);
+      printf("tid %d writing block %d\n", (int) tid, (int) (blk_idx + current_block));
+      uint current_bit_start = tot_sbits;
+     // printf("starting data %llu\n", (long long unsigned)blocks[0]);
+      for (int i = 0; i < intprec && tot_sbits < max_bits; i++)
+      {
+        //printf(" %d bits in %d value %d\n", (int) sh_sbits[tid+i], i, (int)sh_encoded_bit_planes[tid +i]);
+        uint n_bits = min(rem_sbits, sh_sbits[tid+i]); 
+        ///if(blk_idx + current_block  == 0)
+        ///  printf(" ** plane %d bits %d start %d rem %d value %d\n", (int) i, (int)sh_sbits[i], (int) current_bit_start, (int) rem_sbits,(int)sh_encoded_bit_planes[tid+i]);
+         
+        writer.write_bits(sh_encoded_bit_planes[tid + i], n_bits, current_bit_start);
+        //printf("current data " );
+        //print_bits(blocks[0]);
+        //writer.write_bits(sh_encoded_bit_planes[tid + i], sh_sbits[tid + i], rem_sbits);
+        current_bit_start += n_bits; //sh_sbits[tid + i];
+        tot_sbits += n_bits;
+        rem_sbits -= n_bits;
+      }
+      //printf("end total bits %d\n", (int)tot_sbits);
+    } // end serial write
+    current_block += block_stride;
+    //break;
+
+  } //encode each block
+
+  return;
 }
 
 
@@ -212,16 +535,12 @@ cudaEncode1(const uint  bsize,
             Word *blocks,
             const int dim)
 {
-  extern __shared__ unsigned char smem[];
-	__shared__ Scalar *sh_data;
-	unsigned char *new_smem;
+	__shared__ Scalar sh_data[CUDA_BLK_SIZE_1D];
 
-	sh_data = (Scalar*)&smem[0];
   //share data over 32 blocks( 4 vals * 32 blocks= 128) 
-	new_smem = (unsigned char*)&sh_data[128];
 
   const uint idx = blockIdx.x * blockDim.x + threadIdx.x;
-
+  const uint block_index = blockIdx.x * blockDim.x;
   //
   //  The number of threads launched can be larger than total size of
   //  the array in cases where it cannot be devided into perfect block
@@ -235,12 +554,14 @@ cudaEncode1(const uint  bsize,
 	sh_data[tid] = data[id];
   printf("tid %d data  %f\n",tid, sh_data[tid]);
 	__syncthreads();
-  const uint zfp_block_idx = idx % 4; 
-  //if(tid == 0) printf("\n");
+  // 32 1d zfp_blocks per cuda block of 128 with 32-bit types
+  // 16 1d zfp_blocks per cuda block of 128 with 64-bit types
+  int blocks_per_cuda_block = sizeof(Scalar) == 8 ? 16 : 32;
+  const uint zfp_block_start = block_index * blocks_per_cuda_block; 
+  //printf("tid %u ZFP_Block %u \n", tid, zfp_block_idx );
 	encode1<Scalar>(sh_data,
                   bsize, 
-                  new_smem,
-                  zfp_block_idx,
+                  zfp_block_start,
                   blocks);
 
   __syncthreads();
@@ -273,8 +594,7 @@ void encode1launch(int dim,
 {
   std::cout<<"boomm\n";
   dim3 block_size, grid_size;
-  const int cuda_block_size = 128;
-  block_size = dim3(cuda_block_size, 1, 1);
+  block_size = dim3(CUDA_BLK_SIZE_1D, 1, 1);
   grid_size = dim3(dim, 1, 1);
 
   grid_size.x /= block_size.x; 
@@ -284,20 +604,21 @@ void encode1launch(int dim,
 
   int encoded_dim = dim;
 
-  if(dim % cuda_block_size != 0) 
+  if(dim % CUDA_BLK_SIZE_1D != 0) 
   {
     grid_size.x++;
-    encoded_dim = grid_size.x * cuda_block_size;
+    encoded_dim = grid_size.x * CUDA_BLK_SIZE_1D;
   }
 
   std::cout<<"allocating mem\n";
   allocate_device_mem1d(encoded_dim, bsize, stream);
-
-  std::size_t shared_mem_size = sizeof(Scalar) * cuda_block_size 
-                              + sizeof(Bitter) * cuda_block_size 
-                              + sizeof(unsigned char) * cuda_block_size 
-                              + sizeof(unsigned int) * 128 
-                              + 2 * sizeof(int);
+  std::size_t dyn_shared = (ZFP_BLK_PER_BLK_1D * bsize * 4) / (sizeof(Word) * 8);
+  std::cout<<"Dynamic shared mem size "<<dyn_shared<<"\n";
+  //std::size_t shared_mem_size = sizeof(Scalar) * cuda_block_size 
+  //                            + sizeof(Bitter) * cuda_block_size 
+  //                            + sizeof(unsigned char) * cuda_block_size 
+  //                            + sizeof(unsigned int) * 128 
+  //                            + 2 * sizeof(int);
 
 	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 
@@ -310,7 +631,7 @@ void encode1launch(int dim,
   std::cout<<"grid "<<grid_size.x<<" "<<grid_size.y<<" "<<grid_size.z<<"\n";
   std::cout<<"block "<<block_size.x<<" "<<block_size.y<<" "<<block_size.z<<"\n";
   cudaEventRecord(start);
-	cudaEncode1<Scalar> << <grid_size, block_size, shared_mem_size>> >
+	cudaEncode1<Scalar> << <grid_size, block_size, dyn_shared * sizeof(Word)>> >
     (bsize,
      d_data,
      thrust::raw_pointer_cast(stream.data()),

@@ -32,10 +32,13 @@ TEST(sanity_check_1_float32, test_sanity_check_1_float32)
   {
     test_data[i] = i; 
   }
-
+  
   cuZFP::EncodedData encoded_data;
+  //encoded_data.m_bsize = 8; // 2 blocks per word
+  encoded_data.m_bsize = 3; // 2 blocks per word
   cuZFP::encode(x, test_data, encoded_data);
   std::vector<float> test_out_data;
+  dump_raw_binary(encoded_data);
   //cuZFP::decode(encoded_data, test_out_data);
 
   for(int i = 0; i < size; ++i)

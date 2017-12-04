@@ -75,5 +75,18 @@ template<> inline __host__ __device__ bool is_int<long long int>()
   return true;
 }
 
+template<int T> struct block_traits;
+
+template<> struct block_traits<1>
+{
+  typedef unsigned char PlaneType;
+};
+
+template<> struct block_traits<2>
+{
+  typedef unsigned short PlaneType;
+};
+
+
 } // namespace cuZFP
 #endif

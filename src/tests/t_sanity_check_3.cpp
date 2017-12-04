@@ -16,7 +16,7 @@ void dump_raw_binary(cuZFP::EncodedData &data)
     fwrite(&data.m_data[i], sizeof(Word), 1, stderr);
   }
 }
-#if 1 
+/*
 TEST(sanity_check_float64, test_sanity_check_float64)
 {
   //
@@ -49,7 +49,7 @@ TEST(sanity_check_float64, test_sanity_check_float64)
     ASSERT_TRUE(i == static_cast<int>(test_out_data.at(i)));
   }
 }
-#else
+*/
 TEST(sanity_check_float32, test_sanity_check_float32)
 {
   //
@@ -59,7 +59,7 @@ TEST(sanity_check_float32, test_sanity_check_float32)
   //
   int x = 4;
   int y = 4;
-  int z = 5;
+  int z = 4;
   const int size = x * y * z;
   std::vector<float> test_data;
   test_data.resize(size);
@@ -78,7 +78,7 @@ TEST(sanity_check_float32, test_sanity_check_float32)
     ASSERT_TRUE(i == static_cast<int>(test_out_data.at(i)));
   }
 }
-
+/*
 TEST(sanity_check_int32, test_sanity_check_int32)
 {
   //
@@ -138,5 +138,4 @@ TEST(sanity_check_int64, test_sanity_check_int64)
     ASSERT_NEAR(i , static_cast<int>(test_out_data.at(i)), 1);
   }
 }
-#endif
-
+*/

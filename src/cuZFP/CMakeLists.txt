@@ -6,6 +6,7 @@
 
 set(cuZFP_sources
     encode.cu
+    aligned_writer.cuh
     cuZFP.cu #main entry point
     decode.cuh
     encode.cuh

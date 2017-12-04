@@ -139,7 +139,7 @@ int uint2int(unsigned int x)
 
 __host__ __device__
 int
-read_bit(char &offset, uint &bits, Word &buffer, const Word *begin)
+read_bit(unsigned char &offset, uint &bits, Word &buffer, const Word *begin)
 {
   uint bit;
   if (!bits) {
@@ -155,7 +155,7 @@ read_bit(char &offset, uint &bits, Word &buffer, const Word *begin)
 /* read 0 <= n <= 64 bits */
 __host__ __device__
 unsigned long long
-read_bits(uint n, char &offset, uint &bits, Word &buffer, const Word *begin)
+read_bits(uint n, unsigned char &offset, uint &bits, Word &buffer, const Word *begin)
 {
   uint BITSIZE = sizeof(unsigned long long) * CHAR_BIT;
   unsigned long long value;
@@ -220,7 +220,7 @@ Scalar  decode(const Word *blocks,
   {
 		uint sbits = 0;
 		Word buffer = 0;
-		char offset = 0;
+		unsigned char offset = 0;
 		s_cont[0] = read_bit(offset, sbits, buffer, blocks);
 
     //
@@ -241,7 +241,7 @@ Scalar  decode(const Word *blocks,
     {
 			uint sbits = 0;
 			Word buffer = 0;
-			char offset = 0;
+			unsigned char offset = 0;
 			//do it again, it won't hurt anything
 			read_bit(offset, sbits, buffer, blocks);
 
@@ -268,8 +268,8 @@ Scalar  decode(const Word *blocks,
 				uint m = MIN(n, bits);
 				bits -= m;
 				s_bit_cnt[k] = read_bits(m, offset, sbits, buffer, blocks);
-				for (; n < 64 && bits && (bits--, read_bit(offset, sbits, buffer, blocks)); s_bit_cnt[k] += (unsigned long long)1 << n++)
-					for (; n < 64 - 1 && bits && (bits--, !read_bit(offset, sbits, buffer, blocks)); n++)
+				for (; n < vals_per_block && bits && (bits--, read_bit(offset, sbits, buffer, blocks)); s_bit_cnt[k] += (unsigned long long)1 << n++)
+					for (; n < vals_per_block - 1 && bits && (bits--, !read_bit(offset, sbits, buffer, blocks)); n++)
 						;
 			}
 
@@ -299,6 +299,7 @@ Scalar  decode(const Word *blocks,
 		result *= (Scalar)(s_iblock[tid]);
     return result;
 	}
+  else return 0;
 
   //printf(" tid after %d result %d\n", tid,  result);
   ///return result;
