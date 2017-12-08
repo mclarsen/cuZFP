@@ -108,7 +108,7 @@ void decode(const EncodedData &encoded_data, std::vector<T> &out_data)
 
 } // namespace internal
 
-// 3D encoding
+// -----------------------------  3D encoding -------------------------------------------
 void encode(int nx, int ny, int nz, std::vector<double> &in_data, EncodedData &encoded_data)
 {
   internal::encode(nx, ny, nz, in_data, encoded_data);  
@@ -133,14 +133,32 @@ void encode(int nx, int ny, int nz, std::vector<long long int> &in_data, Encoded
   encoded_data.m_value_type = EncodedData::i64;
 }
 
-// 1D encoding
+// -------------------------- 1D encoding --------------------------------------------
 void encode(int nx, std::vector<float> &in_data, EncodedData &encoded_data)
 {
   internal::encode(nx, in_data, encoded_data);  
   encoded_data.m_value_type = EncodedData::f32;
 }
 
-// 3D decoding
+void encode(int nx, std::vector<double> &in_data, EncodedData &encoded_data)
+{
+  internal::encode(nx, in_data, encoded_data);  
+  encoded_data.m_value_type = EncodedData::f32;
+}
+
+void encode(int nx, std::vector<int> &in_data, EncodedData &encoded_data)
+{
+  internal::encode(nx, in_data, encoded_data);  
+  encoded_data.m_value_type = EncodedData::f32;
+}
+
+void encode(int nx, std::vector<long long int> &in_data, EncodedData &encoded_data)
+{
+  internal::encode(nx, in_data, encoded_data);  
+  encoded_data.m_value_type = EncodedData::f32;
+}
+
+// --------------------------- 3D decoding --------------------------------------------
 void decode(const EncodedData &encoded_data, std::vector<double> &out_data)
 {
   assert(encoded_data.m_value_type = EncodedData::f64);

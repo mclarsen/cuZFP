@@ -116,7 +116,6 @@ struct BlockWriter
     if(straddle)
     {
       Word rem = b >> (sizeof(Word) * 8 - shift);
-      print_bits(rem);
       if(m_valid_block) atomicAdd(&m_words[write_index + 1], rem); 
     }
   }
@@ -171,7 +170,6 @@ inline __device__ floating_point_ops1(const int &tid,
       unsigned int bits = 2 * e + 1; // the bit count?? for this block
       // writing to shared mem
       writer.write_bits(bits, s_emax_bits[block], 0);
-      //print_bits(blocks[0]);
 		}
 	}
 }
@@ -266,7 +264,6 @@ encode1(Scalar *sh_data,
   extern __shared__ Word sh_output[];
   typedef unsigned short PlaneType;
   // number of bits in the incoming type
-  //const uint size = sizeof(Scalar) * 8; 
   const uint vals_per_block = 4;
   const uint vals_per_cuda_block = CUDA_BLK_SIZE_1D;
   //shared mem that depends on scalar size
@@ -292,10 +289,8 @@ encode1(Scalar *sh_data,
 
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 
-	Bitter bitter = make_bitter(0, 0);
   const uint word_bits = sizeof(Word) * 8;
   const uint total_words = (bsize * vals_per_cuda_block) / word_bits; 
-
   // init output stream 
 	if (tid < total_words)
   {
@@ -310,7 +305,6 @@ encode1(Scalar *sh_data,
   //
   // this is basically a no-op for int types
   //
-  //if(tid < 4)
   floating_point_ops1(tid,
                       sh_q,
                       s_emax_bits,
@@ -322,7 +316,6 @@ encode1(Scalar *sh_data,
                       blk_idx,
                       num_blocks,
                       bsize);
-  #pragma warning "need to pass global index for writing exponents" 
 	__syncthreads();
 
   //
@@ -344,7 +337,6 @@ encode1(Scalar *sh_data,
   // fwd_order in cpu code
 	sh_p[tid] = int2uint(sh_q[tid]);
 
-  
   // for 32 bit values, each warp will compress
   // 8 1D blocks (no need for synchs). for 64 bit values, 
   // two warps will compress 16 blocks (synchs needed).
@@ -357,6 +349,7 @@ encode1(Scalar *sh_data,
   /**********************Begin encode block *************************/
   for(uint block = 0; block < work_size; ++block)
   {
+    //if(current_block != 0) return;
     const int block_start = current_block * vals_per_block;
     PlaneType y = 0;
     const PlaneType mask = 1;
@@ -370,7 +363,7 @@ encode1(Scalar *sh_data,
       // binary matrix transpose.
       y += ((sh_p[block_start + i] >> bit_index) & mask) << i;
     }
-  
+
     //
     // For 1d blocks we only use 4 bits of the 16 bit 
     // unsigned short, so we will shift the bits left and 
@@ -408,7 +401,6 @@ encode1(Scalar *sh_data,
         }
       }
     }
-    //if(tid < 32) printf("tid %d scan %d msb %d\n", tid, sh_m[tid], sh_n[tid]);
     __syncthreads();
     // maximum number of bits output per bit plane is 
     // 2 * 4^d - 1, i.e., 7, 31, and 127 for 1D, 2D, and 3D
@@ -465,6 +457,7 @@ encode1(Scalar *sh_data,
       for (int i = 0; i < intprec && tot_sbits < max_bits; i++)
       {
         uint n_bits = min(rem_sbits, sh_sbits[tid+i]); 
+        print_bits(sh_encoded_bit_planes[tid + i]);
         writer.write_bits(sh_encoded_bit_planes[tid + i], n_bits, tot_sbits);
         tot_sbits += n_bits;
         rem_sbits -= n_bits;
