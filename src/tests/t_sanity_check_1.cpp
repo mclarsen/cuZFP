@@ -24,7 +24,7 @@ TEST(sanity_check_1_float32, test_sanity_check_1_float32)
   // we can actually encode and decode with block size.
   // that is not a multiple of four.
   //
-  int x = 128;
+  int x = 129;
   const int size = x;
   std::vector<float> test_data;
   test_data.resize(size);
