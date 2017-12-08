@@ -269,7 +269,6 @@ encode (Scalar *sh_data,
   // find the first 1 (in terms of most significant 
   // __clzll -- intrinsic for count the # of leading zeros 	
   sh_n[tid] = 64 - __clzll(x);
-  //printf("tid %d msb %d\n", tid, (int)sh_n[tid]);
 	__syncthreads();
 
 	if (tid < 63)
@@ -287,16 +286,9 @@ encode (Scalar *sh_data,
       {
 				sh_m[i] = sh_m[i + 1];
       }
-      //printf("i %d\n", i);
 		}
 	}
 
-	//__syncthreads();
-  //if(tid == 0)
-  //{
-  //  for(int i = 0; i < 64; ++i)
-  //    printf("tid %d scan %d msb %d\n", i, sh_m[i], sh_n[i]);
-  //}
 	__syncthreads();
 	int bits = 128; // same for both 32 and 64 bit values 
 	int n = 0;
@@ -333,7 +325,6 @@ encode (Scalar *sh_data,
   {
     sh_bitters[intprec - 1 - tid] = bitter;
     sh_sbits[intprec - 1 - tid] = sbit;
-    //Print(tid, sh_sbits[intprec - 1 -tid], "sbits ");
   }
 	__syncthreads();
 
@@ -347,12 +338,8 @@ encode (Scalar *sh_data,
 		uint rem_sbits = s_emax_bits[0];// sbits[0];
 		uint offset = 0;
     const uint maxbits = bsize * vals_per_block; 
-    //printf("total bits %d\n", (int)tot_sbits);
-    //printf("rem bits %d\n", (int)rem_sbits);
-    //printf("max bits %d\n", (int)maxbits);
 		for (int i = 0; i < intprec && tot_sbits < maxbits; i++)
     {
-      //printf(" %d bits in %d\n", (int) sh_sbits[i], i);
 			if (sh_sbits[i] <= 64)
       {
 				write_outx(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, sh_sbits[i], bsize);
@@ -367,7 +354,6 @@ encode (Scalar *sh_data,
         }
 			}
 		}
-    //printf("end total bits %d\n", (int)tot_sbits);
 	} // end serial write
 
 }

@@ -457,7 +457,6 @@ encode1(Scalar *sh_data,
       for (int i = 0; i < intprec && tot_sbits < max_bits; i++)
       {
         uint n_bits = min(rem_sbits, sh_sbits[tid+i]); 
-        print_bits(sh_encoded_bit_planes[tid + i]);
         writer.write_bits(sh_encoded_bit_planes[tid + i], n_bits, tot_sbits);
         tot_sbits += n_bits;
         rem_sbits -= n_bits;
