@@ -9,8 +9,10 @@ set(cuZFP_sources
     aligned_writer.cuh
     cuZFP.cu #main entry point
     decode.cuh
+    decode1.cuh
     encode.cuh
     encode1.cuh
+    encode2.cuh
     BitStream.cuh
     type_info.cuh
     WriteBitter.cuh

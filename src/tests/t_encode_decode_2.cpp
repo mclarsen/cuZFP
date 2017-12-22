@@ -7,22 +7,23 @@
 #include <stdlib.h>
 
 template<typename T>
-void run_test(int nx)
+void run_test(int nx, int ny)
 {
-  const int size = nx;
+  const int size = nx * ny;
   std::vector<T> test_data;
   test_data.resize(size);
 
-  for(int x = 0; x < nx; ++x)
-  {
-    double v = double (x) * (3.14/180.);
-    T val = static_cast<T>(sin(v)*100.);
-    test_data[x] = val;
-  }
+  for(int y = 0; y < ny; ++y)
+    for(int x = 0; x < nx; ++x)
+    {
+      double v = sqrt(double(x) * double(x) + double(y) * double(y));
+      T val = static_cast<T>(v);
+      test_data[x] = val;
+    }
 
   cuZFP::EncodedData encoded_data;
-  encoded_data.m_bsize = 8;
-  cuZFP::encode(nx, test_data, encoded_data);
+  encoded_data.m_bsize = 4;
+  cuZFP::encode(nx, ny, test_data, encoded_data);
 
   //std::vector<T> test_data_out;
   //cuZFP::decode(encoded_data, test_data_out);
@@ -37,23 +38,8 @@ void run_test(int nx)
   //printf("Average abosulte error %2.20f with %d values.\n", average_err, size);
 }
 
-//TEST(encode_decode, test_encode_decode_float64)
-//{
-//  run_test<double>(256, 256 ,256);
-//}
 
 TEST(encode_decode, test_encode_decode_float32)
 {
-  //run_test<float>(512, 512, 512);
-  run_test<double>(128*128*128);
+  run_test<float>(2048, 2048);
 }
-//
-//TEST(encode_decode, test_encode_decode_int64)
-//{
-//  run_test<long long int>(256, 256, 256);
-//}
-//
-//TEST(encode_decode, test_encode_decode_int32)
-//{
-//  run_test<int>(512, 512, 512);
-//}

@@ -1,5 +1,6 @@
 #include "encode.cuh"
 #include "encode1.cuh"
+#include "encode2.cuh"
 #include "cuZFP.h"
 
 #include <vector>
@@ -35,4 +36,11 @@ template void encode1<float>
              thrust::device_vector<float> &d_data,
              thrust::device_vector<Word> &stream,
              int bsize);
+
+template void encode2<float>
+            (int2 dims,
+             thrust::device_vector<float> &d_data,
+             thrust::device_vector<Word> &stream,
+             int bsize);
+
 }

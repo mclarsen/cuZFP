@@ -4,13 +4,13 @@
 //#include <helper_math.h>
 //dealing with doubles
 #include "BitStream.cuh"
-#include "shared.h"
 #include <thrust/device_vector.h>
 #include <type_info.cuh>
 #define NBMASK 0xaaaaaaaaaaaaaaaaull
 #define LDEXP(x, e) ldexp(x, e)
 
 namespace cuZFP {
+
 
 __host__ __device__
 int
@@ -27,22 +27,21 @@ read_bit(unsigned char &offset, uint &bits, Word &buffer, const Word *begin)
   return bit;
 }
 
-/* read 0 <= n <= 64 bits */
 __host__ __device__
 unsigned long long
 read_bits(uint n, unsigned char &offset, uint &bits, Word &buffer, const Word *begin)
 {
   uint BITSIZE = sizeof(unsigned long long) * CHAR_BIT;
   unsigned long long value;
-  /* because shifts by 64 are not possible, treat n = 64 specially */
+  // because shifts by 64 are not possible, treat n = 64 specially 
 	if (n == BITSIZE) 
   {
     if (!bits)
-      value = begin[offset++];//*ptr++;
+      value = begin[offset++];//
     else 
     {
       value = buffer;
-      buffer = begin[offset++];//*ptr++;
+      buffer = begin[offset++];//
       value += buffer << bits;
       buffer >>= n - bits;
     }

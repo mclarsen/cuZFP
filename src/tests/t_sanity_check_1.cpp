@@ -24,7 +24,7 @@ TEST(sanity_check_1_float32, test_sanity_check_1_float32)
   // we can actually encode and decode with block size.
   // that is not a multiple of four.
   //
-  int x = 129;
+  int x = 256;
   const int size = x;
   std::vector<float> test_data;
   test_data.resize(size);
@@ -34,8 +34,7 @@ TEST(sanity_check_1_float32, test_sanity_check_1_float32)
   }
   
   cuZFP::EncodedData encoded_data;
-  //encoded_data.m_bsize = 8; // 2 blocks per word
-  encoded_data.m_bsize = 3; // 2 blocks per word
+  encoded_data.m_bsize = 8; // 2 blocks per word
   cuZFP::encode(x, test_data, encoded_data);
   std::vector<float> test_out_data;
   dump_raw_binary(encoded_data);
@@ -54,7 +53,7 @@ TEST(sanity_check_1_float64, test_sanity_check_1_float64)
   // we can actually encode and decode with block size.
   // that is not a multiple of four.
   //
-  int x = 129;
+  int x = 256;
   const int size = x;
   std::vector<double> test_data;
   test_data.resize(size);
@@ -64,8 +63,7 @@ TEST(sanity_check_1_float64, test_sanity_check_1_float64)
   }
   
   cuZFP::EncodedData encoded_data;
-  //encoded_data.m_bsize = 8; // 2 blocks per word
-  encoded_data.m_bsize = 3; // 2 blocks per word
+  encoded_data.m_bsize = 8; // 2 blocks per word
   cuZFP::encode(x, test_data, encoded_data);
   std::vector<double> test_out_data;
   //dump_raw_binary(encoded_data);

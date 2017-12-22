@@ -160,6 +160,7 @@ get_max_exponent(const int &tid,
 	}
 }
 
+
 template<typename Scalar>
 __device__
 void 
@@ -280,6 +281,7 @@ encode (Scalar *sh_data,
   // this is basically a scan
 	if (tid == 0)
   {
+    #pragma unroll
 		for (int i = intprec - 2; i >= 0; --i)
     {
 			if (sh_m[i] < sh_m[i + 1])

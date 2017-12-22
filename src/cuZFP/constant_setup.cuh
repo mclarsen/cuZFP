@@ -18,6 +18,13 @@ public:
     ec.chk("setupConst: c_perm");
   }
 
+  static void setup_2d()
+  {
+    ErrorCheck ec;
+    cudaMemcpyToSymbol(c_perm_2, perm_2, sizeof(unsigned char) * 16, 0); 
+    ec.chk("setupConst: c_perm_2");
+  }
+
   static void setup_1d()
   {
     ErrorCheck ec;

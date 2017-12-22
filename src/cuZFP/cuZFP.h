@@ -42,6 +42,9 @@ void encode(int nx, std::vector<int> &in_data, EncodedData  &encoded_data);
 
 void encode(int nx, std::vector<long long int> &in_data, EncodedData  &encoded_data);
 
+// --------------------------- 2D encoding --------------------------------
+void encode(int nx, int ny, std::vector<float> &in_data, EncodedData  &encoded_data);
+
 // --------------------------- 3D decoding --------------------------------
 void decode(const EncodedData &encoded_data, std::vector<double> &out_data);
 

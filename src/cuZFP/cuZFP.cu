@@ -2,6 +2,7 @@
 #include "cuZFP.h"
 #include "encode.cuh"
 #include "encode1.cuh"
+#include "encode2.cuh"
 #include "ErrorCheck.h"
 #include "decode.cuh"
 #include <constant_setup.cuh>
@@ -60,13 +61,49 @@ void encode(int nx, std::vector<T> &in_data, EncodedData &encoded_data)
   thrust::device_vector<Word> d_encoded;
   thrust::device_vector<T> d_in_data(in_data); 
   
-  std::cout<<"setting up constants\n";
   ConstantSetup::setup_1d();
 
-  std::cout<<"calling encode\n";
   cuZFP::encode1<T>(dim, d_in_data, d_encoded, bsize); 
 
   errors.chk("encode1");
+  encoded_data.m_data.resize(d_encoded.size());
+
+  Word * d_ptr = thrust::raw_pointer_cast(d_encoded.data());
+  Word * h_ptr = &encoded_data.m_data[0];
+
+  // copy the decoded data back to the host
+  cudaMemcpy(h_ptr, d_ptr, d_encoded.size() * sizeof(Word), cudaMemcpyDeviceToHost);
+
+  // set the actual dims and padded dims
+  encoded_data.m_dims[0] = nx;
+  encoded_data.m_dims[1] = 0;
+  encoded_data.m_dims[2] = 0;
+}
+
+template<typename T>
+void encode(int nx, int ny, std::vector<T> &in_data, EncodedData &encoded_data)
+{
+
+  ErrorCheck errors;
+   
+  int2 dims;
+  dims.x = nx;
+  dims.y = ny;
+  const int bsize = encoded_data.m_bsize;
+
+  assert(in_data.size() == nx * ny);
+  // device mem where encoded data is stored
+  // allocate in encode
+  thrust::device_vector<Word> d_encoded;
+  thrust::device_vector<T> d_in_data(in_data); 
+  
+  std::cout<<"setting up constants\n";
+  ConstantSetup::setup_2d();
+
+  std::cout<<"calling encode\n";
+  cuZFP::encode2<T>(dims, d_in_data, d_encoded, bsize); 
+
+  errors.chk("encode2");
   encoded_data.m_data.resize(d_encoded.size());
 
   Word * d_ptr = thrust::raw_pointer_cast(d_encoded.data());
@@ -143,43 +180,50 @@ void encode(int nx, std::vector<float> &in_data, EncodedData &encoded_data)
 void encode(int nx, std::vector<double> &in_data, EncodedData &encoded_data)
 {
   internal::encode(nx, in_data, encoded_data);  
-  encoded_data.m_value_type = EncodedData::f32;
+  encoded_data.m_value_type = EncodedData::f64;
 }
 
 void encode(int nx, std::vector<int> &in_data, EncodedData &encoded_data)
 {
   internal::encode(nx, in_data, encoded_data);  
-  encoded_data.m_value_type = EncodedData::f32;
+  encoded_data.m_value_type = EncodedData::i32;
 }
 
 void encode(int nx, std::vector<long long int> &in_data, EncodedData &encoded_data)
 {
   internal::encode(nx, in_data, encoded_data);  
+  encoded_data.m_value_type = EncodedData::i64;
+}
+
+// -------------------------- 2D encoding --------------------------------------------
+void encode(int nx, int ny, std::vector<float> &in_data, EncodedData &encoded_data)
+{
+  internal::encode(nx, ny, in_data, encoded_data);  
   encoded_data.m_value_type = EncodedData::f32;
 }
 
 // --------------------------- 3D decoding --------------------------------------------
 void decode(const EncodedData &encoded_data, std::vector<double> &out_data)
 {
-  assert(encoded_data.m_value_type = EncodedData::f64);
+  //assert(encoded_data.m_value_type = EncodedData::f64);
   internal::decode(encoded_data, out_data);
 }
 
 void decode(const EncodedData &encoded_data, std::vector<float> &out_data)
 {
-  assert(encoded_data.m_value_type = EncodedData::f32);
+  //assert(encoded_data.m_value_type = EncodedData::f32);
   internal::decode(encoded_data, out_data);
 }
 
 void decode(const EncodedData &encoded_data, std::vector<int> &out_data)
 {
-  assert(encoded_data.m_value_type = EncodedData::i32);
+  //assert(encoded_data.m_value_type = EncodedData::i32);
   internal::decode(encoded_data, out_data);
 }
 
 void decode(const EncodedData &encoded_data, std::vector<long long int> &out_data)
 {
-  assert(encoded_data.m_value_type = EncodedData::i64);
+  //assert(encoded_data.m_value_type = EncodedData::i64);
   internal::decode(encoded_data, out_data);
 }
 
