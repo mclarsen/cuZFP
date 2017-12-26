@@ -407,7 +407,7 @@ cudaEncode1(const uint  bsize,
 	__syncthreads();
 
   const uint zfp_block_start = blockIdx.x * ZFP_BLK_PER_BLK_1D;; 
-  if(tid == 0) printf("zfp block start %d\n", zfp_block_start);
+  //if(tid == 0) printf("zfp block start %d\n", zfp_block_start);
   int total_blocks = dim / 4; 
   if(dim % 4 != 0) total_blocks++;
 
@@ -448,32 +448,25 @@ void encode1launch(int dim,
                    thrust::device_vector<Word> &stream,
                    const int bsize)
 {
-  std::cout<<"boomm\n";
   dim3 block_size, grid_size;
   block_size = dim3(CUDA_BLK_SIZE_1D, 1, 1);
-  grid_size = dim3(dim, 1, 1);
 
   // Check to see if we need to increase the block sizes
   // in the case where dim[x] is not a multiple of 4
 
+  int zfp_pad = dim;
+  zfp_pad += 4 - dim % 4;
+
+  int block_pad = CUDA_BLK_SIZE_1D - zfp_pad % CUDA_BLK_SIZE_1D; 
+  
+  grid_size = dim3(block_pad + zfp_pad, 1, 1);
+
   grid_size.x /= block_size.x; 
-  int encoded_dim = dim;
-
-  if(encoded_dim % CUDA_BLK_SIZE_1D != 0) 
-  {
-    grid_size.x++;
-    encoded_dim = grid_size.x * CUDA_BLK_SIZE_1D;
-  }
-
+  
   std::cout<<"allocating mem\n";
-  allocate_device_mem1d(dim, bsize, stream);
+  allocate_device_mem1d(zfp_pad, bsize, stream);
   std::size_t dyn_shared = (ZFP_BLK_PER_BLK_1D * bsize * 4) / (sizeof(Word) * 8);
   std::cout<<"Dynamic shared mem size "<<dyn_shared<<"\n";
-  //std::size_t shared_mem_size = sizeof(Scalar) * cuda_block_size 
-  //                            + sizeof(Bitter) * cuda_block_size 
-  //                            + sizeof(unsigned char) * cuda_block_size 
-  //                            + sizeof(unsigned int) * 128 
-  //                            + 2 * sizeof(int);
 
 	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 
@@ -502,7 +495,7 @@ void encode1launch(int dim,
   float seconds = miliseconds / 1000.f;
   printf("Encode elapsed time: %.5f (s)\n", seconds);
   printf("size of %d\n", (int)sizeof(Scalar));
-  float mb = (float(dim) * sizeof(Scalar)) / (1024.f * 1024.f);
+  float mb = (float(dim) * float(sizeof(Scalar))) / (1024.f * 1024.f);
   float rate = mb / seconds;
   printf("Encode rate: %.2f (MB / sec)\n", rate);
 }

@@ -5,6 +5,7 @@
 #include "encode2.cuh"
 #include "ErrorCheck.h"
 #include "decode.cuh"
+#include "decode1.cuh"
 #include <constant_setup.cuh>
 #include <thrust/device_vector.h>
 #include <iostream>
@@ -124,23 +125,50 @@ void decode(const EncodedData &encoded_data, std::vector<T> &out_data)
 
   const unsigned int bsize = encoded_data.m_bsize;
 
-  int3 dims = make_int3(encoded_data.m_dims[0],
-                        encoded_data.m_dims[1],
-                        encoded_data.m_dims[2]);
+  int d = 0;
+  for(int i = 0; i < 3; ++i)
+  {
+    if(encoded_data.m_dims[i] != 0) d++;
+  }
+  if(d == 3)
+  {
+    int3 dims = make_int3(encoded_data.m_dims[0],
+                          encoded_data.m_dims[1],
+                          encoded_data.m_dims[2]);
+    const size_t out_size = dims.x * dims.y * dims.z;
 
-  const size_t out_size = dims.x * dims.y * dims.z;
+    thrust::device_vector<T> d_out_data(out_size); 
+    thrust::device_vector<Word> d_encoded(encoded_data.m_data);
 
-  thrust::device_vector<T> d_out_data(out_size); 
-  thrust::device_vector<Word> d_encoded(encoded_data.m_data);
+    ConstantSetup::setup_3d();
 
-  ConstantSetup::setup_3d();
+    cuZFP::decode<T>(dims, d_encoded, d_out_data, bsize); 
 
-  cuZFP::decode<T>(dims, d_encoded, d_out_data, bsize); 
+    out_data.resize(out_size); 
+    thrust::copy(d_out_data.begin(), 
+                 d_out_data.end(),
+                 out_data.begin());
+  }
+  else if(d == 1)
+  {
 
-  out_data.resize(out_size); 
-  thrust::copy(d_out_data.begin(), 
-               d_out_data.end(),
-               out_data.begin());
+    int dim = encoded_data.m_dims[0];
+    const size_t out_size = dim;
+
+    thrust::device_vector<T> d_out_data(out_size); 
+    thrust::device_vector<Word> d_encoded(encoded_data.m_data);
+
+    ConstantSetup::setup_1d();
+
+    cuZFP::decode1<T>(dim, d_encoded, d_out_data, bsize); 
+
+    out_data.resize(out_size); 
+    thrust::copy(d_out_data.begin(), 
+                 d_out_data.end(),
+                 out_data.begin());
+  }
+  else std::cout<<" d ==  "<<d<<" not implemented\n";
+  
 }
 
 } // namespace internal
@@ -202,7 +230,7 @@ void encode(int nx, int ny, std::vector<float> &in_data, EncodedData &encoded_da
   encoded_data.m_value_type = EncodedData::f32;
 }
 
-// --------------------------- 3D decoding --------------------------------------------
+// --------------------------- decoding --------------------------------------------
 void decode(const EncodedData &encoded_data, std::vector<double> &out_data)
 {
   //assert(encoded_data.m_value_type = EncodedData::f64);

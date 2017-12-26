@@ -7,8 +7,6 @@
 #include "shared.h"
 #include <thrust/device_vector.h>
 #include <type_info.cuh>
-#define NBMASK 0xaaaaaaaaaaaaaaaaull
-#define LDEXP(x, e) ldexp(x, e)
 
 namespace cuZFP {
 

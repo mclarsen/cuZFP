@@ -1,245 +1,243 @@
-#ifndef CUZFP_DECODE_CUH
-#define CUZFP_DECODE_CUH
+#ifndef CUZFP_DECODE1_CUH
+#define CUZFP_DECODE1_CUH
 
-//#include <helper_math.h>
-//dealing with doubles
-#include "BitStream.cuh"
+#include "shared.h"
 #include <thrust/device_vector.h>
 #include <type_info.cuh>
-#define NBMASK 0xaaaaaaaaaaaaaaaaull
-#define LDEXP(x, e) ldexp(x, e)
 
 namespace cuZFP {
 
-
-__host__ __device__
-int
-read_bit(unsigned char &offset, uint &bits, Word &buffer, const Word *begin)
-{
-  uint bit;
-  if (!bits) {
-    buffer = begin[offset++];
-    bits = wsize;
-  }
-  bits--;
-  bit = (uint)buffer & 1u;
-  buffer >>= 1;
-  return bit;
-}
-
-__host__ __device__
-unsigned long long
-read_bits(uint n, unsigned char &offset, uint &bits, Word &buffer, const Word *begin)
-{
-  uint BITSIZE = sizeof(unsigned long long) * CHAR_BIT;
-  unsigned long long value;
-  // because shifts by 64 are not possible, treat n = 64 specially 
-	if (n == BITSIZE) 
-  {
-    if (!bits)
-      value = begin[offset++];//
-    else 
-    {
-      value = buffer;
-      buffer = begin[offset++];//
-      value += buffer << bits;
-      buffer >>= n - bits;
-    }
-  }
-  else {
-    value = buffer;
-    if (bits < n) 
-    {
-      /* not enough bits buffered; fetch wsize more */
-      buffer = begin[offset++];//*ptr++;
-      value += buffer << bits;
-      buffer >>= n - bits;
-      bits += wsize;
-    }
-    else
-    {
-      buffer >>= n;
-    }
-    value -= buffer << n;
-    bits -= n;
-  }
-  return value;
-}
-
-
 template<typename Scalar>
 __device__ 
-Scalar  decode(const Word *blocks,
-               unsigned char *smem,
-               const uint bsize)
+Scalar  decode1(const Word *blocks,
+                unsigned char *smem,
+                const uint bsize)
 {
   typedef typename zfp_traits<Scalar>::UInt UInt;
   typedef typename zfp_traits<Scalar>::Int Int;
   const int intprec = get_precision<Scalar>();
-	__shared__ unsigned long long *s_bit_cnt;
-	__shared__ Int *s_iblock;
-	__shared__ int *s_emax;
-	__shared__ int *s_cont;
-	s_bit_cnt = (unsigned long long*)&smem[0];
-	s_iblock = (Int*)&s_bit_cnt[0];
-	s_emax = (int*)&s_iblock[64];
-
-	s_cont = (int*)&s_emax[1];
-
-
-	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
-	Scalar result = 0;
-
-	if (tid == 0)
-  {
-		uint sbits = 0;
-		Word buffer = 0;
-		unsigned char offset = 0;
-		s_cont[0] = read_bit(offset, sbits, buffer, blocks);
-
-    //
-    // there is no skip path for integers so just continue
-    //
-    if(is_int<Scalar>())
-    {
-      s_cont[0] = 1;
-    }
-
-	}
-
-  __syncthreads();
-
-	if(s_cont[0])
-  {
-		if (tid == 0)
-    {
-			uint sbits = 0;
-			Word buffer = 0;
-			unsigned char offset = 0;
-			//do it again, it won't hurt anything
-			read_bit(offset, sbits, buffer, blocks);
-
-			uint ebits = get_ebits<Scalar>() + 1;
-
-      if(!is_int<Scalar>())
-      {
-        // read in the shared exponent
-			  s_emax[0] = read_bits(ebits - 1, offset, sbits, buffer, blocks) - get_ebias<Scalar>();
-      }
-      else
-      {
-        ebits = 0;
-        offset = 0;
-        sbits = 0;
-      }
-
-      const uint vals_per_block = 64;
-      const uint maxbits = bsize * vals_per_block;
-			uint bits = maxbits - ebits;
-
-			for (uint k = intprec, n = 0; k-- > 0;)
-      {
-				uint m = MIN(n, bits);
-				bits -= m;
-				s_bit_cnt[k] = read_bits(m, offset, sbits, buffer, blocks);
-				for (; n < vals_per_block && bits && (bits--, read_bit(offset, sbits, buffer, blocks)); s_bit_cnt[k] += (unsigned long long)1 << n++)
-					for (; n < vals_per_block - 1 && bits && (bits--, !read_bit(offset, sbits, buffer, blocks)); n++)
-						;
-			}
-
-		}	
-    
-    __syncthreads();
-
-	  UInt l_data = 0;
- 
-    // reconstruct the value from decoded bitplanes
-#pragma unroll 64
-		for (int i = 0; i < intprec; i++)
-    {
-			l_data += (UInt)((s_bit_cnt[i] >> tid) & 1u) << i;
-    }
-
-		__syncthreads();
-
-		s_iblock[c_perm[tid]] = uint2int(l_data);
-		__syncthreads();
-		inv_xform(s_iblock);
-		__syncthreads();
-
-		//inv_cast
-    // returns 1 if int type 
-		result = dequantize<Int, Scalar>(1, s_emax[0]);
-		result *= (Scalar)(s_iblock[tid]);
-    return result;
-	}
-  else return 0;
-
-  //printf(" tid after %d result %d\n", tid,  result);
-  ///return result;
+  return 0;
 }
+
+template<int block_size>
+struct BlockReader
+{
+  int m_current_bit;
+  const int m_bsize; 
+  Word *m_words;
+  Word m_buffer;
+  bool m_valid_block;
+  __device__ BlockReader(Word *b, const int &bsize, const int &block_idx, const int &num_blocks)
+    :  m_bsize(bsize), m_valid_block(true)
+  {
+    if(block_idx >= num_blocks) m_valid_block = false;
+    int word_index = (block_idx * bsize * block_size)  / (sizeof(Word) * 8); 
+    m_words = b + word_index;
+    m_buffer = *m_words;
+    m_current_bit = (block_idx * bsize * block_size) % (sizeof(Word) * 8); 
+    m_buffer >>= m_current_bit;
+    //if(threadIdx.x ==0 ) print_bits(m_buffer);
+  }
+
+  inline __device__ 
+  uint read_bit()
+  {
+    uint bit = m_buffer & 1;
+    ++m_current_bit;
+    m_buffer >>= 1;
+    // handle moving into next word
+    if(m_current_bit >= sizeof(Word) * 8) 
+    {
+      m_current_bit = 0;
+      ++m_words;
+      m_buffer = *m_words;
+    }
+    return bit; 
+  }
+
+
+  // note this assumes that n_bits is <= 64
+  inline __device__ 
+  uint read_bits(const int &n_bits)
+  {
+    uint bits; 
+    // rem bits will always be positive
+    int rem_bits = sizeof(Word) * 8 - m_current_bit;
+    
+    int first_read = min(rem_bits, n_bits);
+
+    // first mask 
+    Word mask = ((Word)1<<((first_read)))-1;
+    bits = m_buffer & mask;
+    m_buffer >>= n_bits;
+
+    int next_read = 0;
+    if(n_bits >= rem_bits) 
+    {
+      //need to go into next word
+      m_words++;
+      m_buffer = *m_words;
+      m_current_bit = 0;
+      next_read = n_bits - first_read; 
+    }
+   
+    // this is basically a no-op when first read constained 
+    // all the bits. TODO: if we have aligned reads, this could 
+    // be a conditional without divergence
+    mask = ((Word)1<<((next_read)))-1;
+    bits += (m_buffer & mask) << first_read;
+    m_buffer >>= next_read;
+    m_current_bit += next_read; 
+    //printf(" outputing n = %d bits first read %d : ", n_bits, first_read);
+    //print_bits(bits);  
+    return bits;
+  }
+
+  private:
+  __device__ BlockReader()
+  {
+  }
+
+}; // block reader
 
 template<class Scalar>
 __global__
 void
-__launch_bounds__(64,5)
-cudaDecode(Word *blocks,
-           Scalar *out,
-           const int3 dims,
-           uint bsize)
-{
-  uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
-
-	extern __shared__ unsigned char smem[];
-
-  const uint x_coord = threadIdx.x + blockIdx.x * 4;
-  const uint y_coord = threadIdx.y + blockIdx.y * 4;
-  const uint z_coord = threadIdx.z + blockIdx.z * 4;
-
-	Scalar val = decode<Scalar>(blocks + bsize*idx, smem, bsize);
-
-  bool real_data = true;
-  //
-  // make sure we don't write out data that was padded out to make 
-  // the block sizes all 4^3
-  //
-  if(x_coord >= dims.x || y_coord >= dims.y || z_coord >= dims.z)
-  {
-    real_data = false;
-  }
-
-  const uint out_index = z_coord * dims.x * dims.y 
-                       + y_coord * dims.x 
-                       + x_coord;
-
-  if(real_data)
-  {
-    out[out_index] = val;
-  }
-  
-}
-template<class Scalar>
-void decode(int3 dims, 
-            thrust::device_vector<Word> &stream,
-            Scalar *d_data,
+cudaDecode1(Word *blocks,
+            Scalar *out,
+            const int dim,
             uint bsize)
 {
+  typedef typename zfp_traits<Scalar>::UInt UInt;
+  typedef typename zfp_traits<Scalar>::Int Int;
+  const int intprec = get_precision<Scalar>();
 
-  dim3 block_size = dim3(4, 4, 4);
-  dim3 grid_size = dim3(dims.x, dims.y, dims.z);
+  const int block_idx = blockIdx.x * blockDim.x + threadIdx.x;
+  int total_blocks = (dim + (4 - dim % 4)) / 4;
+  BlockReader<4> reader(blocks, bsize, block_idx, total_blocks);
+  
+  Scalar result[4] = {0,0,0,0};
+  
+  uint s_cont = reader.read_bit();
+  //
+  // there is no skip path for integers so just continue
+  //
+  if(is_int<Scalar>())
+  {
+    s_cont = 1;
+  }
+
+  if(s_cont)
+  {
+    uint ebits = get_ebits<Scalar>() + 1;
+
+    uint emax;
+    if(!is_int<Scalar>())
+    {
+      // read in the shared exponent
+      emax = reader.read_bits(ebits - 1) - get_ebias<Scalar>();
+    }
+    else
+    {
+      // no exponent bits
+      ebits = 0;
+    }
+    const uint vals_per_block = 4;
+    const uint maxbits = bsize * vals_per_block;
+		int bits = maxbits - ebits;
+    
+    uint data[vals_per_block] = {0,0,0,0};
+
+    unsigned int x; 
+    // maxprec = 64;
+    uint kmin = 0; //= intprec > maxprec ? intprec - maxprec : 0;
+    for (uint k = intprec, n = 0; bits && k-- > kmin;)
+    {
+      //printf("plane %d : ", k);
+      //print_bits(reader.m_buffer);
+      // read bit plane
+      uint m = MIN(n, bits);
+      bits -= m;
+      x = reader.read_bits(m);
+      for (; n < vals_per_block && bits && (bits--, reader.read_bit()); x += (Word) 1 << n++)
+        for (; n < (vals_per_block - 1) && bits && (bits--, !reader.read_bit()); n++);
+      
+      //printf("x = %d\n", (int) x);
+      // deposit bit plane
+      #pragma unroll
+      for (int i = 0; x; i++, x >>= 1)
+      {
+        data[i] += (UInt)(x & 1u) << k;
+      }
+
+      //if(threadIdx.x == 0)
+      //{
+      //  for(int i = 0; i < 4; ++i)
+      //  {
+      //    printf("data at %d = %d\n", i, (int) data[i]);
+      //  }
+
+      //}
+    } 
+    Int iblock[4];
+    #pragma unroll 4
+    for(int i = 0; i < 4; ++i)
+    {
+      // cperm
+		  iblock[i] = uint2int(data[i]);
+    }
+
+    inv_lift<Int,1>(iblock);
+
+		Scalar inv_w = dequantize<Int, Scalar>(1, emax);
+
+
+    #pragma unroll 4
+    for(int i = 0; i < 4; ++i)
+    {
+		  result[i] = inv_w * (Scalar)iblock[i];
+    }
+  
+    //if(block_idx > 100)
+    //{
+    //  for(int i = 0; i < 4; ++i)
+    //  {
+    //    printf("data at %d = %d\n", i, (int) result[i]);
+    //  }
+    //}
+
+  }
+  // TODO dim could end in the middle of this block
+  //printf("thread  = %d \n", block_idx);
+  if(block_idx < total_blocks)
+  {
+    const int offset = block_idx * 4;
+    out[offset + 0] = result[0];
+    out[offset + 1] = result[1];
+    out[offset + 2] = result[2];
+    out[offset + 3] = result[3];
+  }
+  // write out data
+}
+template<class Scalar>
+void decode1(int dim, 
+             thrust::device_vector<Word> &stream,
+             Scalar *d_data,
+             uint bsize)
+{
+  const int block_size_dim = 128;
+  int zfp_blocks = (dim + (4 - dim % 4)) / 4;
+  //int block_pad = block_size_dim - zfp_blocks; 
+  int block_pad = 0;
+  if(zfp_blocks % block_size_dim != 0) block_pad = block_size_dim - zfp_blocks % block_size_dim; 
+  dim3 block_size = dim3(block_size_dim, 1, 1);
+  dim3 grid_size = dim3(block_pad + zfp_blocks, 1, 1);
 
   grid_size.x /= block_size.x; 
-  grid_size.y /= block_size.y; 
-  grid_size.z /= block_size.z;
-
-  // Check to see if we need to increase the block sizes
-  // in the case where dim[x] is not a multiple of 4
-  if(dims.x % 4 != 0) grid_size.x++;
-  if(dims.y % 4 != 0) grid_size.y++;
-  if(dims.z % 4 != 0) grid_size.z++;
-
-  const int some_magic_number = 64 * (8) + 4 + 4; 
-
+  std::cout<<"Dims "<< dim<<" zfp blocks "<<zfp_blocks<<"\n";
+  std::cout<<"Decode1 dims \n";
+  std::cout<<"grid "<<grid_size.x<<" "<<grid_size.y<<" "<<grid_size.z<<"\n";
+  std::cout<<"block "<<block_size.x<<" "<<block_size.y<<" "<<block_size.z<<"\n";
   // setup some timing code
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
@@ -247,10 +245,10 @@ void decode(int3 dims,
 
   cudaEventRecord(start);
 
-  cudaDecode<Scalar> << < grid_size, block_size, some_magic_number >> >
+  cudaDecode1<Scalar> << < grid_size, block_size >> >
     (raw_pointer_cast(stream.data()),
 		 d_data,
-     dims,
+     dim,
      bsize);
 
   cudaEventRecord(stop);
@@ -261,19 +259,19 @@ void decode(int3 dims,
   cudaEventElapsedTime(&miliseconds, start, stop);
   float seconds = miliseconds / 1000.f;
   printf("Decode elapsed time: %.5f (s)\n", seconds);
-  float rate = (float(dims.x * dims.y * dims.z) * sizeof(Scalar) ) / seconds;
+  float rate = (float(dim) * sizeof(Scalar) ) / seconds;
   rate /= 1024.f;
   rate /= 1024.f;
   printf("Decode rate: %.2f (MB / sec)\n", rate);
 }
 
 template<class Scalar>
-void decode (int3 dims, 
+void decode1(int dim, 
              thrust::device_vector<Word > &block,
              thrust::device_vector<Scalar> &d_data,
              uint bsize)
 {
-	decode<Scalar>(dims, block, thrust::raw_pointer_cast(d_data.data()), bsize);
+	decode1<Scalar>(dim, block, thrust::raw_pointer_cast(d_data.data()), bsize);
 }
 
 } // namespace cuZFP

@@ -12,6 +12,8 @@
 #define FREXP(x, e) frexp(x, e)
 #define FABS(x) fabs(x)
 
+#define NBMASK 0xaaaaaaaaaaaaaaaaull
+
 typedef unsigned long long Word;
 
 static const uint wsize = bitsize(Word);
