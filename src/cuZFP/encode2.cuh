@@ -482,8 +482,8 @@ void encode2launch(int2 dims,
   int2 zfp_pad(dims); 
   // ensure that we have block sizes
   // that are a multiple of 4
-  zfp_pad.x += 4 - dims.x % 4;
-  zfp_pad.y += 4 - dims.y % 4;
+  if(zfp_pad.x % 4 != 0) zfp_pad.x += 4 - dims.x % 4;
+  if(zfp_pad.y % 4 != 0) zfp_pad.y += 4 - dims.y % 4;
 
   block_size = dim3(CUDA_BLK_SIZE_2D, 1, 1);
   
@@ -491,7 +491,11 @@ void encode2launch(int2 dims,
   // we need to ensure that we launch a multiple of the 
   // cuda block size
   //
-  int block_pad = CUDA_BLK_SIZE_2D - zfp_pad.x * zfp_pad.y % CUDA_BLK_SIZE_2D; 
+  int block_pad = 0; 
+  if(zfp_pad.x * zfp_pad.y % CUDA_BLK_SIZE_2D != 0)
+  {
+    int block_pad = CUDA_BLK_SIZE_2D - zfp_pad.x * zfp_pad.y % CUDA_BLK_SIZE_2D; 
+  }
   std::cout<<"launch dims "<<zfp_pad.x<<", "<<zfp_pad.y<<"\n";
   std::cout<<"pad size "<<block_pad<<"\n";
   grid_size = dim3(block_pad +  zfp_pad.x * zfp_pad.y , 1, 1);

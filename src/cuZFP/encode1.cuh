@@ -428,7 +428,11 @@ void allocate_device_mem1d(const int dim,
   
   const size_t vals_per_block = 4;
   size_t total_blocks = dim / vals_per_block; 
-  if(dim % vals_per_block != 0) total_blocks++;
+  std::cout<<"dims "<< dim<<"\n";
+  if(dim % vals_per_block != 0) 
+  {
+    total_blocks++;
+  }
   const size_t bits_per_block = vals_per_block * bsize;
   const size_t bits_per_word = sizeof(Word) * 8;
   const size_t total_bits = bits_per_block * total_blocks;
@@ -455,9 +459,18 @@ void encode1launch(int dim,
   // in the case where dim[x] is not a multiple of 4
 
   int zfp_pad = dim;
-  zfp_pad += 4 - dim % 4;
 
-  int block_pad = CUDA_BLK_SIZE_1D - zfp_pad % CUDA_BLK_SIZE_1D; 
+  if(dim % 4 != 0)
+  {
+    zfp_pad += 4 - dim % 4;
+  }
+
+  std::cout<<"zfp_pad "<<zfp_pad<<"\n";
+  int block_pad = 0; 
+  if(zfp_pad % 4 != 0) 
+  {
+    block_pad = CUDA_BLK_SIZE_1D - zfp_pad % CUDA_BLK_SIZE_1D; 
+  }
   
   grid_size = dim3(block_pad + zfp_pad, 1, 1);
 
