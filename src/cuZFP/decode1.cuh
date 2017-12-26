@@ -170,14 +170,14 @@ cudaDecode1(Word *blocks,
         data[i] += (UInt)(x & 1u) << k;
       }
 
-      //if(threadIdx.x == 0)
-      //{
-      //  for(int i = 0; i < 4; ++i)
-      //  {
-      //    printf("data at %d = %d\n", i, (int) data[i]);
-      //  }
+      if(threadIdx.x == 0)
+      {
+        for(int i = 0; i < 4; ++i)
+        {
+          printf("data at %d = %d\n", i, (int) data[i]);
+        }
 
-      //}
+      }
     } 
     Int iblock[4];
     #pragma unroll 4
