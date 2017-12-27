@@ -100,6 +100,39 @@ struct BlockReader
 
 }; // block reader
 
+template<typename Scalar, int Size, typename UInt>
+inline __device__
+void decode_ints(BlockReader<Size> &reader, uint &max_bits, UInt *data)
+{
+  const int intprec = get_precision<Scalar>();
+  //memset(data, 0, sizeof(UInt) * Size);
+  unsigned int x; 
+  // maxprec = 64;
+  const uint kmin = 0; //= intprec > maxprec ? intprec - maxprec : 0;
+  int bits = max_bits;
+  for (uint k = intprec, n = 0; bits && k-- > kmin;)
+  {
+    //printf("plane %d : ", k);
+    //print_bits(reader.m_buffer);
+    // read bit plane
+    uint m = MIN(n, bits);
+    bits -= m;
+    x = reader.read_bits(m);
+    for (; n < Size && bits && (bits--, reader.read_bit()); x += (Word) 1 << n++)
+      for (; n < (Size - 1) && bits && (bits--, !reader.read_bit()); n++);
+    
+    //printf("x = %d\n", (int) x);
+    // deposit bit plane
+    #pragma unroll
+    for (int i = 0; x; i++, x >>= 1)
+    {
+      data[i] += (UInt)(x & 1u) << k;
+    }
+
+  } 
+}
+
+
 template<class Scalar>
 __global__
 void
@@ -143,34 +176,12 @@ cudaDecode1(Word *blocks,
       ebits = 0;
     }
     const uint vals_per_block = 4;
-    const uint maxbits = bsize * vals_per_block;
-		int bits = maxbits - ebits;
+    uint maxbits = bsize * vals_per_block;
+	  maxbits -= ebits;
     
-    uint data[vals_per_block] = {0,0,0,0};
+    UInt data[vals_per_block];
 
-    unsigned int x; 
-    // maxprec = 64;
-    uint kmin = 0; //= intprec > maxprec ? intprec - maxprec : 0;
-    for (uint k = intprec, n = 0; bits && k-- > kmin;)
-    {
-      //printf("plane %d : ", k);
-      //print_bits(reader.m_buffer);
-      // read bit plane
-      uint m = MIN(n, bits);
-      bits -= m;
-      x = reader.read_bits(m);
-      for (; n < vals_per_block && bits && (bits--, reader.read_bit()); x += (Word) 1 << n++)
-        for (; n < (vals_per_block - 1) && bits && (bits--, !reader.read_bit()); n++);
-      
-      //printf("x = %d\n", (int) x);
-      // deposit bit plane
-      #pragma unroll
-      for (int i = 0; x; i++, x >>= 1)
-      {
-        data[i] += (UInt)(x & 1u) << k;
-      }
-
-    } 
+    decode_ints<Scalar, 4, UInt>(reader, maxbits, data);
     //for(int a = 0; a < 128; ++a) 
     //{
     //  __syncthreads();

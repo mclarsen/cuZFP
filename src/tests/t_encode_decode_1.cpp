@@ -44,7 +44,8 @@ void run_test(int nx)
 
 TEST(encode_decode, test_encode_decode_float64)
 {
-  run_test<double>(128 * 128 * 128);
+  //run_test<double>(128 * 128 * 128);
+  run_test<float>(128*128*128);
 }
 
 //TEST(encode_decode, test_encode_decode_float32)
