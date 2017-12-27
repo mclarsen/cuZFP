@@ -118,13 +118,13 @@ cudaDecode1(Word *blocks,
   
   Scalar result[4] = {0,0,0,0};
   
-  uint s_cont = reader.read_bit();
+  uint s_cont = 1;
   //
   // there is no skip path for integers so just continue
   //
-  if(is_int<Scalar>())
+  if(!is_int<Scalar>())
   {
-    s_cont = 1;
+    s_cont = reader.read_bit();
   }
 
   if(s_cont)
@@ -170,15 +170,18 @@ cudaDecode1(Word *blocks,
         data[i] += (UInt)(x & 1u) << k;
       }
 
-      if(threadIdx.x == 0)
-      {
-        for(int i = 0; i < 4; ++i)
-        {
-          printf("data at %d = %d\n", i, (int) data[i]);
-        }
-
-      }
     } 
+    //for(int a = 0; a < 128; ++a) 
+    //{
+    //  __syncthreads();
+    //  if(threadIdx.x == a)
+    //  {
+    //    for(int i = 0; i < 4; ++i)
+    //    {
+    //      printf("block %d data at %d = %d\n", block_idx, i, (int) data[i]);
+    //    }
+    //  }
+    //}
     Int iblock[4];
     #pragma unroll 4
     for(int i = 0; i < 4; ++i)
@@ -190,7 +193,8 @@ cudaDecode1(Word *blocks,
     inv_lift<Int,1>(iblock);
 
 		Scalar inv_w = dequantize<Int, Scalar>(1, emax);
-
+    
+    //if(threadIdx.x == 0) printf("inv %d \n", inv_w);
 
     #pragma unroll 4
     for(int i = 0; i < 4; ++i)
@@ -198,7 +202,7 @@ cudaDecode1(Word *blocks,
 		  result[i] = inv_w * (Scalar)iblock[i];
     }
   
-    //if(block_idx > 100)
+    //if(block_idx == 0)
     //{
     //  for(int i = 0; i < 4; ++i)
     //  {
@@ -211,11 +215,14 @@ cudaDecode1(Word *blocks,
   //printf("thread  = %d \n", block_idx);
   if(block_idx < total_blocks)
   {
+    //if(threadIdx.x == 0) printf("inv %d \n", block_idx);
+
     const int offset = block_idx * 4;
     out[offset + 0] = result[0];
     out[offset + 1] = result[1];
     out[offset + 2] = result[2];
     out[offset + 3] = result[3];
+    //if(threadIdx.x==0) printf("out data %d\n", out[offset+0]);
   }
   // write out data
 }
