@@ -293,14 +293,18 @@ struct BlockWriter
   inline __device__ 
   void write_bits(const unsigned int &bits, const uint &n_bits, const uint &bit_offset)
   {
+    //bool print = m_word_index == 0  && m_start_bit == 0;
     //if(bits == 0) { printf("no\n"); return;}
     uint seg_start = m_start_bit + bit_offset;
     uint seg_end = seg_start + n_bits - 1;
     int write_index = m_word_index;
     uint shift = seg_start; 
-    //printf("write index %d shift %d bits %d\n", write_index, seg_start,(int) bits);
-    //print_bits(bits);
-    //printf("\n");
+    //if(print)
+    //{
+    //  printf("write index %d shift %d bits %d\n", write_index, seg_start,(int) bits);
+    //  print_bits(bits);
+    //  printf("\n");
+    //}
     // handle the case where all of the bits reside in the
     // next word. This is mutually exclusive with straddle.
     if(seg_start >= sizeof(Word) * 8) 
@@ -334,6 +338,124 @@ struct BlockWriter
   }
 
 };
+
+template<int block_size>
+struct BlockReader
+{
+  int m_current_bit;
+  const int m_bsize; 
+  Word *m_words;
+  Word *m_end;
+  Word m_buffer;
+  bool m_valid_block;
+  __device__ BlockReader(Word *b, const int &bsize, const int &block_idx, const int &num_blocks)
+    :  m_bsize(bsize), m_valid_block(true)
+  {
+    if(block_idx >= num_blocks) m_valid_block = false;
+    //if(!m_valid_block) printf("invalid ");
+    int word_index = (block_idx * bsize * block_size)  / (sizeof(Word) * 8); 
+    int last_index = ((num_blocks - 1) * bsize * block_size)  / (sizeof(Word) * 8); 
+    m_end = (Word *)(b + last_index);
+    m_words = b + word_index;
+    m_buffer = *m_words;
+    m_current_bit = (block_idx * bsize * block_size) % (sizeof(Word) * 8); 
+    m_buffer >>= m_current_bit;
+    //printf("thread %d block id %d word_index %d current bit %d\n", threadIdx.x, block_idx, word_index, m_current_bit);
+    //if(block_idx ==0 ) print_bits(m_buffer);
+  }
+
+  inline __device__ 
+  uint read_bit()
+  {
+    uint bit = m_buffer & 1;
+    ++m_current_bit;
+    m_buffer >>= 1;
+    // handle moving into next word
+    if(m_current_bit >= sizeof(Word) * 8) 
+    {
+      m_current_bit = 0;
+      if(m_end != m_words) ++m_words;
+      m_buffer = *m_words;
+    }
+    return bit; 
+  }
+
+
+  // note this assumes that n_bits is <= 64
+  inline __device__ 
+  uint read_bits(const int &n_bits)
+  {
+    uint bits; 
+    // rem bits will always be positive
+    int rem_bits = sizeof(Word) * 8 - m_current_bit;
+     
+    int first_read = min(rem_bits, n_bits);
+    // first mask 
+    Word mask = ((Word)1<<((first_read)))-1;
+    bits = m_buffer & mask;
+    m_buffer >>= n_bits;
+    m_current_bit += first_read;
+    //printf(" bits %d rem bits %d n_bits %d first read %d\n", bits, rem_bits, n_bits, first_read);
+    int next_read = 0;
+    if(n_bits >= rem_bits) 
+    {
+      //need to go into next word
+      ++m_words;
+      //m_buffer = *m_words;
+      if(m_end != m_words) ++m_words;
+      m_current_bit = 0;
+      next_read = n_bits - first_read; 
+    }
+   
+    // this is basically a no-op when first read constained 
+    // all the bits. TODO: if we have aligned reads, this could 
+    // be a conditional without divergence
+    mask = ((Word)1<<((next_read)))-1;
+    bits += (m_buffer & mask) << first_read;
+    m_buffer >>= next_read;
+    m_current_bit += next_read; 
+    //printf(" outputing n = %d bits first read %d : ", n_bits, first_read); print_bits(bits);  
+    //print_bits(m_buffer);
+    return bits;
+  }
+
+  private:
+  __device__ BlockReader()
+  {
+  }
+
+}; // block reader
+
+template<typename Scalar, int Size, typename UInt>
+inline __device__
+void decode_ints(BlockReader<Size> &reader, uint &max_bits, UInt *data)
+{
+  const int intprec = get_precision<Scalar>();
+  memset(data, 0, sizeof(UInt) * Size);
+  unsigned int x; 
+  // maxprec = 64;
+  const uint kmin = 0; //= intprec > maxprec ? intprec - maxprec : 0;
+  int bits = max_bits;
+  for (uint k = intprec, n = 0; bits && k-- > kmin;)
+  {
+    //printf("plane %d : ", k); print_bits(reader.m_buffer);
+    // read bit plane
+    uint m = MIN(n, bits);
+    bits -= m;
+    x = reader.read_bits(m);
+    for (; n < Size && bits && (bits--, reader.read_bit()); x += (Word) 1 << n++)
+      for (; n < (Size - 1) && bits && (bits--, !reader.read_bit()); n++);
+    
+    //printf("x = %d\n", (int) x);
+    // deposit bit plane
+    #pragma unroll
+    for (int i = 0; x; i++, x >>= 1)
+    {
+      data[i] += (UInt)(x & 1u) << k;
+    }
+    //printf("bits %d\n", bits);
+  } 
+}
 
 } // namespace cuZFP
 #endif

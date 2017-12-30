@@ -150,6 +150,7 @@ get_max_exponent2(const int &tid,
 		sh_reduce[offset] = max(sh_reduce[offset], sh_reduce[offset + 1]);
 	}
 
+  __syncthreads();
 	return exponent(sh_reduce[offset]);
 }
 
@@ -173,7 +174,7 @@ encode2(Scalar *sh_data,
   typedef unsigned short PlaneType;
   // number of bits in the incoming type
   const uint vals_per_block = 16;
-  const uint vals_per_cuda_block = CUDA_BLK_SIZE_2D;
+  //const uint vals_per_cuda_block = CUDA_BLK_SIZE_2D;
   //shared mem that depends on scalar size
 	__shared__ Scalar *sh_reduce;
 	__shared__ Int *sh_q;
@@ -196,11 +197,9 @@ encode2(Scalar *sh_data,
 	__shared__ uint s_emax_bits[ZFP_BLK_PER_BLK_2D];
 
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
-
-  const uint word_bits = sizeof(Word) * 8;
+  //const uint word_bits = sizeof(Word) * 8;
 
   Scalar thread_val = sh_data[tid];
-  //printf("tid %d val %f\n", tid, thread_val);
 	__syncthreads();
 
   //
@@ -224,7 +223,6 @@ encode2(Scalar *sh_data,
   // and we need to know the local position
   // of each thread
   //
-
   const int local_pos = tid % vals_per_block;
   const int block_start = (tid / vals_per_block) * vals_per_block/*vals_per_block*/;
   // Decorrelation
@@ -232,7 +230,7 @@ encode2(Scalar *sh_data,
   { 
     // along x
     fwd_lift<Int,1>(sh_q + block_start + 4 * local_pos);
-    // __syncthreads(); //todo only touching 16 values no sycnh needed 
+    __syncthreads(); //todo only touching 16 values no sycnh needed 
     // along y
     fwd_lift<Int,4>(sh_q + block_start + 1 * local_pos);
   }
@@ -258,6 +256,7 @@ encode2(Scalar *sh_data,
   int current_block = tid / intprec;
   const int bit_index = tid % intprec;
   //if(tid == 0) printf("encode \n");
+  __syncthreads();
   /**********************Begin encode block *************************/
   for(uint block = 0; block < work_size; ++block)
   {
@@ -464,6 +463,7 @@ void allocate_device_mem2d(const int2 dims,
   if(total_bits % bits_per_word != 0) alloc_size++;
   stream.resize(alloc_size);
   // ensure we have zeros
+  std::cout<<"Alloc size "<<alloc_size<<"\n";
   cudaMemset(thrust::raw_pointer_cast(stream.data()), 0, sizeof(Word) * alloc_size);
 }
 
@@ -494,7 +494,7 @@ void encode2launch(int2 dims,
   int block_pad = 0; 
   if(zfp_pad.x * zfp_pad.y % CUDA_BLK_SIZE_2D != 0)
   {
-    int block_pad = CUDA_BLK_SIZE_2D - zfp_pad.x * zfp_pad.y % CUDA_BLK_SIZE_2D; 
+    block_pad = CUDA_BLK_SIZE_2D - zfp_pad.x * zfp_pad.y % CUDA_BLK_SIZE_2D; 
   }
   std::cout<<"launch dims "<<zfp_pad.x<<", "<<zfp_pad.y<<"\n";
   std::cout<<"pad size "<<block_pad<<"\n";

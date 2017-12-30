@@ -129,12 +129,12 @@ get_max_exponent1(const int &tid,
 		sh_reduce[offset + local_pos] = 
       max(fabs(sh_data[offset + local_pos]), fabs(sh_data[offset + local_pos + 2]));
   }
-
+  __syncthreads();
 	if (local_pos == 0)
   {
 		sh_reduce[offset] = max(sh_reduce[offset], sh_reduce[offset + 1]);
 	}
-
+  __syncthreads();
 	return exponent(sh_reduce[offset]);
 }
 
@@ -205,9 +205,8 @@ encode1(Scalar *sh_data,
   }
 
   Scalar thread_val = sh_data[tid];
-
 	__syncthreads();
-
+  
   //
   // this is basically a no-op for int types
   //
@@ -428,7 +427,6 @@ void allocate_device_mem1d(const int dim,
   
   const size_t vals_per_block = 4;
   size_t total_blocks = dim / vals_per_block; 
-  std::cout<<"dims "<< dim<<"\n";
   if(dim % vals_per_block != 0) 
   {
     total_blocks++;
@@ -438,9 +436,9 @@ void allocate_device_mem1d(const int dim,
   const size_t total_bits = bits_per_block * total_blocks;
   size_t alloc_size = total_bits / bits_per_word;
   if(total_bits % bits_per_word != 0) alloc_size++;
-  stream.resize(alloc_size);
+  stream.resize(alloc_size, (Word)0);
   // ensure we have zeros
-  cudaMemset(thrust::raw_pointer_cast(stream.data()), 0, sizeof(Word) * alloc_size);
+  std::cout<<"Alloc size "<<alloc_size<<"\n";
 }
 
 //

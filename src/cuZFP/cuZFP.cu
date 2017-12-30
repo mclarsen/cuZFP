@@ -6,6 +6,7 @@
 #include "ErrorCheck.h"
 #include "decode.cuh"
 #include "decode1.cuh"
+#include "decode2.cuh"
 #include <constant_setup.cuh>
 #include <thrust/device_vector.h>
 #include <iostream>
@@ -115,7 +116,7 @@ void encode(int nx, int ny, std::vector<T> &in_data, EncodedData &encoded_data)
 
   // set the actual dims and padded dims
   encoded_data.m_dims[0] = nx;
-  encoded_data.m_dims[1] = 0;
+  encoded_data.m_dims[1] = ny;
   encoded_data.m_dims[2] = 0;
 }
 
@@ -161,6 +162,26 @@ void decode(const EncodedData &encoded_data, std::vector<T> &out_data)
     ConstantSetup::setup_1d();
 
     cuZFP::decode1<T>(dim, d_encoded, d_out_data, bsize); 
+
+    out_data.resize(out_size); 
+    thrust::copy(d_out_data.begin(), 
+                 d_out_data.end(),
+                 out_data.begin());
+  }
+  else if(d == 2)
+  {
+
+    int2 dims;
+    dims.x = encoded_data.m_dims[0];
+    dims.y = encoded_data.m_dims[1];
+    const size_t out_size = dims.x * dims.y;
+
+    thrust::device_vector<T> d_out_data(out_size); 
+    thrust::device_vector<Word> d_encoded(encoded_data.m_data);
+
+    ConstantSetup::setup_2d();
+
+    cuZFP::decode2<T>(dims, d_encoded, d_out_data, bsize); 
 
     out_data.resize(out_size); 
     thrust::copy(d_out_data.begin(), 

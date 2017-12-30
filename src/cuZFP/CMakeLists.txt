@@ -10,6 +10,7 @@ set(cuZFP_sources
     cuZFP.cu #main entry point
     decode.cuh
     decode1.cuh
+    decode2.cuh
     encode.cuh
     encode1.cuh
     encode2.cuh
