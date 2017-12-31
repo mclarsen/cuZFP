@@ -8,22 +8,6 @@ typedef unsigned long long Word;
 
 namespace cuZFP {
 
-//struct EncodedData
-//{
-//  enum ValueType     { f32, f64, i32, i64 };
-//  int                m_dims[3];
-//  int                m_bsize;
-//  ValueType          m_value_type;
-//  std::vector<Word>  m_data;
-//  EncodedData()
-//    : m_bsize(8) // default rate 
-//  {
-//    m_dims[0] = 0;
-//    m_dims[1] = 0;
-//    m_dims[2] = 0;
-//  }
-//};
-
 enum ValueType { f32, f64, i32, i64, none_type };
 
 template<typename T> 
