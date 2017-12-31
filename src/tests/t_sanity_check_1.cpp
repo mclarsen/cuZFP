@@ -6,16 +6,6 @@
 #include <iomanip>
 #include <cstdio>
 
-void dump_raw_binary(cuZFP::EncodedData &data)
-{
-
-  int n = data.m_data.size(); 
-
-  for(int i = 0; i < n; i++)
-  {
-    fwrite(&data.m_data[i], sizeof(Word), 1, stderr);
-  }
-}
 
 template<typename T>
 void dump_decoded(std::vector<T> &data)
@@ -45,18 +35,21 @@ TEST(sanity_check_1_float32, test_sanity_check_1_float32)
   {
     test_data[i] = i; 
   }
+
+  cuZFP::cu_zfp compressor;
+  compressor.set_rate(8);
+  compressor.set_field(&test_data[0], cuZFP::get_type<float>() );
+  compressor.set_field_size_1d(size); 
   
-  cuZFP::EncodedData encoded_data;
-  encoded_data.m_bsize = 8; // 2 blocks per word
-  cuZFP::encode(x, test_data, encoded_data);
-  std::vector<float> test_out_data;
-  //dump_raw_binary(encoded_data);
-  cuZFP::decode(encoded_data, test_out_data);
-  //dump_decoded(test_out_data);
+  compressor.compress();
+
+  compressor.decompress();
+
+  float *test_data_out = (float*) compressor.get_field();
+  
   for(int i = 0; i < size; ++i)
   {
-     //std::cout<<test_out_data.at(i)<<"\n";
-     ASSERT_TRUE(i == static_cast<int>(test_out_data.at(i)));
+     ASSERT_TRUE(i == static_cast<int>(test_data_out[i]));
   }
 }
 

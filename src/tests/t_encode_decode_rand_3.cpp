@@ -25,12 +25,17 @@ TEST(encode_decode_rand, test_encode_decode_rand)
     test_data[index] = val;
   }
 
-  cuZFP::EncodedData encoded_data;
-  cuZFP::encode(nx,ny,nz,test_data, encoded_data);
+  cuZFP::cu_zfp compressor;
+  compressor.set_rate(1);
+  compressor.set_field(&test_data[0], cuZFP::get_type<double>() );
+  compressor.set_field_size_3d(nx, ny, nz); 
+  
+  compressor.compress();
 
+  compressor.decompress();
 
-  std::vector<double> test_data_out;
-  cuZFP::decode(encoded_data, test_data_out);
+  double *test_data_out = (double*) compressor.get_field();
+
   double tot_err = 0;
   for(int i = 0; i < size; ++i)
   {

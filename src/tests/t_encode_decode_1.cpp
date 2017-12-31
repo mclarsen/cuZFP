@@ -32,14 +32,19 @@ void run_test(int nx)
     T val = static_cast<T>(sin(v)*10.);
     test_data[x] = val;
   }
+
   //dump(test_data); 
-  cuZFP::EncodedData encoded_data;
-  encoded_data.m_bsize = 3;
-  cuZFP::encode(nx, test_data, encoded_data);
-  //dump(encoded_data.m_data); 
-  std::vector<T> test_data_out;
-  cuZFP::decode(encoded_data, test_data_out);
-  dump(test_data_out); 
+  cuZFP::cu_zfp compressor;
+  compressor.set_rate(1);
+  compressor.set_field(&test_data[0], cuZFP::get_type<T>() );
+  compressor.set_field_size_1d(nx); 
+  
+  compressor.compress();
+
+  compressor.decompress();
+
+  T *test_data_out = (T*) compressor.get_field();
+  //dump(test_data_out); 
   double tot_err = 0;
   for(int i = 0; i < size; ++i)
   {

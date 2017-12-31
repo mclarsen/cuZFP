@@ -53,6 +53,11 @@ add_subdirectory(cuZFP)
 add_subdirectory(tests)
 
 ##################################
+# build utils 
+##################################
+add_subdirectory(utils)
+
+##################################
 # Create CMake importable 
 # exports for all targets
 ##################################
