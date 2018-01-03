@@ -204,7 +204,6 @@ encode (Scalar *sh_data,
 	sh_emax = (int*)&s_emax_bits[1];
 
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
-  //printf("block idx %d tid %d\n", (int)blk_idx, (int)tid);
 
 	Bitter bitter = make_bitter(0, 0);
 	unsigned char sbit = 0;
@@ -213,6 +212,7 @@ encode (Scalar *sh_data,
 		blocks[blk_idx + tid] = 0; 
 
   Scalar thread_val = sh_data[tid];
+
 	__syncthreads();
   
   //
@@ -237,8 +237,11 @@ encode (Scalar *sh_data,
 
   // get negabinary representation
   // fwd_order in cpu code
-	sh_p[tid] = int2uint(sh_q[c_perm[tid]]);
-
+	UInt u = int2uint(sh_q[c_perm[tid]]);
+  // avoid race conditions: sh_q and sh_p point to the same loc
+	__syncthreads();
+	sh_p[tid] = u;
+	__syncthreads();
   /**********************Begin encode block *************************/
 	/* extract bit plane k to x[k] */
 	long long unsigned y = 0;
@@ -259,8 +262,6 @@ encode (Scalar *sh_data,
   // only tids < 32 have valid data
   //
   
-  //Print(tid, y, "bit plane");
-
 	__syncthreads();
 	sh_m[tid] = 0;   
 	sh_n[tid] = 0;
@@ -272,7 +273,7 @@ encode (Scalar *sh_data,
   sh_n[tid] = 64 - __clzll(x);
 	__syncthreads();
 
-	if (tid < 63)
+	if (tid < intprec - 1)
   {
 		sh_m[tid] = sh_n[tid + 1];
 	}
@@ -308,9 +309,15 @@ encode (Scalar *sh_data,
 
 	bits = (128 - bits);
 	sh_n[tid] = min(sh_m[tid], bits);
-
+  //for(int i = 0; i < intprec; ++i)
+  //{
+  //  __syncthreads();
+  //  if(tid == i)
+  //  {
+  //    printf("tid %d sh_m %d bits %d sh_n %d\n", tid, (int) sh_m[i], (int) bits, (int)sh_n[i]);
+  //  }
+  //}
 	/* step 2: encode first n bits of bit plane */
-	//y[tid] = stream[bidx].write_bits(y[tid], sh_m[tid]);
 	y = write_bitters(bitter, make_bitter(y, 0), sh_m[tid], sbit);
 	n = sh_n[tid];
 	/* step 3: unary run-length encode remainder of bit plane */
@@ -342,6 +349,7 @@ encode (Scalar *sh_data,
     const uint maxbits = bsize * vals_per_block; 
 		for (int i = 0; i < intprec && tot_sbits < maxbits; i++)
     {
+      uint temp = tot_sbits;
 			if (sh_sbits[i] <= 64)
       {
 				write_outx(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, sh_sbits[i], bsize);
@@ -355,6 +363,8 @@ encode (Scalar *sh_data,
           write_outy(sh_bitters, blocks + blk_idx, rem_sbits, tot_sbits, offset, i, sh_sbits[i] - 64, bsize);
         }
 			}
+      temp = tot_sbits - temp;
+      //printf("rem bits %d k %d  encoded bits %d\n", (int)rem_sbits, (int) i, (int) temp);
 		}
 	} // end serial write
 
@@ -394,9 +404,7 @@ cudaEncode(const uint  bsize,
           + x_coord;
 
 	sh_data[tid] = data[id];
-  //printf("tid %d data  %d\n",tid, sh_data[tid]);
 	__syncthreads();
-  //if(tid == 0) printf("\n");
 	encode< Scalar>(sh_data,
                   bsize, 
                   new_smem,

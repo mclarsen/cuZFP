@@ -1,7 +1,7 @@
 #ifndef cuZFP_h
 #define cuZFP_h
 
-#include<vector>
+#include <stdio.h>
 
 typedef unsigned long long Word;
 
@@ -40,6 +40,26 @@ inline ValueType get_type<long long int>()
   return i64;
 }
 
+static size_t
+type_size(cuZFP::ValueType type)
+{
+  if(type == cuZFP::i32) return sizeof(int);
+  if(type == cuZFP::i64) return sizeof(long long int);
+  if(type == cuZFP::f32) return sizeof(float);
+  if(type == cuZFP::f64) return sizeof(double);
+  return 0;
+}
+
+static void
+print_type(cuZFP::ValueType type)
+{
+  if(type == cuZFP::i32) printf("type: int32\n");
+  if(type == cuZFP::i64) printf("type: int64\n");
+  if(type == cuZFP::f32) printf("type: float32\n");
+  if(type == cuZFP::f64) printf("type: float64\n");
+  if(type == cuZFP::none_type) printf("type: none\n");
+}
+
 class cu_zfp 
 {
 protected:
@@ -66,14 +86,14 @@ public:
   
   void set_rate(int rate);
   int get_rate();
-
+  
   void* get_field();
 
   ValueType get_field_type();
 
   void compress();
   
-  void set_stream(Word *stream, size_t stream_bytes); 
+  void set_stream(Word *stream, size_t stream_bytes, ValueType type); 
 
   Word* get_stream();
 
@@ -82,36 +102,6 @@ public:
   void decompress();
 
 };
-
-// --------------------------- 3D encoding --------------------------------
-//void encode(int nx, int ny, int nz, std::vector<double> &in_data, EncodedData  &encoded_data);
-//
-//void encode(int nx, int ny, int nz, std::vector<float> &in_data, EncodedData  &encoded_data);
-//
-//void encode(int nx, int ny, int nz, std::vector<int> &in_data, EncodedData  &encoded_data);
-//
-//void encode(int nx, int ny, int nz, std::vector<long long int> &in_data, EncodedData  &encoded_data);
-//
-//// --------------------------- 1D encoding --------------------------------
-//void encode(int nx, std::vector<float> &in_data, EncodedData  &encoded_data);
-//
-//void encode(int nx, std::vector<double> &in_data, EncodedData  &encoded_data);
-//
-//void encode(int nx, std::vector<int> &in_data, EncodedData  &encoded_data);
-//
-//void encode(int nx, std::vector<long long int> &in_data, EncodedData  &encoded_data);
-//
-//// --------------------------- 2D encoding --------------------------------
-//void encode(int nx, int ny, std::vector<float> &in_data, EncodedData  &encoded_data);
-//
-//// --------------------------- 3D decoding --------------------------------
-//void decode(const EncodedData &encoded_data, std::vector<double> &out_data);
-//
-//void decode(const EncodedData &encoded_data, std::vector<float> &out_data);
-//
-//void decode(const EncodedData &encoded_data, std::vector<int> &out_data);
-//
-//void decode(const EncodedData &encoded_data, std::vector<long long int> &out_data);
 
 } // namespace cuZFP
 

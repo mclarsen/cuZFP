@@ -436,9 +436,8 @@ void allocate_device_mem1d(const int dim,
   const size_t total_bits = bits_per_block * total_blocks;
   size_t alloc_size = total_bits / bits_per_word;
   if(total_bits % bits_per_word != 0) alloc_size++;
-  stream.resize(alloc_size, (Word)0);
   // ensure we have zeros
-  std::cout<<"Alloc size "<<alloc_size<<"\n";
+  stream.resize(alloc_size, (Word)0);
 }
 
 //
@@ -463,25 +462,20 @@ void encode1launch(int dim,
     zfp_pad += 4 - dim % 4;
   }
 
-  std::cout<<"zfp_pad "<<zfp_pad<<"\n";
   int block_pad = 0; 
-  if(zfp_pad % 4 != 0) 
+  if(zfp_pad % CUDA_BLK_SIZE_1D != 0) 
   {
     block_pad = CUDA_BLK_SIZE_1D - zfp_pad % CUDA_BLK_SIZE_1D; 
   }
   
   grid_size = dim3(block_pad + zfp_pad, 1, 1);
-
   grid_size.x /= block_size.x; 
   
-  std::cout<<"allocating mem\n";
   allocate_device_mem1d(zfp_pad, bsize, stream);
   std::size_t dyn_shared = (ZFP_BLK_PER_BLK_1D * bsize * 4) / (sizeof(Word) * 8);
-  std::cout<<"Dynamic shared mem size "<<dyn_shared<<"\n";
 
 	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 
-  std::cout<<"event\n";
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
@@ -520,7 +514,6 @@ void encode1(int dim,
              thrust::device_vector<Word> &stream,
              const int bsize)
 {
-  std::cout<<"inside encode\n";
   encode1launch<Scalar>(dim, thrust::raw_pointer_cast(d_data.data()), stream, bsize);
 }
 

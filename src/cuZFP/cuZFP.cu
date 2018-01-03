@@ -260,10 +260,11 @@ cu_zfp::compress()
 }
   
 void 
-cu_zfp::set_stream(Word *stream, size_t stream_bytes)
+cu_zfp::set_stream(Word *stream, size_t stream_bytes, ValueType type)
 {
   m_stream = stream;
   m_stream_bytes = stream_bytes;
+  m_value_type = type;
   m_owns_stream = false;
 }
 
@@ -291,6 +292,7 @@ cu_zfp::decompress()
     m_owns_field = true; 
     if(m_value_type == f32)
     {
+      std::cout<<"*****\n";
       float *field = (float*) m_field;
       internal::decode(m_dims, m_rate, m_stream, m_stream_bytes, field);
       m_field = (void*) field;
@@ -312,6 +314,10 @@ cu_zfp::decompress()
       long long int *field = (long long int*) m_field;
       internal::decode(m_dims, m_rate, m_stream, m_stream_bytes, field);
       m_field = (void*) field;
+    }
+    else
+    {
+      std::cerr<<"Cannot decompress: type unknown\n";
     }
   }
 }

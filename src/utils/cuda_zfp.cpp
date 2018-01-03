@@ -41,61 +41,6 @@ typedef unsigned char uchar;
 #define ZFP_MAX_PREC    64 /* maximum precision supported */
 #define ZFP_MIN_EXP  -1074 /* minimum floating-point base-2 exponent */
 
-/* compute and print reconstruction error */
-#if 0
-static void
-print_error(const void* fin, const void* fout, zfp_type type, uint n)
-{
-  const int32* i32i = fin;
-  const int64* i64i = fin;
-  const float* f32i = fin;
-  const double* f64i = fin;
-  const int32* i32o = fout;
-  const int64* i64o = fout;
-  const float* f32o = fout;
-  const double* f64o = fout;
-  double fmin = +DBL_MAX;
-  double fmax = -DBL_MAX;
-  double erms = 0;
-  double ermsn = 0;
-  double emax = 0;
-  double psnr = 0;
-  uint i;
-
-  for (i = 0; i < n; i++) {
-    double d, val;
-    switch (type) {
-      case zfp_type_int32:
-        d = fabs((double)(i32i[i] - i32o[i]));
-        val = (double)i32i[i];
-        break;
-      case zfp_type_int64:
-        d = fabs((double)(i64i[i] - i64o[i]));
-        val = (double)i64i[i];
-        break;
-      case zfp_type_float:
-        d = fabs((double)(f32i[i] - f32o[i]));
-        val = (double)f32i[i];
-        break;
-      case zfp_type_double:
-        d = fabs(f64i[i] - f64o[i]);
-        val = f64i[i];
-        break;
-      default:
-        return;
-    }
-    emax = MAX(emax, d);
-    erms += d * d;
-    fmin = MIN(fmin, val);
-    fmax = MAX(fmax, val);
-  }
-  erms = sqrt(erms / n);
-  ermsn = erms / (fmax - fmin);
-  psnr = 20 * log10((fmax - fmin) / (2 * erms));
-  fprintf(stderr, " rmse=%.4g nrmse=%.4g maxe=%.4g psnr=%.2f", erms, ermsn, emax, psnr);
-}
-#endif
-
 static void
 usage()
 {
@@ -141,20 +86,12 @@ usage()
   exit(EXIT_FAILURE);
 }
 
-size_t
-zfp_type_size(std::string type)
-{
-  if(type == "i32") return sizeof(int32);
-  if(type == "i64") return sizeof(int64);
-  if(type == "f32") return sizeof(float);
-  if(type == "f64") return sizeof(double);
-}
 
 int main(int argc, char* argv[])
 {
   /* default settings */
   //zfp_type type = zfp_type_none;
-  std::string type;
+  cuZFP::ValueType type = cuZFP::none_type;
   size_t typesize = 0;
   uint dims = 0;
   uint nx = 0;
@@ -229,10 +166,10 @@ int main(int argc, char* argv[])
         mode = 'c';
         break;
       case 'd':
-        type = "f64";
+        type = cuZFP::f64;
         break;
       case 'f':
-        type = "f32";
+        type = cuZFP::f32;
         break;
       case 'h':
         header = 1;
@@ -267,13 +204,13 @@ int main(int argc, char* argv[])
         if (++i == argc)
           usage();
         if (!strcmp(argv[i], "i32"))
-          type = "i32";
+          type = cuZFP::i32;
         else if (!strcmp(argv[i], "i64"))
-          type = "i64";
+          type = cuZFP::i64;
         else if (!strcmp(argv[i], "f32"))
-          type = "f32";
+          type = cuZFP::f32;
         else if (!strcmp(argv[i], "f64"))
-          type = "f64";
+          type = cuZFP::f64;
         else
           usage();
         break;
@@ -288,8 +225,8 @@ int main(int argc, char* argv[])
     }
   }
 
-  typesize = zfp_type_size(type);
-
+  typesize = cuZFP::type_size(type);
+  print_type(type);
   /* make sure we have an input file */
   if (!inpath && !zfppath) {
     fprintf(stderr, "must specify uncompressed or compressed input file via -i or -z\n");
@@ -381,48 +318,38 @@ int main(int argc, char* argv[])
     //}
     //zfp_stream_set_bit_stream(zfp, stream);
   }
-  cuZFP::EncodedData data;
+  cuZFP::cu_zfp compressor;
   /* set field dimensions and (de)compression parameters */
   if (inpath || !header) {
     printf("set fields dims for (de)comp\n");
-    if(dims > 0)
+    if(dims == 1)
     {
-      data.m_dims[0] = nx;
+      compressor.set_field_size_1d(nx);
     }
-    if(dims > 1)
+    else if(dims == 2)
     {
-      data.m_dims[1] = ny;
+      compressor.set_field_size_2d(nx, ny);
     }
-    if(dims == 3)
+    else if(dims == 3)
     {
-      data.m_dims[2] = nz;
+      compressor.set_field_size_3d(nx, ny, nz);
     }
-
+    
     if(mode != 'r')
     {
       printf("Currently, only the fixed rate '-r' mode is supported with CUDA\n");
       return EXIT_FAILURE;
     }
-    data.m_bsize = rate;
-    printf("Settings:\n   dims = (%d, %d, %d)\n   rate = %d\n", 
-           data.m_dims[0],
-           data.m_dims[1],
-           data.m_dims[2],
-           data.m_bsize);
+    compressor.set_rate(rate);
   }
 
   /* compress input file if provided */
   if (inpath) {
     printf("compress input file if provided\n");
-    int size = nx * ny * nz;
-    if(type == "f32")
-    {
-      float *in = (float*) in;
-      std::vector<float> raw(in, in + size);
-      cuZFP::encode(in, data);
-    }
-#if 0
-
+    compressor.set_field(fi, type);
+    compressor.compress();
+    zfpsize = compressor.get_stream_bytes();
+    buffer = compressor.get_stream();
     /* optionally write compressed data */
     if (zfppath) {
       FILE* file = !strcmp(zfppath, "-") ? stdout : fopen(zfppath, "wb");
@@ -436,55 +363,17 @@ int main(int argc, char* argv[])
       }
       fclose(file);
     }
-#endif
   }
-  
-  cuZFP::EncodedData encoded_data;
-  encoded_data.m_bsize = 8;
   
   /* decompress data if necessary */
   if ((!inpath && zfppath) || outpath || stats) {
-    printf("decompress\n");
-#if 0
-    /* obtain metadata from header when present */
-    zfp_stream_rewind(zfp);
-    if (header) {
-      if (!zfp_read_header(zfp, field, ZFP_HEADER_FULL)) {
-        fprintf(stderr, "incorrect or missing header\n");
-        return EXIT_FAILURE;
-      }
-      type = field->type;
-      switch (type) {
-        case zfp_type_float:
-          typesize = sizeof(float);
-          break;
-        case zfp_type_double:
-          typesize = sizeof(double);
-          break;
-        default:
-          fprintf(stderr, "unsupported type\n");
-          return EXIT_FAILURE;
-      }
-      nx = MAX(field->nx, 1u);
-      ny = MAX(field->ny, 1u);
-      nz = MAX(field->nz, 1u);
-    }
 
-    /* allocate memory for decompressed data */
-    rawsize = typesize * nx * ny * nz;
-    fo = malloc(rawsize);
-    if (!fo) {
-      fprintf(stderr, "cannot allocate memory\n");
-      return EXIT_FAILURE;
-    }
-    zfp_field_set_pointer(field, fo);
 
     /* decompress data */
-    if (!zfp_decompress(zfp, field)) {
-      fprintf(stderr, "decompression failed\n");
-      return EXIT_FAILURE;
-    }
-
+    printf("Decompressing\n");
+    compressor.set_stream((Word*)buffer, zfpsize, type);
+    compressor.decompress();
+    fo = compressor.get_field();
     /* optionally write reconstructed data */
     if (outpath) {
       FILE* file = !strcmp(outpath, "-") ? stdout : fopen(outpath, "wb");
@@ -497,24 +386,13 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
       }
       fclose(file);
+      fo = NULL; // currently deallocated by cuZFP
     }
-#endif
   }
 
   /* print compression and error statistics */
-//  if (!quiet) {
-//    const char* type_name[] = { "int32", "int64", "float", "double" };
-//    fprintf(stderr, "type=%s nx=%u ny=%u nz=%u", type_name[type - zfp_type_int32], nx, ny, nz);
-//    fprintf(stderr, " raw=%lu zfp=%lu ratio=%.3g rate=%.4g", (unsigned long)rawsize, (unsigned long)zfpsize, (double)rawsize / zfpsize, CHAR_BIT * (double)zfpsize / (nx * ny * nz));
-//    if (stats)
-//      print_error(fi, fo, type, nx * ny * nz);
-//    fprintf(stderr, "\n");
-//  }
-//
-//  /* free allocated storage */
-//  zfp_field_free(field);
-//  zfp_stream_close(zfp);
-//  stream_close(stream);
+  //TODO
+  
   free(buffer);
   free(fi);
   free(fo);
