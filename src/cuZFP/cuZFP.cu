@@ -10,16 +10,45 @@
 #include <constant_setup.cuh>
 #include <thrust/device_vector.h>
 #include <iostream>
+#include <type_info.cuh>
 
 namespace cuZFP {
 namespace internal {
 
+
 template<typename T>
-void encode(int dims[3], int rate, T *in_data, Word *&stream, size_t &stream_bytes)
+int adjust_rate(const int rate, const int dims)
+{
+  int bits_per_block = 0;
+  int block_size = 0;
+  if(dims == 1) block_size = 4;
+  if(dims == 2) block_size = 16;
+  if(dims == 3) block_size = 64;
+  
+  bits_per_block = block_size * rate;
+  int supported_rate = std::max(bits_per_block, get_ebits<T>()+1);
+  return supported_rate;
+}
+
+template<>
+int adjust_rate<int>(const int rate, const int dims)
+{
+  return rate;
+}
+
+template<>
+int adjust_rate<long long int>(const int rate, const int dims)
+{
+  return rate;
+}
+
+
+template<typename T>
+void encode(int dims[3], int &rate, T *in_data, Word *&stream, size_t &stream_bytes)
 {
 
   
-  const int bsize = rate;
+
   int d = 0;
   size_t len = 1;
   for(int i = 0; i < 3; ++i)
@@ -29,6 +58,12 @@ void encode(int dims[3], int rate, T *in_data, Word *&stream, size_t &stream_byt
       d++;
       len *= dims[i];
     }
+  }
+  // it is possible that the rate
+  const int bsize = adjust_rate<T>(rate, d);
+  if(bsize != rate)
+  {
+    rate = bsize;
   }
    
   // allocate in encode

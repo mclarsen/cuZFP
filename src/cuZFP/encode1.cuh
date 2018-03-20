@@ -1,6 +1,5 @@
 #ifndef CUZFP_ENCODE1_CUH
 #define CUZFP_ENCODE1_CUH
-
 //#include <helper_math.h>
 #include "shared.h"
 #include "ull128.h"
@@ -62,6 +61,8 @@ inline __device__ floating_point_ops1(const int &tid,
       BlockWriter<4> writer(blocks, bsize, blk_idx + block, num_blocks);
       unsigned int bits = 2 * e + 1; // the bit count?? for this block
       // writing to shared mem
+      //if(tid == 0) printf("******* ebits %d\n", (int)s_emax_bits[block]);
+      //if(blk_idx+block==0)writer.write_bits(bits, s_emax_bits[block], 0);
       writer.write_bits(bits, s_emax_bits[block], 0);
 		}
 	}
@@ -205,6 +206,7 @@ encode1(Scalar *sh_data,
   }
 
   Scalar thread_val = sh_data[tid];
+  //printf("tid %d thread value %f\n", tid, (float) thread_val);
 	__syncthreads();
   
   //
@@ -241,7 +243,6 @@ encode1(Scalar *sh_data,
   // get negabinary representation
   // fwd_order in cpu code
 	sh_p[tid] = int2uint(sh_q[tid]);
-
   // for 32 bit values, each warp will compress
   // 8 1D blocks (no need for synchs). for 64 bit values, 
   // two warps will compress 16 blocks (synchs needed).
@@ -254,6 +255,7 @@ encode1(Scalar *sh_data,
   /**********************Begin encode block *************************/
   for(uint block = 0; block < work_size; ++block)
   {
+
     //if(current_block != 0) return;
     const int block_start = current_block * vals_per_block;
     PlaneType y = 0;
@@ -357,19 +359,31 @@ encode1(Scalar *sh_data,
     //sh_m[tid] = 0;
 	  __syncthreads();
 
+    //if(current_block == 21 && bit_index == 0)
+    //{
+    //  for(int i = intprec -1; i >=0; --i)
+    //  {
+    //    printf("bit plane %d : ", i);
+    //    print_bits(s_test[tid +i]);
+    //  }
+    //}
     if (bit_index == 0)
     {
       const uint max_bits = bsize * vals_per_block; 
       uint tot_sbits = s_emax_bits[current_block];// sbits[0];
       uint rem_sbits = max_bits - s_emax_bits[current_block];// sbits[0];
+      //printf("Block %d rem bits %d\n", current_block, rem_sbits);
       BlockWriter<4> writer(blocks, bsize, blk_idx + current_block, num_blocks);
       for (int i = 0; i < intprec && tot_sbits < max_bits; i++)
       {
         uint n_bits = min(rem_sbits, sh_sbits[tid+i]); 
+        //printf("encoded bit plane %d : ", intprec -1 - i);
+        //print_bits(sh_encoded_bit_planes[tid+i]);
         writer.write_bits(sh_encoded_bit_planes[tid + i], n_bits, tot_sbits);
         tot_sbits += n_bits;
         rem_sbits -= n_bits;
       }
+      //print_bits(blocks[0]);
     } // end serial write
     current_block += block_stride;
 
@@ -406,7 +420,6 @@ cudaEncode1(const uint  bsize,
 	__syncthreads();
 
   const uint zfp_block_start = blockIdx.x * ZFP_BLK_PER_BLK_1D;; 
-  //if(tid == 0) printf("zfp block start %d\n", zfp_block_start);
   int total_blocks = dim / 4; 
   if(dim % 4 != 0) total_blocks++;
 
@@ -451,7 +464,6 @@ void encode1launch(int dim,
 {
   dim3 block_size, grid_size;
   block_size = dim3(CUDA_BLK_SIZE_1D, 1, 1);
-
   // Check to see if we need to increase the block sizes
   // in the case where dim[x] is not a multiple of 4
 
@@ -480,7 +492,7 @@ void encode1launch(int dim,
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
 
-  std::cout<<"Running kernel \n";
+  std::cout<<"Running kernel 1d\n";
   std::cout<<"grid "<<grid_size.x<<" "<<grid_size.y<<" "<<grid_size.z<<"\n";
   std::cout<<"block "<<block_size.x<<" "<<block_size.y<<" "<<block_size.z<<"\n";
   cudaEventRecord(start);

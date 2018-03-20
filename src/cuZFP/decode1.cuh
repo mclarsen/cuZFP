@@ -1,6 +1,6 @@
 #ifndef CUZFP_DECODE1_CUH
 #define CUZFP_DECODE1_CUH
-
+#define DBLOCK 56
 #include "shared.h"
 #include <thrust/device_vector.h>
 #include <type_info.cuh>
@@ -58,16 +58,31 @@ cudaDecode1(Word *blocks,
 	  maxbits -= ebits;
     
     UInt data[vals_per_block];
+
     decode_ints<Scalar, 4, UInt>(reader, maxbits, data);
     Int iblock[4];
     #pragma unroll 4
     for(int i = 0; i < 4; ++i)
     {
+      //if(block_idx == DBLOCK)
+      //{
+      //  printf("index %d nb %d\n", i, data[i]);
+      //}
       // cperm
 		  iblock[i] = uint2int(data[i]);
+
     }
 
     inv_lift<Int,1>(iblock);
+
+    //for(int i = 0; i < 4; ++i)
+    //{
+    //  if(block_idx == DBLOCK)
+    //  {
+    //    printf("index %d int %d\n", i, iblock[i]);
+    //  }
+
+    //}
 
 		Scalar inv_w = dequantize<Int, Scalar>(1, emax);
     
@@ -101,6 +116,14 @@ cudaDecode1(Word *blocks,
     out[offset + 2] = result[2];
     out[offset + 3] = result[3];
     //if(threadIdx.x==0) printf("out data %d\n", out[offset+0]);
+    //for(int i = 0; i < 4; ++i)
+    //{
+    //  if(block_idx == DBLOCK)
+    //  {
+    //    printf("index %d result %d\n", i, result[i]);
+    //  }
+
+    //}
   }
   // write out data
 }

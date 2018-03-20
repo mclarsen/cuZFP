@@ -1,6 +1,6 @@
 
 message(STATUS " [*] Adding cuda_zfp util")
-
+configure_file(test.py ${CMAKE_CURRENT_BINARY_DIR}/test.py COPYONLY)
 add_executable(cuda_zfp cuda_zfp.cpp)
 
 set_target_properties(cuda_zfp PROPERTIES
