@@ -6,19 +6,9 @@
 #include <iomanip>
 #include <cstdio>
 
-template<typename T>
-void dump_raw_binary(std::vector<T> &data)
-{
+using namespace cuZFP;
 
-  int n = data.size(); 
-
-  for(int i = 0; i < n; i++)
-  {
-    fwrite(&data[i], sizeof(T), 1, stderr);
-  }
-}
-
-TEST(sanity_check_1_float32, test_sanity_check_1_float32)
+TEST(sanity_check_2_float32, test_sanity_check_2_float32)
 {
   //
   // this test is a simple sanity check to see if
@@ -36,20 +26,45 @@ TEST(sanity_check_1_float32, test_sanity_check_1_float32)
     test_data[i] = i; 
   }
   
-  cuZFP::cu_zfp compressor;
-  compressor.set_rate(8);
-  compressor.set_field(&test_data[0], cuZFP::get_type<float>() );
-  compressor.set_field_size_2d(x, y); 
+  zfp_stream zfp;  
+  zfp_field *field;  
+
+  field = zfp_field_2d(&test_data[0], 
+                       zfp_type_float,
+                       x,
+                       y);
   
-  compressor.compress();
+  int rate = 8;
 
-  compressor.decompress();
+  double actual_rate = stream_set_rate(&zfp, rate, field->type, 2);
+  std::cout<<"actual rate "<<actual_rate<<"\n"; 
 
-  float *test_data_out = (float*) compressor.get_field();
+  size_t buffsize = zfp_stream_maximum_size(&zfp, field);
+  unsigned char* buffer = new unsigned char[buffsize];
+  zfp.stream = (Word*) buffer;
+  compress(&zfp, field);
+
+  std::vector<float> test_data_out;
+  test_data_out.resize(size);
+
+  zfp_field *out_field;  
+
+  out_field = zfp_field_2d(&test_data_out[0], 
+                           zfp_type_float,
+                           x,
+                           y);
+
+  decompress(&zfp, out_field);
 
   for(int i = 0; i < size; ++i)
   {
+    std::cout<<test_data_out[i]<<"\n";
     ASSERT_TRUE(i == static_cast<int>(test_data_out[i]));
   }
+
+
+  zfp_field_free(out_field);
+  zfp_field_free(field);
+  delete[] buffer;
 }
 

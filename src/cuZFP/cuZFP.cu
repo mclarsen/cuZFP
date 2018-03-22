@@ -15,39 +15,9 @@
 namespace cuZFP {
 namespace internal {
 
-
 template<typename T>
-int adjust_rate(const int rate, const int dims)
+void encode(int dims[3], int bits_per_block, T *in_data, Word *stream)
 {
-  int bits_per_block = 0;
-  int block_size = 0;
-  if(dims == 1) block_size = 4;
-  if(dims == 2) block_size = 16;
-  if(dims == 3) block_size = 64;
-  
-  bits_per_block = block_size * rate;
-  int supported_rate = std::max(bits_per_block, get_ebits<T>()+1);
-  return supported_rate;
-}
-
-template<>
-int adjust_rate<int>(const int rate, const int dims)
-{
-  return rate;
-}
-
-template<>
-int adjust_rate<long long int>(const int rate, const int dims)
-{
-  return rate;
-}
-
-
-template<typename T>
-void encode(int dims[3], int &rate, T *in_data, Word *&stream, size_t &stream_bytes)
-{
-
-  
 
   int d = 0;
   size_t len = 1;
@@ -59,13 +29,8 @@ void encode(int dims[3], int &rate, T *in_data, Word *&stream, size_t &stream_by
       len *= dims[i];
     }
   }
-  // it is possible that the rate
-  const int bsize = adjust_rate<T>(rate, d);
-  if(bsize != rate)
-  {
-    rate = bsize;
-  }
-   
+  
+
   // allocate in encode
   thrust::device_vector<Word> d_encoded;
   thrust::device_vector<T> d_in_data(in_data, in_data + len); 
@@ -75,39 +40,33 @@ void encode(int dims[3], int &rate, T *in_data, Word *&stream, size_t &stream_by
   {
     int dim = dims[0];
     ConstantSetup::setup_1d();
-    cuZFP::encode1<T>(dim, d_in_data, d_encoded, bsize); 
+    cuZFP::encode1<T>(dim, d_in_data, d_encoded, bits_per_block); 
   }
   else if(d == 2)
   {
     int2 ndims = make_int2(dims[0], dims[1]);
     ConstantSetup::setup_2d();
-    cuZFP::encode2<T>(ndims, d_in_data, d_encoded, bsize); 
+    cuZFP::encode2<T>(ndims, d_in_data, d_encoded, bits_per_block); 
   }
   else if(d == 3)
   {
     int3 ndims = make_int3(dims[0], dims[1], dims[2]);
     ConstantSetup::setup_3d();
-    cuZFP::encode<T>(ndims, d_in_data, d_encoded, bsize); 
+    cuZFP::encode<T>(ndims, d_in_data, d_encoded, bits_per_block); 
   }
   errors.chk("Encode");
 
-
-
-  stream = new Word[d_encoded.size()];
-
   Word * d_ptr = thrust::raw_pointer_cast(d_encoded.data());
 
-  stream_bytes = d_encoded.size() * sizeof(Word);
+  size_t stream_bytes = d_encoded.size() * sizeof(Word);
   // copy the decoded data back to the host
   cudaMemcpy(stream, d_ptr, stream_bytes, cudaMemcpyDeviceToHost);
   
 }
 
 template<typename T>
-void decode(int ndims[3], int rate, Word *stream, size_t stream_bytes, T *&out)
+void decode(int ndims[3], int bits_per_block, Word *stream, size_t stream_bytes, T *&out)
 {
-
-  const unsigned int bsize = rate ;
 
   int d = 0;
   size_t out_size = 1;
@@ -121,7 +80,7 @@ void decode(int ndims[3], int rate, Word *stream, size_t stream_bytes, T *&out)
   }
 
   //allocate space
-  out = new T[out_size];
+  //out = new T[out_size];
   thrust::device_vector<T> d_out_data(out_size); 
 
   size_t stream_len = stream_bytes / sizeof(Word); 
@@ -135,7 +94,7 @@ void decode(int ndims[3], int rate, Word *stream, size_t stream_bytes, T *&out)
 
     ConstantSetup::setup_3d();
 
-    cuZFP::decode<T>(dims, d_encoded, d_out_data, bsize); 
+    cuZFP::decode<T>(dims, d_encoded, d_out_data, bits_per_block); 
 
   }
   else if(d == 1)
@@ -145,7 +104,7 @@ void decode(int ndims[3], int rate, Word *stream, size_t stream_bytes, T *&out)
 
     ConstantSetup::setup_1d();
 
-    cuZFP::decode1<T>(dim, d_encoded, d_out_data, bsize); 
+    cuZFP::decode1<T>(dim, d_encoded, d_out_data, bits_per_block); 
 
   }
   else if(d == 2)
@@ -157,7 +116,7 @@ void decode(int ndims[3], int rate, Word *stream, size_t stream_bytes, T *&out)
 
     ConstantSetup::setup_2d();
 
-    cuZFP::decode2<T>(dims, d_encoded, d_out_data, bsize); 
+    cuZFP::decode2<T>(dims, d_encoded, d_out_data, bits_per_block); 
 
   }
   else std::cout<<" d ==  "<<d<<" not implemented\n";
@@ -169,204 +128,76 @@ void decode(int ndims[3], int rate, Word *stream, size_t stream_bytes, T *&out)
 
 } // namespace internal
 
-cu_zfp::cu_zfp()
-  : m_rate(8),
-    m_stream(NULL),
-    m_field(NULL),
-    m_owns_field(false),
-    m_owns_stream(false),
-    m_stream_bytes(0)
+void 
+compress(zfp_stream *stream, zfp_field *field)
 {
-  m_dims[0] = 0;
-  m_dims[1] = 0;
-  m_dims[2] = 0;
-}
+  int dims[3];
+  dims[0] = field->nx;
+  dims[1] = field->ny;
+  dims[2] = field->nz;
 
-cu_zfp::~cu_zfp()
-{
-  if(m_field && m_owns_field) 
+  if(field->type == zfp_type_float)
   {
-    std::cout<<"Deleting field "<<m_field<<"\n";
-    if(m_value_type == f32)
-    {
-      float *field = (float*) m_field;
-      delete[] field;
-    }
-    else if(m_value_type == f64)
-    {
-      double *field = (double*) m_field;
-      delete[] field;
-    }
-    else if(m_value_type == i32)
-    {
-      int *field = (int*) m_field;
-      delete[] field;
-    }
-    else if(m_value_type == i64)
-    {
-      long long int *field = (long long int*) m_field;
-      delete[] field;
-    }
+    float* data = (float*) field->data;
+    internal::encode<float>(dims, (int)stream->maxbits, data, stream->stream);
   }
-
-  if(m_stream && m_owns_stream) 
+  else if(field->type == zfp_type_double)
   {
-    std::cout<<"Deleting stream\n";
-    delete[] m_stream;
+    double* data = (double*) field->data;
+    internal::encode<double>(dims, (int)stream->maxbits, data, stream->stream);
   }
-}
-
-void 
-cu_zfp::set_field_size_1d(int nx)
-{
-  m_dims[0] = nx;
-  m_dims[1] = 0;
-  m_dims[2] = 0;
-}
-
-void 
-cu_zfp::set_field_size_2d(int nx, int ny)
-{
-  m_dims[0] = nx;
-  m_dims[1] = ny;
-  m_dims[2] = 0;
-}
-
-void 
-cu_zfp::set_field_size_3d(int nx, int ny, int nz)
-{
-  m_dims[0] = nx;
-  m_dims[1] = ny;
-  m_dims[2] = nz;
-}
-
-void 
-cu_zfp::set_field(void *field, ValueType type)
-{
-  m_field = field;
-  m_value_type = type;
-  m_owns_field = false;
-  std::cout<<"setting field "<<m_field<<"\n";
-}
-
-void* 
-cu_zfp::get_field()
-{
-  return m_field;
-}
-
-ValueType 
-cu_zfp::get_field_type()
-{
-  return m_value_type;
-}
-
-void 
-cu_zfp::compress()
-{
-  if(m_field == NULL)
+  else if(field->type == zfp_type_int32)
   {
-    std::cerr<<"Compress error: field never set\n";
+    int * data = (int*) field->data;
+    internal::encode<int>(dims, (int)stream->maxbits, data, stream->stream);
   }
-  else
+  else if(field->type == zfp_type_int64)
   {
-    m_owns_stream = false; 
-    if(m_value_type == f32)
-    {
-      float* field = (float*) m_field;
-      internal::encode<float>(m_dims, m_rate, field, m_stream, m_stream_bytes);
-    }
-    else if(m_value_type == f64)
-    {
-      double* field = (double*) m_field;
-      internal::encode<double>(m_dims, m_rate, field, m_stream, m_stream_bytes);
-    }
-    else if(m_value_type == i32)
-    {
-      int * field = (int*) m_field;
-      internal::encode<int>(m_dims, m_rate, field, m_stream, m_stream_bytes);
-    }
-    else if(m_value_type == i64)
-    {
-      long long int * field = (long long int*) m_field;
-      internal::encode<long long int>(m_dims, m_rate, field, m_stream, m_stream_bytes);
-    }
+    long long int * data = (long long int*) field->data;
+    internal::encode<long long int>(dims, (int)stream->maxbits, data, stream->stream);
   }
 }
   
 void 
-cu_zfp::set_stream(Word *stream, size_t stream_bytes, ValueType type)
+decompress(zfp_stream *stream, zfp_field *field)
 {
-  m_stream = stream;
-  m_stream_bytes = stream_bytes;
-  m_value_type = type;
-  m_owns_stream = false;
-}
+  int dims[3];
+  dims[0] = field->nx;
+  dims[1] = field->ny;
+  dims[2] = field->nz;
 
-Word* 
-cu_zfp::get_stream()
-{
-  return m_stream;
-}
+  //TODO this will be changed
+  
+  size_t bytes = zfp_stream_maximum_size(stream, field);
 
-size_t
-cu_zfp::get_stream_bytes()
-{
-  return m_stream_bytes;
-}
-
-void 
-cu_zfp::decompress()
-{
-  if(m_stream == NULL)
+  if(field->type == zfp_type_float)
   {
-    std::cerr<<"Decompress error: stream never set\n";
+    float *data = (float*) field->data;
+    internal::decode(dims, (int)stream->maxbits, stream->stream, bytes, data);
+    field->data = (void*) data;
+  }
+  else if(field->type == zfp_type_double)
+  {
+    double *data = (double*) field->data;
+    internal::decode(dims, (int)stream->maxbits, stream->stream, bytes, data);
+    field->data = (void*) data;
+  }
+  else if(field->type == zfp_type_int32)
+  {
+    int *data = (int*) field->data;
+    internal::decode(dims, (int)stream->maxbits, stream->stream, bytes, data);
+    field->data = (void*) data;
+  }
+  else if(field->type == zfp_type_int64)
+  {
+    long long int *data = (long long int*) field->data;
+    internal::decode(dims, (int)stream->maxbits, stream->stream, bytes, data);
+    field->data = (void*) data;
   }
   else
   {
-    m_owns_field = true; 
-    if(m_value_type == f32)
-    {
-      std::cout<<"*****\n";
-      float *field = (float*) m_field;
-      internal::decode(m_dims, m_rate, m_stream, m_stream_bytes, field);
-      m_field = (void*) field;
-    }
-    else if(m_value_type == f64)
-    {
-      double *field = (double*) m_field;
-      internal::decode(m_dims, m_rate, m_stream, m_stream_bytes, field);
-      m_field = (void*) field;
-    }
-    else if(m_value_type == i32)
-    {
-      int *field = (int*) m_field;
-      internal::decode(m_dims, m_rate, m_stream, m_stream_bytes, field);
-      m_field = (void*) field;
-    }
-    else if(m_value_type == i64)
-    {
-      long long int *field = (long long int*) m_field;
-      internal::decode(m_dims, m_rate, m_stream, m_stream_bytes, field);
-      m_field = (void*) field;
-    }
-    else
-    {
-      std::cerr<<"Cannot decompress: type unknown\n";
-    }
+    std::cerr<<"Cannot decompress: type unknown\n";
   }
-}
-
-void
-cu_zfp::set_rate(int rate)
-{
-  m_rate = rate;
-}
-
-int 
-cu_zfp::get_rate()
-{
-  return m_rate;
 }
 
 } // namespace cuZFP

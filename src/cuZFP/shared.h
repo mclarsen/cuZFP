@@ -1,9 +1,12 @@
 #ifndef SHARED_H
 #define SHARED_H
+
 #ifndef DBLOCK
   #define DBLOCK -1
 #endif
+
 #include <type_info.cuh>
+#include <zfp_structs.h>
 #include <stdio.h>
 
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
@@ -15,10 +18,6 @@
 #define FABS(x) fabs(x)
 
 #define NBMASK 0xaaaaaaaaaaaaaaaaull
-
-typedef unsigned long long Word;
-
-static const uint wsize = bitsize(Word);
 
 __constant__ unsigned char c_perm_1[4];
 __constant__ unsigned char c_perm_2[16];
@@ -280,15 +279,15 @@ struct BlockWriter
 {
   int m_word_index;
   int m_start_bit;
-  const int m_bsize; 
+  const int m_maxbits; 
   Word *m_words;
   bool m_valid_block;
-  __device__ BlockWriter(Word *b, const int &bsize, const int &block_idx, const int &num_blocks)
-    : m_words(b), m_bsize(bsize), m_valid_block(true)
+  __device__ BlockWriter(Word *b, const int &maxbits, const int &block_idx, const int &num_blocks)
+    : m_words(b), m_maxbits(maxbits), m_valid_block(true)
   {
     if(block_idx >= num_blocks) m_valid_block = false;
-    m_word_index = (block_idx * bsize * block_size)  / (sizeof(Word) * 8); 
-    m_start_bit = (block_idx * bsize * block_size) % (sizeof(Word) * 8); 
+    m_word_index = (block_idx * maxbits)  / (sizeof(Word) * 8); 
+    m_start_bit = (block_idx * maxbits) % (sizeof(Word) * 8); 
     //if(m_valid_block)printf("Writer blk_idx %d bsize %d blk_size %d w index %d startbit %d\n", block_idx, bsize, block_size, m_word_index,m_start_bit);
     //printf("***** Writer blk_idx %d bsize %d blk_size %d w index %d startbit %d\n", block_idx, bsize, block_size, m_word_index,m_start_bit);
   }
@@ -349,23 +348,23 @@ template<int block_size>
 struct BlockReader
 {
   int m_current_bit;
-  const int m_bsize; 
+  const int m_maxbits; 
   Word *m_words;
   Word *m_end;
   Word m_buffer;
   bool m_valid_block;
   //int m_block_idx;
-  __device__ BlockReader(Word *b, const int &bsize, const int &block_idx, const int &num_blocks)
-    :  m_bsize(bsize), m_valid_block(true)
+  __device__ BlockReader(Word *b, const int &maxbits, const int &block_idx, const int &num_blocks)
+    :  m_maxbits(maxbits), m_valid_block(true)
   {
     if(block_idx >= num_blocks) m_valid_block = false;
     //if(!m_valid_block) printf("invalid ");
-    int word_index = (block_idx * bsize * block_size)  / (sizeof(Word) * 8); 
-    int last_index = ((num_blocks - 1) * bsize * block_size)  / (sizeof(Word) * 8); 
+    int word_index = (block_idx * maxbits)  / (sizeof(Word) * 8); 
+    int last_index = ((num_blocks - 1) * maxbits)  / (sizeof(Word) * 8); 
     m_end = (Word *)(b + last_index);
     m_words = b + word_index;
     m_buffer = *m_words;
-    m_current_bit = (block_idx * bsize * block_size) % (sizeof(Word) * 8); 
+    m_current_bit = (block_idx * maxbits) % (sizeof(Word) * 8); 
     m_buffer >>= m_current_bit;
     //m_block_idx = block_idx;
     //printf("thread %d block id %d word_index %d current bit %d\n", threadIdx.x, block_idx, word_index, m_current_bit);

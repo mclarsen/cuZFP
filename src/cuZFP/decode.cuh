@@ -70,7 +70,7 @@ template<typename Scalar>
 __device__ 
 Scalar  decode(const Word *blocks,
                unsigned char *smem,
-               const uint bsize)
+               const uint maxbits)
 {
   typedef typename zfp_traits<Scalar>::UInt UInt;
   typedef typename zfp_traits<Scalar>::Int Int;
@@ -133,7 +133,6 @@ Scalar  decode(const Word *blocks,
       }
 
       const uint vals_per_block = 64;
-      const uint maxbits = bsize * vals_per_block;
 			uint bits = maxbits - ebits;
 
 			for (uint k = intprec, n = 0; k-- > 0;)
@@ -185,7 +184,7 @@ __launch_bounds__(64,5)
 cudaDecode(Word *blocks,
            Scalar *out,
            const int3 dims,
-           uint bsize)
+           uint maxbits)
 {
   uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
 
@@ -194,8 +193,9 @@ cudaDecode(Word *blocks,
   const uint x_coord = threadIdx.x + blockIdx.x * 4;
   const uint y_coord = threadIdx.y + blockIdx.y * 4;
   const uint z_coord = threadIdx.z + blockIdx.z * 4;
-
-	Scalar val = decode<Scalar>(blocks + bsize*idx, smem, bsize);
+  //TODO: fix for non word aligned
+  int bsize = maxbits / 64;
+	Scalar val = decode<Scalar>(blocks + bsize*idx, smem, maxbits);
 
   bool real_data = true;
   //
@@ -221,7 +221,7 @@ template<class Scalar>
 void decode(int3 dims, 
             thrust::device_vector<Word> &stream,
             Scalar *d_data,
-            uint bsize)
+            uint maxbits)
 {
 
   dim3 block_size = dim3(4, 4, 4);
@@ -250,7 +250,7 @@ void decode(int3 dims,
     (raw_pointer_cast(stream.data()),
 		 d_data,
      dims,
-     bsize);
+     maxbits);
 
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
@@ -270,9 +270,9 @@ template<class Scalar>
 void decode (int3 dims, 
              thrust::device_vector<Word > &block,
              thrust::device_vector<Scalar> &d_data,
-             uint bsize)
+             uint maxbits)
 {
-	decode<Scalar>(dims, block, thrust::raw_pointer_cast(d_data.data()), bsize);
+	decode<Scalar>(dims, block, thrust::raw_pointer_cast(d_data.data()), maxbits);
 }
 
 } // namespace cuZFP

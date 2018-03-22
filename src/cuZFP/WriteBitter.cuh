@@ -71,7 +71,7 @@ write_outx(const Bitter *bitters,
            uint &offset, 
            unsigned long idx, 
            uint sbits,
-           const uint &bsize)
+           const uint &maxbits)
 {
 
 	out[offset] += bitters[idx].x << rem_sbits;
@@ -80,7 +80,7 @@ write_outx(const Bitter *bitters,
 	if (rem_sbits >= wsize) {
 		rem_sbits -= wsize;
 		offset++;
-    if (rem_sbits > 0 && tot_sbits < bsize * 64)
+    if (rem_sbits > 0 && tot_sbits < maxbits)
 			out[offset] = bitters[idx].x >> (sbits - rem_sbits);
 	}
 }
@@ -94,7 +94,7 @@ write_outy(const Bitter *bitters,
            uint &offset, 
            unsigned long idx, 
            uint sbits,
-           const uint &bsize)
+           const uint &maxbits)
 {
 
 	out[offset] += bitters[idx].y << rem_sbits;
@@ -103,7 +103,7 @@ write_outy(const Bitter *bitters,
 	if (rem_sbits >= wsize) {
 		rem_sbits -= wsize;
 		offset++;
-    if (rem_sbits > 0 && tot_sbits < bsize * 64)
+    if (rem_sbits > 0 && tot_sbits < maxbits)
       out[offset] = bitters[idx].y >> (sbits - rem_sbits);
 	}
 }

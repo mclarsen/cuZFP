@@ -16,7 +16,7 @@ void
 cudaDecode2(Word *blocks,
             Scalar *out,
             const int2 dims,
-            uint bsize)
+            uint maxbits)
 {
   typedef typename zfp_traits<Scalar>::UInt UInt;
   typedef typename zfp_traits<Scalar>::Int Int;
@@ -38,7 +38,7 @@ cudaDecode2(Word *blocks,
   }
   //printf("Block index %d\n", block_idx);
 
-  BlockReader<Size> reader(blocks, bsize, block_idx, total_blocks);
+  BlockReader<Size> reader(blocks, maxbits, block_idx, total_blocks);
  
   Scalar result[Size];
   memset(result, 0, sizeof(Scalar) * Size);
@@ -67,7 +67,6 @@ cudaDecode2(Word *blocks,
       ebits = 0;
     }
 
-    uint maxbits = bsize * Size;
 	  maxbits -= ebits;
     UInt data[Size];
     decode_ints<Scalar, Size, UInt>(reader, maxbits, data);
@@ -148,7 +147,7 @@ template<class Scalar>
 void decode2(int2 dims, 
              thrust::device_vector<Word> &stream,
              Scalar *d_data,
-             uint bsize)
+             uint maxbits)
 {
   const int cuda_block_size = 128;
   std::cout<<"boomm\n";
@@ -192,7 +191,7 @@ void decode2(int2 dims,
     (raw_pointer_cast(stream.data()),
 		 d_data,
      dims,
-     bsize);
+     maxbits);
 
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
@@ -212,9 +211,9 @@ template<class Scalar>
 void decode2(int2 dims, 
              thrust::device_vector<Word > &block,
              thrust::device_vector<Scalar> &d_data,
-             uint bsize)
+             uint maxbits)
 {
-	decode2<Scalar>(dims, block, thrust::raw_pointer_cast(d_data.data()), bsize);
+	decode2<Scalar>(dims, block, thrust::raw_pointer_cast(d_data.data()), maxbits);
 }
 
 } // namespace cuZFP

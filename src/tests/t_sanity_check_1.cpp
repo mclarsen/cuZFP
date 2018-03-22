@@ -7,18 +7,7 @@
 #include <cstdio>
 
 
-template<typename T>
-void dump_decoded(std::vector<T> &data)
-{
-
-  int n = data.size(); 
-
-  for(int i = 0; i < n; i++)
-  {
-    fwrite(&data[i], sizeof(T), 1, stderr);
-  }
-}
-
+using namespace cuZFP;
 
 TEST(sanity_check_1_float32, test_sanity_check_1_float32)
 {
@@ -36,79 +25,42 @@ TEST(sanity_check_1_float32, test_sanity_check_1_float32)
     test_data[i] = i; 
   }
 
-  cuZFP::cu_zfp compressor;
-  compressor.set_rate(8);
-  compressor.set_field(&test_data[0], cuZFP::get_type<float>() );
-  compressor.set_field_size_1d(size); 
-  
-  compressor.compress();
+  zfp_stream zfp;  
+  zfp_field *field;  
 
-  compressor.decompress();
-
-  float *test_data_out = (float*) compressor.get_field();
+  field = zfp_field_1d(&test_data[0], 
+                       zfp_type_float,
+                       x);
   
+  int rate = 8;
+
+  double actual_rate = stream_set_rate(&zfp, rate, field->type, 1);
+
+  size_t buffsize = zfp_stream_maximum_size(&zfp, field);
+  unsigned char* buffer = new unsigned char[buffsize];
+  zfp.stream = (Word*) buffer;
+  compress(&zfp, field);
+
+  std::vector<float> test_data_out;
+  test_data_out.resize(size);
+
+  zfp_field *out_field;  
+
+  out_field = zfp_field_1d(&test_data_out[0], 
+                           zfp_type_float,
+                           x);
+
+  decompress(&zfp, out_field);
+
   for(int i = 0; i < size; ++i)
   {
-     ASSERT_TRUE(i == static_cast<int>(test_data_out[i]));
+    ASSERT_TRUE(i == static_cast<int>(test_data_out[i]));
   }
+
+
+  zfp_field_free(out_field);
+  zfp_field_free(field);
+  delete[] buffer;
+
 }
 
-/*
-TEST(sanity_check_1_float64, test_sanity_check_1_float64)
-{
-  //
-  // this test is a simple sanity check to see if
-  // we can actually encode and decode with block size.
-  // that is not a multiple of four.
-  //
-  int x = 256;
-  const int size = x;
-  std::vector<double> test_data;
-  test_data.resize(size);
-  for(int i = 0; i < size; ++i)
-  {
-    test_data[i] = i; 
-  }
-  
-  cuZFP::EncodedData encoded_data;
-  encoded_data.m_bsize = 8; // 2 blocks per word
-  cuZFP::encode(x, test_data, encoded_data);
-  std::vector<double> test_out_data;
-  //dump_raw_binary(encoded_data);
-  //cuZFP::decode(encoded_data, test_out_data);
-
-  for(int i = 0; i < size; ++i)
-  {
-   // ASSERT_TRUE(i == static_cast<int>(test_out_data.at(i)));
-  }
-}
-TEST(sanity_check_1_int64, test_sanity_check_1_int64)
-{
-  //
-  // this test is a simple sanity check to see if
-  // we can actually encode and decode with block size.
-  // that is not a multiple of four.
-  //
-  int x = 128;
-  const int size = x;
-  std::vector<long long int> test_data;
-  test_data.resize(size);
-  for(int i = 0; i < size; ++i)
-  {
-    test_data[i] = i; 
-  }
-  
-  cuZFP::EncodedData encoded_data;
-  //encoded_data.m_bsize = 8; // 2 blocks per word
-  encoded_data.m_bsize = 3; // 2 blocks per word
-  cuZFP::encode(x, test_data, encoded_data);
-  std::vector<long long int> test_out_data;
-  dump_raw_binary(encoded_data);
-  //cuZFP::decode(encoded_data, test_out_data);
-
-  for(int i = 0; i < size; ++i)
-  {
-   // ASSERT_TRUE(i == static_cast<int>(test_out_data.at(i)));
-  }
-}
-*/

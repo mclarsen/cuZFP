@@ -31,7 +31,7 @@ inline __device__ floating_point_ops1(const int &tid,
                                       Word blocks[],             // output stream
                                       uint &blk_idx,             // this is the start of all 32 blocks 
                                       const int &num_blocks,     // total number of blocks
-                                      const int &bsize)          // bits per values
+                                      const int &maxbits)          // bits per values
 {
   const int block = tid / 4 /*vals_per_block*/;
   const int block_start = block * 4 /*vals_per_block*/;
@@ -58,7 +58,7 @@ inline __device__ floating_point_ops1(const int &tid,
     {
       // this is writing the exponent out
 			s_emax_bits[block] = get_ebits<Scalar>() + 1;// this c_ebit = ebias
-      BlockWriter<4> writer(blocks, bsize, blk_idx + block, num_blocks);
+      BlockWriter<4> writer(blocks, maxbits, blk_idx + block, num_blocks);
       unsigned int bits = 2 * e + 1; // the bit count?? for this block
       // writing to shared mem
       //if(tid == 0) printf("******* ebits %d\n", (int)s_emax_bits[block]);
@@ -81,7 +81,7 @@ inline __device__ floating_point_ops1<int,int>(const int &tid,
                                                Word *blocks,
                                                uint &blk_idx,
                                                const int &num_blocks,
-                                               const int &bsize)
+                                               const int &maxbits)
 {
 
   const int offset = tid / 4 /*vals_per_block*/;
@@ -159,7 +159,7 @@ template<typename Scalar>
 __device__
 void 
 encode1(Scalar *sh_data,
-	      const uint bsize, 
+	      const uint maxbits, 
         uint blk_idx, // the start index of the set of zfp blocks we are encoding
         Word *blocks,
         const int num_blocks)
@@ -197,7 +197,7 @@ encode1(Scalar *sh_data,
 	uint tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *blockDim.x*blockDim.y;
 
   const uint word_bits = sizeof(Word) * 8;
-  const uint total_words = (bsize * vals_per_cuda_block) / word_bits; 
+  const uint total_words = (maxbits) / word_bits; 
   // init output stream 
 	if (tid < total_words)
   {
@@ -222,7 +222,7 @@ encode1(Scalar *sh_data,
                       blocks,
                       blk_idx,
                       num_blocks,
-                      bsize);
+                      maxbits);
 	__syncthreads();
 
   //
@@ -369,12 +369,11 @@ encode1(Scalar *sh_data,
     //}
     if (bit_index == 0)
     {
-      const uint max_bits = bsize * vals_per_block; 
       uint tot_sbits = s_emax_bits[current_block];// sbits[0];
-      uint rem_sbits = max_bits - s_emax_bits[current_block];// sbits[0];
+      uint rem_sbits = maxbits - s_emax_bits[current_block];// sbits[0];
       //printf("Block %d rem bits %d\n", current_block, rem_sbits);
-      BlockWriter<4> writer(blocks, bsize, blk_idx + current_block, num_blocks);
-      for (int i = 0; i < intprec && tot_sbits < max_bits; i++)
+      BlockWriter<4> writer(blocks, maxbits, blk_idx + current_block, num_blocks);
+      for (int i = 0; i < intprec && tot_sbits < maxbits; i++)
       {
         uint n_bits = min(rem_sbits, sh_sbits[tid+i]); 
         //printf("encoded bit plane %d : ", intprec -1 - i);
@@ -396,7 +395,7 @@ encode1(Scalar *sh_data,
 template<class Scalar>
 __global__
 void __launch_bounds__(128,5)
-cudaEncode1(const uint  bsize,
+cudaEncode1(const uint  maxbits,
             const Scalar* data,
             Word *blocks,
             const int dim)
@@ -424,7 +423,7 @@ cudaEncode1(const uint  bsize,
   if(dim % 4 != 0) total_blocks++;
 
 	encode1<Scalar>(sh_data,
-                  bsize, 
+                  maxbits, 
                   zfp_block_start,
                   blocks,
                   total_blocks);
@@ -434,7 +433,7 @@ cudaEncode1(const uint  bsize,
 }
 
 void allocate_device_mem1d(const int dim, 
-                           const int bsize, 
+                           const int maxbits, 
                            thrust::device_vector<Word> &stream)
 {
   
@@ -444,7 +443,7 @@ void allocate_device_mem1d(const int dim,
   {
     total_blocks++;
   }
-  const size_t bits_per_block = vals_per_block * bsize;
+  const size_t bits_per_block = maxbits;
   const size_t bits_per_word = sizeof(Word) * 8;
   const size_t total_bits = bits_per_block * total_blocks;
   size_t alloc_size = total_bits / bits_per_word;
@@ -460,7 +459,7 @@ template<class Scalar>
 void encode1launch(int dim, 
                    const Scalar *d_data,
                    thrust::device_vector<Word> &stream,
-                   const int bsize)
+                   const int maxbits)
 {
   dim3 block_size, grid_size;
   block_size = dim3(CUDA_BLK_SIZE_1D, 1, 1);
@@ -483,8 +482,8 @@ void encode1launch(int dim,
   grid_size = dim3(block_pad + zfp_pad, 1, 1);
   grid_size.x /= block_size.x; 
   
-  allocate_device_mem1d(zfp_pad, bsize, stream);
-  std::size_t dyn_shared = (ZFP_BLK_PER_BLK_1D * bsize * 4) / (sizeof(Word) * 8);
+  allocate_device_mem1d(zfp_pad, maxbits, stream);
+  std::size_t dyn_shared = (ZFP_BLK_PER_BLK_1D * maxbits) / (sizeof(Word) * 8);
 
 	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 
@@ -498,7 +497,7 @@ void encode1launch(int dim,
   cudaEventRecord(start);
 
 	cudaEncode1<Scalar> << <grid_size, block_size, dyn_shared * sizeof(Word)>> >
-    (bsize,
+    (maxbits,
      d_data,
      thrust::raw_pointer_cast(stream.data()),
      dim);
@@ -524,20 +523,20 @@ template<class Scalar>
 void encode1(int dim,
              thrust::device_vector<Scalar> &d_data,
              thrust::device_vector<Word> &stream,
-             const int bsize)
+             const int maxbits)
 {
-  encode1launch<Scalar>(dim, thrust::raw_pointer_cast(d_data.data()), stream, bsize);
+  encode1launch<Scalar>(dim, thrust::raw_pointer_cast(d_data.data()), stream, maxbits);
 }
 
 template<class Scalar>
 void encode1(int dim,
              thrust::host_vector<Scalar> &h_data,
              thrust::host_vector<Word> &stream,
-             const int bsize)
+             const int maxbits)
 {
   thrust::device_vector<Word > d_stream = stream;
   thrust::device_vector<Scalar> d_data = stream;
-  encode<Scalar>(dim, d_data, d_stream, bsize);
+  encode<Scalar>(dim, d_data, d_stream, maxbits);
   stream = d_stream;
 }
 

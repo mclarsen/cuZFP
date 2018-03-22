@@ -24,6 +24,7 @@ set(cuZFP_headers
     shared.h
     ull128.h
     cuZFP.h
+    zfp_structs.h
     ErrorCheck.h)
 
 cuda_add_library(cuZFP
