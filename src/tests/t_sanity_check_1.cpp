@@ -34,7 +34,7 @@ TEST(sanity_check_1_float32, test_sanity_check_1_float32)
   
   int rate = 8;
 
-  double actual_rate = stream_set_rate(&zfp, rate, field->type, 1);
+  stream_set_rate(&zfp, rate, field->type, 1);
 
   size_t buffsize = zfp_stream_maximum_size(&zfp, field);
   unsigned char* buffer = new unsigned char[buffsize];

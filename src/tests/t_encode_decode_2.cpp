@@ -6,17 +6,7 @@
 #include <iomanip>
 #include <stdlib.h>
 
-template<typename T>
-void dump_raw_binary(std::vector<T> &data)
-{
-
-  int n = data.size(); 
-
-  for(int i = 0; i < n; i++)
-  {
-    fwrite(&data[i], sizeof(T), 1, stderr);
-  }
-}
+using namespace cuZFP;
 
 template<typename T>
 void run_test(int nx, int ny)
@@ -34,24 +24,47 @@ void run_test(int nx, int ny)
       test_data[index] = val;
     }
 
-  cuZFP::cu_zfp compressor;
-  compressor.set_rate(1);
-  compressor.set_field(&test_data[0], cuZFP::get_type<T>() );
-  compressor.set_field_size_2d(nx, ny); 
+  zfp_stream zfp;  
+  zfp_field *field;  
+  zfp_type type = get_zfp_type<T>();
+
+  field = zfp_field_2d(&test_data[0], 
+                       type,
+                       nx,
+                       ny);
   
-  compressor.compress();
+  int rate = 8;
 
-  compressor.decompress();
+  double actual_rate = stream_set_rate(&zfp, rate, type, 2);
+  std::cout<<"actual rate "<<actual_rate<<"\n"; 
 
-  T *test_data_out = (T*) compressor.get_field();
+  size_t buffsize = zfp_stream_maximum_size(&zfp, field);
+  unsigned char* buffer = new unsigned char[buffsize];
+  zfp.stream = (Word*) buffer;
+  compress(&zfp, field);
+
+  std::vector<float> test_data_out;
+  test_data_out.resize(size);
+
+  zfp_field *out_field;  
+
+  out_field = zfp_field_2d(&test_data_out[0], 
+                           type,
+                           nx,
+                           ny);
+
+  decompress(&zfp, out_field);
+
+  zfp_field_free(out_field);
+  zfp_field_free(field);
+  delete[] buffer;
+
   double tot_err = 0;
   for(int i = 0; i < size; ++i)
   {
       tot_err += abs(test_data_out[i] - test_data[i]);
-      //std::cout<<"data "<<test_data[i]<<" decomp "<<test_data_out[i]<<"\n";
   }
 
-  //dump_raw_binary(test_data_out);
   double average_err = tot_err /  double(size);
   printf("Total absolute error %2.20f\n", tot_err);
   printf("Average abosulte error %2.20f with %d values.\n", average_err, size);

@@ -171,6 +171,36 @@ type_precision(zfp_type type)
   }
 }
 
+template<typename T> static
+zfp_type get_zfp_type()
+{
+  return zfp_type_none;
+}
+
+template<>
+zfp_type get_zfp_type<int>()
+{
+  return zfp_type_int32;
+}
+
+template<>
+zfp_type get_zfp_type<long long int>()
+{
+  return zfp_type_int64;
+}
+
+template<>
+zfp_type get_zfp_type<float>()
+{
+  return zfp_type_float;
+}
+
+template<>
+zfp_type get_zfp_type<double>()
+{
+  return zfp_type_double;
+}
+
 static size_t
 zfp_stream_maximum_size(const zfp_stream* zfp, const zfp_field* field)
 {

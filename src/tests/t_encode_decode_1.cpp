@@ -7,17 +7,7 @@
 #include <stdlib.h>
 
 
-template<typename T>
-void dump(std::vector<T> &data)
-{
-
-  int n = data.size(); 
-
-  for(int i = 0; i < n; i++)
-  {
-    fwrite(&data[i], sizeof(T), 1, stderr);
-  }
-}
+using namespace cuZFP;
 
 template<typename T>
 void run_test(int nx)
@@ -32,25 +22,43 @@ void run_test(int nx)
     T val = static_cast<T>(sin(v)*10.);
     test_data[x] = val;
   }
-
-  //dump(test_data); 
-  cuZFP::cu_zfp compressor;
-  compressor.set_rate(1);
-  compressor.set_field(&test_data[0], cuZFP::get_type<T>() );
-  compressor.set_field_size_1d(nx); 
   
-  compressor.compress();
+  zfp_stream zfp;  
+  zfp_field *field;  
+  zfp_type type = get_zfp_type<T>();
 
-  compressor.decompress();
+  field = zfp_field_1d(&test_data[0], 
+                       type,
+                       nx);
+  
+  int rate = 8;
 
-  T *test_data_out = (T*) compressor.get_field();
-  //dump(test_data_out); 
+  stream_set_rate(&zfp, rate, type, 1);
+
+  size_t buffsize = zfp_stream_maximum_size(&zfp, field);
+  unsigned char* buffer = new unsigned char[buffsize];
+  zfp.stream = (Word*) buffer;
+  compress(&zfp, field);
+
+  std::vector<float> test_data_out;
+  test_data_out.resize(size);
+
+  zfp_field *out_field;  
+
+  out_field = zfp_field_1d(&test_data_out[0], 
+                           type,
+                           nx);
+
+  decompress(&zfp, out_field);
+
+  zfp_field_free(out_field);
+  zfp_field_free(field);
+  delete[] buffer;
+
   double tot_err = 0;
   for(int i = 0; i < size; ++i)
   {
       tot_err += abs(test_data_out[i] - test_data[i]);
-      //if(i % 4 == 0) std::cout<<"\n";
-      //if(i < 4) std::cout<<"decompressed "<<test_data_out[i]<<" "<<test_data[i]<<"\n";
   }
 
   double average_err = tot_err /  double(size);

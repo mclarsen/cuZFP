@@ -6,6 +6,8 @@
 #include <iomanip>
 #include <stdlib.h>
 
+using namespace cuZFP;
+
 template<typename T>
 void run_test(int nx, int ny, int nz)
 {
@@ -31,16 +33,42 @@ void run_test(int nx, int ny, int nz)
     test_data[index] = val;
   }
 
-  cuZFP::cu_zfp compressor;
-  compressor.set_rate(1);
-  compressor.set_field(&test_data[0], cuZFP::get_type<T>() );
-  compressor.set_field_size_3d(nx, ny, nz); 
+  zfp_stream zfp;  
+  zfp_field *field;  
+  zfp_type type = get_zfp_type<T>();
+
+  field = zfp_field_3d(&test_data[0], 
+                       type,
+                       nx,
+                       ny,
+                       nz);
   
-  compressor.compress();
+  int rate = 8;
 
-  compressor.decompress();
+  double actual_rate = stream_set_rate(&zfp, rate, type, 3);
+  std::cout<<"actual rate "<<actual_rate<<"\n"; 
 
-  T *test_data_out = (T*) compressor.get_field();
+  size_t buffsize = zfp_stream_maximum_size(&zfp, field);
+  unsigned char* buffer = new unsigned char[buffsize];
+  zfp.stream = (Word*) buffer;
+  compress(&zfp, field);
+
+  std::vector<float> test_data_out;
+  test_data_out.resize(size);
+
+  zfp_field *out_field;  
+
+  out_field = zfp_field_3d(&test_data_out[0], 
+                           type,
+                           nx,
+                           ny,
+                           nz);
+
+  decompress(&zfp, out_field);
+
+  zfp_field_free(out_field);
+  zfp_field_free(field);
+  delete[] buffer;
 
   double tot_err = 0;
   for(int i = 0; i < size; ++i)
