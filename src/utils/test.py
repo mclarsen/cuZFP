@@ -107,6 +107,18 @@ def fuzz_2d(num_tests, types):
     rate = random.randrange(1, 32, 1)
     fuzz(types, nx, ny, nz, rate)
 
+def fuzz_3d(num_tests, types):
+  for i in range(0, num_tests):
+    #nx = random.randrange(1, 101, 1) * 4
+    #ny = random.randrange(1, 101, 1) * 4
+    #nz = random.randrange(1, 101, 1) * 4
+    nx = 4
+    ny = 4
+    nz = 4
+    #rate = random.randrange(1, 32, 1)
+    rate = 4
+    fuzz(types, nx, ny, nz, rate)
+
 if(len(sys.argv) != 3):
   print "Incorrect number of arguments" 
   print "Usage: script path_to_cu_zfp path_to_zfp" 
@@ -118,5 +130,7 @@ zfp = sys.argv[2] + "/zfp"
 types = ["f32", "f64", "i32", "i64"]
 #types = ["i32", "i64"]
 
-fuzz_1d(10,types)
+#fuzz_1d(10,types)
+#fuzz_2d(10,types)
+fuzz_3d(1,types)
 

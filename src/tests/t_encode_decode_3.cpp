@@ -89,7 +89,8 @@ void run_test(int nx, int ny, int nz)
 TEST(encode_decode, test_encode_decode_float32)
 {
   //run_test<float>(512, 512, 512);
-  run_test<float>(128, 128, 128);
+  run_test<float>(256, 256, 256);
+  //run_test<float>(128, 128, 128);
 }
 //
 //TEST(encode_decode, test_encode_decode_int64)

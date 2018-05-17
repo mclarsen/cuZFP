@@ -36,7 +36,7 @@ cudaDecode2(Word *blocks,
     //printf("Block %d of %d bailing\n", block_idx, total_blocks);
     return;
   }
-  //printf("Block index %d\n", block_idx);
+  //if(block_idx == 229) printf("Block index %d\n", block_idx);
 
   BlockReader<Size> reader(blocks, maxbits, block_idx, total_blocks);
  
@@ -75,6 +75,10 @@ cudaDecode2(Word *blocks,
     #pragma unroll Size
     for(int i = 0; i < Size; ++i)
     {
+      //if(block_idx ==229)
+      //{
+      //  printf("decomp uint %d\n", data[i]);
+      //}
       // cperm
 		  iblock[c_perm_2[i]] = uint2int(data[i]);
     }
@@ -89,7 +93,7 @@ cudaDecode2(Word *blocks,
       inv_lift<Int,1>(iblock + 4 * y);
     }
 
-    //if(block_idx == 0)
+    //if(block_idx == 229)
     //{
     //  for(int i = 0; i < 16; ++i)
     //  {
@@ -105,6 +109,7 @@ cudaDecode2(Word *blocks,
     for(int i = 0; i < Size; ++i)
     {
 		  result[i] = inv_w * (Scalar)iblock[i];
+      //if(block_idx == 229) printf(" %f\n", result[i]);
     }
      
     //if(block_idx == 1)

@@ -350,10 +350,10 @@ struct BlockReader
   int m_current_bit;
   const int m_maxbits; 
   Word *m_words;
-  Word *m_end;
+ // Word *m_end;
   Word m_buffer;
   bool m_valid_block;
-  //int m_block_idx;
+  int m_block_idx;
   __device__ BlockReader(Word *b, const int &maxbits, const int &block_idx, const int &num_blocks)
     :  m_maxbits(maxbits), m_valid_block(true)
   {
@@ -361,13 +361,14 @@ struct BlockReader
     //if(!m_valid_block) printf("invalid ");
     int word_index = (block_idx * maxbits)  / (sizeof(Word) * 8); 
     int last_index = ((num_blocks - 1) * maxbits)  / (sizeof(Word) * 8); 
-    m_end = (Word *)(b + last_index);
+    //m_end = (Word *)(b + last_index);
     m_words = b + word_index;
     m_buffer = *m_words;
     m_current_bit = (block_idx * maxbits) % (sizeof(Word) * 8); 
     m_buffer >>= m_current_bit;
-    //m_block_idx = block_idx;
-    //printf("thread %d block id %d word_index %d current bit %d\n", threadIdx.x, block_idx, word_index, m_current_bit);
+    m_block_idx = block_idx;
+    //if(m_block_idx == 229) printf("thread %d block id %d word_index %d current bit %d\n", threadIdx.x, block_idx, word_index, m_current_bit);
+    //if(m_block_idx == 229) printf("maxbits %d first %d last %d, num_blocks %d\n", maxbits, word_index, last_index, num_blocks);
     //if(block_idx ==0 ) print_bits(m_buffer);
   }
 
@@ -381,7 +382,8 @@ struct BlockReader
     if(m_current_bit >= sizeof(Word) * 8) 
     {
       m_current_bit = 0;
-      if(m_end != m_words) ++m_words;
+      //if(m_end != m_words) ++m_words;
+      ++m_words;
       m_buffer = *m_words;
     }
     return bit; 
@@ -406,7 +408,8 @@ struct BlockReader
     int next_read = 0;
     if(n_bits >= rem_bits) 
     {
-      if(m_end != m_words) ++m_words;
+      //if(m_end != m_words) ++m_words;
+      ++m_words;
       m_buffer = *m_words;
       m_current_bit = 0;
       next_read = n_bits - first_read; 

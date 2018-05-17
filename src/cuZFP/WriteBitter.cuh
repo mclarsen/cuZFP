@@ -62,7 +62,7 @@ write_out(unsigned long long *out, uint &tot_sbits, uint &offset, unsigned long 
 
 
 //__shared__ Bitter sh_bitters[64];
-__device__ __host__
+__device__ 
 void
 write_outx(const Bitter *bitters, 
            Word *out, 
@@ -73,15 +73,18 @@ write_outx(const Bitter *bitters,
            uint sbits,
            const uint &maxbits)
 {
-
 	out[offset] += bitters[idx].x << rem_sbits;
 	tot_sbits += sbits;
 	rem_sbits += sbits;
-	if (rem_sbits >= wsize) {
+	if (rem_sbits >= wsize) 
+  {
+
 		rem_sbits -= wsize;
 		offset++;
     if (rem_sbits > 0 && tot_sbits < maxbits)
+    {
 			out[offset] = bitters[idx].x >> (sbits - rem_sbits);
+    }
 	}
 }
 

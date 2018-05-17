@@ -202,6 +202,23 @@ zfp_type get_zfp_type<double>()
 }
 
 static size_t
+zfp_type_size(zfp_type type)
+{
+  switch (type) {
+    case zfp_type_int32:
+      return sizeof(int);
+    case zfp_type_int64:
+      return sizeof(long long int);
+    case zfp_type_float:
+      return sizeof(float);
+    case zfp_type_double:
+      return sizeof(double);
+    default:
+      return 0;
+  }
+}
+
+static size_t
 zfp_stream_maximum_size(const zfp_stream* zfp, const zfp_field* field)
 {
   uint dims = zfp_field_dimensionality(field);

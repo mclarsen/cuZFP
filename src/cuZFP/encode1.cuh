@@ -432,9 +432,9 @@ cudaEncode1(const uint  maxbits,
 
 }
 
-void allocate_device_mem1d(const int dim, 
-                           const int maxbits, 
-                           thrust::device_vector<Word> &stream)
+size_t allocate_device_mem1d(const int dim, 
+                             const int maxbits, 
+                             thrust::device_vector<Word> &stream)
 {
   
   const size_t vals_per_block = 4;
@@ -450,16 +450,17 @@ void allocate_device_mem1d(const int dim,
   if(total_bits % bits_per_word != 0) alloc_size++;
   // ensure we have zeros
   stream.resize(alloc_size, (Word)0);
+  return alloc_size * sizeof(Word);
 }
 
 //
 // Launch the encode kernel
 //
 template<class Scalar>
-void encode1launch(int dim, 
-                   const Scalar *d_data,
-                   thrust::device_vector<Word> &stream,
-                   const int maxbits)
+size_t encode1launch(int dim, 
+                     const Scalar *d_data,
+                     thrust::device_vector<Word> &stream,
+                     const int maxbits)
 {
   dim3 block_size, grid_size;
   block_size = dim3(CUDA_BLK_SIZE_1D, 1, 1);
@@ -482,7 +483,7 @@ void encode1launch(int dim,
   grid_size = dim3(block_pad + zfp_pad, 1, 1);
   grid_size.x /= block_size.x; 
   
-  allocate_device_mem1d(zfp_pad, maxbits, stream);
+  size_t stream_bytes = allocate_device_mem1d(zfp_pad, maxbits, stream);
   std::size_t dyn_shared = (ZFP_BLK_PER_BLK_1D * maxbits) / (sizeof(Word) * 8);
 
 	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
@@ -514,30 +515,32 @@ void encode1launch(int dim,
   float mb = (float(dim) * float(sizeof(Scalar))) / (1024.f * 1024.f);
   float rate = mb / seconds;
   printf("Encode rate: %.2f (MB / sec)\n", rate);
+  return stream_bytes;
 }
 
 //
 // Encode a host vector and output a encoded device vector
 //
 template<class Scalar>
-void encode1(int dim,
-             thrust::device_vector<Scalar> &d_data,
-             thrust::device_vector<Word> &stream,
-             const int maxbits)
+size_t encode1(int dim,
+               thrust::device_vector<Scalar> &d_data,
+               thrust::device_vector<Word> &stream,
+               const int maxbits)
 {
-  encode1launch<Scalar>(dim, thrust::raw_pointer_cast(d_data.data()), stream, maxbits);
+  return encode1launch<Scalar>(dim, thrust::raw_pointer_cast(d_data.data()), stream, maxbits);
 }
 
 template<class Scalar>
-void encode1(int dim,
-             thrust::host_vector<Scalar> &h_data,
-             thrust::host_vector<Word> &stream,
-             const int maxbits)
+size_t encode1(int dim,
+               thrust::host_vector<Scalar> &h_data,
+               thrust::host_vector<Word> &stream,
+               const int maxbits)
 {
   thrust::device_vector<Word > d_stream = stream;
   thrust::device_vector<Scalar> d_data = stream;
-  encode<Scalar>(dim, d_data, d_stream, maxbits);
+  size_t stream_bytes = encode<Scalar>(dim, d_data, d_stream, maxbits);
   stream = d_stream;
+  return stream_bytes;
 }
 
 }

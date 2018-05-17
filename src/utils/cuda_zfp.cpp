@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string>
 #include <string.h>
+#include <iostream>
 
 #include <cuZFP.h>
 /*
@@ -91,7 +92,7 @@ int main(int argc, char* argv[])
 {
   /* default settings */
   //zfp_type type = zfp_type_none;
-  cuZFP::ValueType type = cuZFP::none_type;
+  cuZFP::zfp_type type = cuZFP::zfp_type_none;
   size_t typesize = 0;
   uint dims = 0;
   uint nx = 0;
@@ -166,10 +167,10 @@ int main(int argc, char* argv[])
         mode = 'c';
         break;
       case 'd':
-        type = cuZFP::f64;
+        type = cuZFP::zfp_type_double;
         break;
       case 'f':
-        type = cuZFP::f32;
+        type = cuZFP::zfp_type_float;
         break;
       case 'h':
         header = 1;
@@ -204,13 +205,13 @@ int main(int argc, char* argv[])
         if (++i == argc)
           usage();
         if (!strcmp(argv[i], "i32"))
-          type = cuZFP::i32;
+          type = cuZFP::zfp_type_int32;
         else if (!strcmp(argv[i], "i64"))
-          type = cuZFP::i64;
+          type = cuZFP::zfp_type_int64;
         else if (!strcmp(argv[i], "f32"))
-          type = cuZFP::f32;
+          type = cuZFP::zfp_type_float;
         else if (!strcmp(argv[i], "f64"))
-          type = cuZFP::f64;
+          type = cuZFP::zfp_type_double;
         else
           usage();
         break;
@@ -225,8 +226,7 @@ int main(int argc, char* argv[])
     }
   }
 
-  typesize = cuZFP::type_size(type);
-  print_type(type);
+  typesize = cuZFP::zfp_type_size(type);
   /* make sure we have an input file */
   if (!inpath && !zfppath) {
     fprintf(stderr, "must specify uncompressed or compressed input file via -i or -z\n");
@@ -264,6 +264,9 @@ int main(int argc, char* argv[])
   }
 
   //zfp = zfp_stream_open(NULL);
+  cuZFP::zfp_stream zfp;  
+  cuZFP::zfp_field field;
+
   //field = zfp_field_alloc();
 
   /* read uncompressed or compressed file */
@@ -285,6 +288,7 @@ int main(int argc, char* argv[])
       return EXIT_FAILURE;
     }
     fclose(file);
+    field.data = fi;
     //zfp_field_set_pointer(field, fi);
   }
   else {
@@ -317,22 +321,30 @@ int main(int argc, char* argv[])
     //  return EXIT_FAILURE;
     //}
     //zfp_stream_set_bit_stream(zfp, stream);
+    zfp.stream = (Word*) buffer;
   }
-  cuZFP::cu_zfp compressor;
+
   /* set field dimensions and (de)compression parameters */
+  field.type = type;
   if (inpath || !header) {
     printf("set fields dims for (de)comp\n");
     if(dims == 1)
     {
-      compressor.set_field_size_1d(nx);
+      field.nx = nx;
+      field.ny = 0;
+      field.nz = 0;
     }
     else if(dims == 2)
     {
-      compressor.set_field_size_2d(nx, ny);
+      field.nx = nx;
+      field.ny = ny;
+      field.nz = 0;
     }
     else if(dims == 3)
     {
-      compressor.set_field_size_3d(nx, ny, nz);
+      field.nx = nx;
+      field.ny = ny;
+      field.nz = nz;
     }
     
     if(mode != 'r')
@@ -340,16 +352,18 @@ int main(int argc, char* argv[])
       printf("Currently, only the fixed rate '-r' mode is supported with CUDA\n");
       return EXIT_FAILURE;
     }
-    compressor.set_rate(rate);
+    stream_set_rate(&zfp, rate, type, dims);
   }
 
   /* compress input file if provided */
   if (inpath) {
     printf("compress input file if provided\n");
-    compressor.set_field(fi, type);
-    compressor.compress();
-    zfpsize = compressor.get_stream_bytes();
-    buffer = compressor.get_stream();
+    bufsize = zfp_stream_maximum_size(&zfp, &field);
+    buffer = malloc(bufsize);
+    std::cout<<"alloc "<<bufsize<<"\n";
+    zfp.stream = (Word*)buffer;
+    zfpsize = cuZFP::compress(&zfp, &field);
+    std::cout<<"stream size "<<zfpsize<<"\n";
     /* optionally write compressed data */
     if (zfppath) {
       FILE* file = !strcmp(zfppath, "-") ? stdout : fopen(zfppath, "wb");
@@ -371,9 +385,18 @@ int main(int argc, char* argv[])
 
     /* decompress data */
     printf("Decompressing\n");
-    compressor.set_stream((Word*)buffer, zfpsize, type);
-    compressor.decompress();
-    fo = compressor.get_field();
+    zfp.stream = (Word*)buffer;
+
+    rawsize = typesize * nx * ny * nz;
+    fo = malloc(rawsize);
+    if (!fo) 
+    {
+      fprintf(stderr, "cannot allocate memory\n");
+      return EXIT_FAILURE;
+    }
+    field.data = fo;
+
+    cuZFP::decompress(&zfp, &field);
     /* optionally write reconstructed data */
     if (outpath) {
       FILE* file = !strcmp(outpath, "-") ? stdout : fopen(outpath, "wb");

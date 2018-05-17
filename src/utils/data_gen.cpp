@@ -74,7 +74,7 @@ void gen_braid(int nx, int ny, int nz, T*& data)
 
 int main(int argc, char* argv[])
 {
-  cuZFP::ValueType type = cuZFP::f64;
+  cuZFP::zfp_type type = cuZFP::zfp_type_double;
   uint dims = 0;
   uint nx = 0;
   uint ny = 0;
@@ -114,13 +114,13 @@ int main(int argc, char* argv[])
         if (++i == argc)
           usage();
         if (!strcmp(argv[i], "i32"))
-          type = cuZFP::i32;
+          type = cuZFP::zfp_type_int32;
         else if (!strcmp(argv[i], "i64"))
-          type = cuZFP::i64;
+          type = cuZFP::zfp_type_int64;
         else if (!strcmp(argv[i], "f32"))
-          type = cuZFP::f32;
+          type = cuZFP::zfp_type_float;
         else if (!strcmp(argv[i], "f64"))
-          type = cuZFP::f64;
+          type = cuZFP::zfp_type_double;
         else
           usage();
         break;
@@ -135,25 +135,25 @@ int main(int argc, char* argv[])
   if(dims == 1)
   {
 
-    if(type == cuZFP::i32)
+    if(type == cuZFP::zfp_type_int32)
     {
       int *p_data;
       gen_1d(nx, p_data);
       data = (void*) p_data;
     }
-    else if(type == cuZFP::i64)
+    else if(type == cuZFP::zfp_type_int64)
     {
       long long int *p_data;
       gen_1d(nx, p_data);
       data = (void*) p_data;
     }
-    else if(type == cuZFP::f32)
+    else if(type == cuZFP::zfp_type_float)
     {
       float *p_data;
       gen_1d(nx, p_data);
       data = (void*) p_data;
     }
-    else if(type == cuZFP::f64)
+    else if(type == cuZFP::zfp_type_double)
     {
       double *p_data;
       gen_1d(nx, p_data);
@@ -165,25 +165,25 @@ int main(int argc, char* argv[])
   {
     if(dims == 2) nz = 1;
 
-    if(type == cuZFP::i32)
+    if(type == cuZFP::zfp_type_int32)
     {
       int *p_data;
       gen_braid(nx, ny, nz, p_data);
       data = (void*) p_data;
     }
-    else if(type == cuZFP::i64)
+    else if(type == cuZFP::zfp_type_int64)
     {
       long long int *p_data;
       gen_braid(nx, ny, nz, p_data);
       data = (void*) p_data;
     }
-    else if(type == cuZFP::f32)
+    else if(type == cuZFP::zfp_type_float)
     {
       float *p_data;
       gen_braid(nx, ny, nz, p_data);
       data = (void*) p_data;
     }
-    else if(type == cuZFP::f64)
+    else if(type == cuZFP::zfp_type_double)
     {
       double *p_data;
       gen_braid(nx, ny, nz, p_data);
@@ -200,7 +200,7 @@ int main(int argc, char* argv[])
       fprintf(stderr, "cannot create output file\n");
       return EXIT_FAILURE;
     }
-    if (fwrite(data, cuZFP::type_size(type), nx * ny * nz, file) != nx * ny * nz) 
+    if (fwrite(data, cuZFP::zfp_type_size(type), nx * ny * nz, file) != nx * ny * nz) 
     {
       fprintf(stderr, "cannot write output file\n");
       return EXIT_FAILURE;
@@ -209,22 +209,22 @@ int main(int argc, char* argv[])
   }
 
   // cleanup
-  if(type == cuZFP::i32)
+  if(type == cuZFP::zfp_type_int32)
   {
     int *p_data = (int*) data;
     delete[] p_data;
   }
-  else if(type == cuZFP::i64)
+  else if(type == cuZFP::zfp_type_int64)
   {
     long long int *p_data = (long long int*) data;
     delete[] p_data;
   }
-  else if(type == cuZFP::f32)
+  else if(type == cuZFP::zfp_type_float)
   {
     float *p_data = (float *) data;
     delete[] p_data;
   }
-  else if(type == cuZFP::f64)
+  else if(type == cuZFP::zfp_type_double)
   {
     double *p_data = (double*) data;
     delete[] p_data;

@@ -6,7 +6,7 @@
 
 namespace cuZFP {
 
-void compress(zfp_stream *stream, zfp_field *field);
+size_t compress(zfp_stream *stream, zfp_field *field);
 void decompress(zfp_stream *stream, zfp_field *field);
 
 } // namespace cuZFP

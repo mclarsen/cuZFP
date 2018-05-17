@@ -16,7 +16,7 @@ namespace cuZFP {
 namespace internal {
 
 template<typename T>
-void encode(int dims[3], int bits_per_block, T *in_data, Word *stream)
+size_t encode(int dims[3], int bits_per_block, T *in_data, Word *stream)
 {
 
   int d = 0;
@@ -36,23 +36,24 @@ void encode(int dims[3], int bits_per_block, T *in_data, Word *stream)
   thrust::device_vector<T> d_in_data(in_data, in_data + len); 
 
   ErrorCheck errors;
+  size_t stream_size = 0;
   if(d == 1)
   {
     int dim = dims[0];
     ConstantSetup::setup_1d();
-    cuZFP::encode1<T>(dim, d_in_data, d_encoded, bits_per_block); 
+    stream_size = cuZFP::encode1<T>(dim, d_in_data, d_encoded, bits_per_block); 
   }
   else if(d == 2)
   {
     int2 ndims = make_int2(dims[0], dims[1]);
     ConstantSetup::setup_2d();
-    cuZFP::encode2<T>(ndims, d_in_data, d_encoded, bits_per_block); 
+    stream_size = cuZFP::encode2<T>(ndims, d_in_data, d_encoded, bits_per_block); 
   }
   else if(d == 3)
   {
     int3 ndims = make_int3(dims[0], dims[1], dims[2]);
     ConstantSetup::setup_3d();
-    cuZFP::encode<T>(ndims, d_in_data, d_encoded, bits_per_block); 
+    stream_size = cuZFP::encode<T>(ndims, d_in_data, d_encoded, bits_per_block); 
   }
   errors.chk("Encode");
 
@@ -61,7 +62,8 @@ void encode(int dims[3], int bits_per_block, T *in_data, Word *stream)
   size_t stream_bytes = d_encoded.size() * sizeof(Word);
   // copy the decoded data back to the host
   cudaMemcpy(stream, d_ptr, stream_bytes, cudaMemcpyDeviceToHost);
-  
+  std::cout<<"Stream size "<<stream_size<<"\n";
+  return stream_size; 
 }
 
 template<typename T>
@@ -128,34 +130,35 @@ void decode(int ndims[3], int bits_per_block, Word *stream, size_t stream_bytes,
 
 } // namespace internal
 
-void 
+size_t
 compress(zfp_stream *stream, zfp_field *field)
 {
   int dims[3];
   dims[0] = field->nx;
   dims[1] = field->ny;
   dims[2] = field->nz;
-
+  size_t stream_bytes = 0;
   if(field->type == zfp_type_float)
   {
     float* data = (float*) field->data;
-    internal::encode<float>(dims, (int)stream->maxbits, data, stream->stream);
+    stream_bytes = internal::encode<float>(dims, (int)stream->maxbits, data, stream->stream);
   }
   else if(field->type == zfp_type_double)
   {
     double* data = (double*) field->data;
-    internal::encode<double>(dims, (int)stream->maxbits, data, stream->stream);
+    stream_bytes = internal::encode<double>(dims, (int)stream->maxbits, data, stream->stream);
   }
   else if(field->type == zfp_type_int32)
   {
     int * data = (int*) field->data;
-    internal::encode<int>(dims, (int)stream->maxbits, data, stream->stream);
+    stream_bytes = internal::encode<int>(dims, (int)stream->maxbits, data, stream->stream);
   }
   else if(field->type == zfp_type_int64)
   {
     long long int * data = (long long int*) field->data;
-    internal::encode<long long int>(dims, (int)stream->maxbits, data, stream->stream);
+    stream_bytes = internal::encode<long long int>(dims, (int)stream->maxbits, data, stream->stream);
   }
+  return stream_bytes;
 }
   
 void 

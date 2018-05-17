@@ -73,5 +73,5 @@ void run_test(int nx, int ny)
 
 TEST(encode_decode, test_encode_decode_float32)
 {
-  run_test<float>(1024,1024);
+  run_test<float>(4096,1024);
 }
