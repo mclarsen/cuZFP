@@ -30,7 +30,7 @@ def gen_str(prefix, nx, ny, nz):
 
 def gen_data(generator, scalar_type, nx, ny, nz):
 
-  file_name, dim = gen_str("data", nx, ny, nz)      
+  file_name, dim = gen_str("t_data", nx, ny, nz)      
   file_name += "_" + scalar_type
   command = generator + " -o " + file_name + " " + dim + " -t " + scalar_type
   print "Executing : " + command
@@ -39,7 +39,7 @@ def gen_data(generator, scalar_type, nx, ny, nz):
 
 def compress(compressor, in_file, scalar_type, nx, ny, nz, rate):
 
-  file_name, dim = gen_str("compressed", nx, ny, nz)      
+  file_name, dim = gen_str("t_compressed", nx, ny, nz)      
   file_name += "_" + scalar_type + "_r" + str(rate)
   exe = compressor.rsplit("/", 1)[1]
   file_name += "_" + exe 
@@ -53,7 +53,7 @@ def compress(compressor, in_file, scalar_type, nx, ny, nz, rate):
 
 def decompress(compressor, in_file, scalar_type, nx, ny, nz, rate):
 
-  file_name, dim = gen_str("decompressed", nx, ny, nz)      
+  file_name, dim = gen_str("t_decompressed", nx, ny, nz)      
   file_name += "_" + scalar_type + "_r" + str(rate)
   exe = compressor.rsplit("/", 1)[1]
   file_name += "_" + exe 
@@ -90,7 +90,13 @@ def fuzz(types, nx, ny, nz, rate):
     if(proc.returncode != 0):
       print "  **** decompression test failed **** "
       exit(1)
-
+    #cleanup    
+    rm = "rm t_*" 
+    print "Executing : " + rm 
+    proc = subprocess.Popen(rm, shell=True)
+    proc.wait()
+    
+  
 def fuzz_1d(num_tests, types):
   for i in range(0, num_tests):
     nx = random.randrange(1, 101, 1) * 4
@@ -109,14 +115,10 @@ def fuzz_2d(num_tests, types):
 
 def fuzz_3d(num_tests, types):
   for i in range(0, num_tests):
-    #nx = random.randrange(1, 101, 1) * 4
-    #ny = random.randrange(1, 101, 1) * 4
-    #nz = random.randrange(1, 101, 1) * 4
-    nx = 4
-    ny = 4
-    nz = 4
-    #rate = random.randrange(1, 32, 1)
-    rate = 4
+    nx = random.randrange(1, 101, 1) * 4
+    ny = random.randrange(1, 101, 1) * 4
+    nz = random.randrange(1, 101, 1) * 4
+    rate = random.randrange(1, 32, 1)
     fuzz(types, nx, ny, nz, rate)
 
 if(len(sys.argv) != 3):
@@ -128,9 +130,8 @@ gen = sys.argv[1] + "/data_gen"
 zfp = sys.argv[2] + "/zfp"
 
 types = ["f32", "f64", "i32", "i64"]
-#types = ["i32", "i64"]
 
-#fuzz_1d(10,types)
-#fuzz_2d(10,types)
-fuzz_3d(1,types)
+fuzz_1d(10,types)
+fuzz_2d(10,types)
+fuzz_3d(10,types)
 
