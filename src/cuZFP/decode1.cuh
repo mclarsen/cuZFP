@@ -1,6 +1,6 @@
 #ifndef CUZFP_DECODE1_CUH
 #define CUZFP_DECODE1_CUH
-#define DBLOCK 56
+
 #include "shared.h"
 #include <thrust/device_vector.h>
 #include <type_info.cuh>
@@ -99,9 +99,10 @@ void decode1(int dim,
   const int block_size_dim = 128;
   int zfp_blocks = dim / 4;
   if(dim % 4 != 0)  zfp_blocks = (dim + (4 - dim % 4)) / 4;
-  //int block_pad = block_size_dim - zfp_blocks; 
+
   int block_pad = 0;
   if(zfp_blocks % block_size_dim != 0) block_pad = block_size_dim - zfp_blocks % block_size_dim; 
+
   dim3 block_size = dim3(block_size_dim, 1, 1);
   dim3 grid_size = dim3(block_pad + zfp_blocks, 1, 1);
 

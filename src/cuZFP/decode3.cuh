@@ -1,9 +1,7 @@
-#ifndef CUZFP_DECODE_CUH
-#define CUZFP_DECODE_CUH
+#ifndef CUZFP_DECODE3_CUH
+#define CUZFP_DECODE3_CUH
 
-//#include <helper_math.h>
 //dealing with doubles
-#include "BitStream.cuh"
 #include "shared.h"
 #include <thrust/device_vector.h>
 #include <type_info.cuh>

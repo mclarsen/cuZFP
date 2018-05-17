@@ -1,10 +1,6 @@
 #ifndef SHARED_H
 #define SHARED_H
 
-#ifndef DBLOCK
-  #define DBLOCK -1
-#endif
-
 #include <type_info.cuh>
 #include <zfp_structs.h>
 #include <stdio.h>
@@ -25,6 +21,14 @@ __constant__ unsigned char c_perm[64];
 
 namespace cuZFP
 {
+// maximum number of bit planes to encode
+__device__ __host__
+static int
+precision(int maxexp, int maxprec, int minexp)
+{
+  return MIN(maxprec, MAX(0, maxexp - minexp + 8));
+}
+
 // map two's complement signed integer to negabinary unsigned integer
 inline __device__ __host__
 unsigned long long int int2uint(const long long int x)
@@ -288,8 +292,6 @@ struct BlockWriter
     if(block_idx >= num_blocks) m_valid_block = false;
     m_word_index = (block_idx * maxbits)  / (sizeof(Word) * 8); 
     m_start_bit = (block_idx * maxbits) % (sizeof(Word) * 8); 
-    //if(m_valid_block)printf("Writer blk_idx %d bsize %d blk_size %d w index %d startbit %d\n", block_idx, bsize, block_size, m_word_index,m_start_bit);
-    //printf("***** Writer blk_idx %d bsize %d blk_size %d w index %d startbit %d\n", block_idx, bsize, block_size, m_word_index,m_start_bit);
   }
 
   inline __device__ 
@@ -303,19 +305,6 @@ struct BlockWriter
     uint seg_end = seg_start + n_bits - 1;
     //int write_index = m_word_index;
     uint shift = seg_start; 
-    //if(print)
-    //{
-    //  printf("write index %d shift %d bits %d n_bits %d\n", write_index, seg_start,(int) bits, (int) n_bits);
-    //  print_bits(bits);
-    //  printf("\n");
-    //}
-    // handle the case where all of the bits reside in the
-    // next word. This is mutually exclusive with straddle.
-    //if(seg_start >= sizeof(Word) * 8) 
-    //{ 
-    //  write_index++;
-    //  shift -= sizeof(Word) * 8;
-    //}
     // we may be asked to write less bits than exist in 'bits'
     // so we have to make sure that anything after n is zero.
     // If this does not happen, then we may write into a zfp
@@ -350,7 +339,6 @@ struct BlockReader
   int m_current_bit;
   const int m_maxbits; 
   Word *m_words;
- // Word *m_end;
   Word m_buffer;
   bool m_valid_block;
   int m_block_idx;
@@ -358,18 +346,12 @@ struct BlockReader
     :  m_maxbits(maxbits), m_valid_block(true)
   {
     if(block_idx >= num_blocks) m_valid_block = false;
-    //if(!m_valid_block) printf("invalid ");
     int word_index = (block_idx * maxbits)  / (sizeof(Word) * 8); 
-    int last_index = ((num_blocks - 1) * maxbits)  / (sizeof(Word) * 8); 
-    //m_end = (Word *)(b + last_index);
     m_words = b + word_index;
     m_buffer = *m_words;
     m_current_bit = (block_idx * maxbits) % (sizeof(Word) * 8); 
     m_buffer >>= m_current_bit;
     m_block_idx = block_idx;
-    //if(m_block_idx == 229) printf("thread %d block id %d word_index %d current bit %d\n", threadIdx.x, block_idx, word_index, m_current_bit);
-    //if(m_block_idx == 229) printf("maxbits %d first %d last %d, num_blocks %d\n", maxbits, word_index, last_index, num_blocks);
-    //if(block_idx ==0 ) print_bits(m_buffer);
   }
 
   inline __device__ 
@@ -382,7 +364,6 @@ struct BlockReader
     if(m_current_bit >= sizeof(Word) * 8) 
     {
       m_current_bit = 0;
-      //if(m_end != m_words) ++m_words;
       ++m_words;
       m_buffer = *m_words;
     }
@@ -404,11 +385,9 @@ struct BlockReader
     bits = m_buffer & mask;
     m_buffer >>= n_bits;
     m_current_bit += first_read;
-    //if(m_block_idx == 56) printf(" bits %d rem bits %d n_bits %d first read %d\n", bits, rem_bits, n_bits, first_read);
     int next_read = 0;
     if(n_bits >= rem_bits) 
     {
-      //if(m_end != m_words) ++m_words;
       ++m_words;
       m_buffer = *m_words;
       m_current_bit = 0;
@@ -460,37 +439,6 @@ void decode_ints(BlockReader<Size> &reader, uint &max_bits, UInt *data)
   } 
 }
 
-template<typename Scalar, int Size, typename UInt>
-inline __device__
-void decode_ints_debug(BlockReader<Size> &reader, uint &max_bits, UInt *data, int id)
-{
-  const int intprec = get_precision<Scalar>();
-  memset(data, 0, sizeof(UInt) * Size);
-  unsigned int x; 
-  // maxprec = 64;
-  const uint kmin = 0; //= intprec > maxprec ? intprec - maxprec : 0;
-  int bits = max_bits;
-  for (uint k = intprec, n = 0; bits && k-- > kmin;)
-  {
-    if(id == 56) {printf("plane %d : ", k); print_bits(reader.m_buffer);}
-    //if(id == 56 && k < 4) {printf("next buffer plane %d : ", k); print_bits(reader.m_buffer+1);}
-    // read bit plane
-    uint m = MIN(n, bits);
-    bits -= m;
-    x = reader.read_bits(m);
-    for (; n < Size && bits && (bits--, reader.read_bit()); x += (Word) 1 << n++)
-      for (; n < (Size - 1) && bits && (bits--, !reader.read_bit()); n++);
-    
-    //printf("x = %d\n", (int) x);
-    // deposit bit plane
-    #pragma unroll
-    for (int i = 0; x; i++, x >>= 1)
-    {
-      data[i] += (UInt)(x & 1u) << k;
-    }
-    //printf("bits %d\n", bits);
-  } 
-}
 
 } // namespace cuZFP
 #endif

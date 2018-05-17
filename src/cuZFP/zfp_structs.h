@@ -43,6 +43,37 @@ typedef struct {
   void* data;      // pointer to array data
 } zfp_field;
 
+static double
+stream_set_rate(zfp_stream* zfp, double rate, zfp_type type, uint dims)
+{
+  uint n = 1u << (2 * dims);
+  uint bits = (uint)std::floor(n * rate + 0.5);
+  switch (type) {
+    case zfp_type_float:
+      bits = std::max(bits, 1 + 8u);
+      break;
+    case zfp_type_double:
+      bits = std::max(bits, 1 + 11u);
+      break;
+    default:
+      break;
+  }
+ 
+  // 3d currently expects word aligned rates.
+  // so we are forcing this
+  if (dims == 3) 
+  {
+    /* for write random access, round up to next multiple of stream word size */
+    bits += (uint) wsize - 1;
+    bits &= ~(wsize - 1);
+  }
+
+  zfp->minbits = bits;
+  zfp->maxbits = bits;
+  zfp->maxprec = ZFP_MAX_PREC;
+  zfp->minexp = ZFP_MIN_EXP;
+  return (double)bits / n;
+} 
 
 static zfp_field*
 zfp_field_alloc()
@@ -102,37 +133,6 @@ zfp_field_free(zfp_field* field)
   free(field);
 }
 
-static double
-stream_set_rate(zfp_stream* zfp, double rate, zfp_type type, uint dims)
-{
-  uint n = 1u << (2 * dims);
-  uint bits = (uint)std::floor(n * rate + 0.5);
-  switch (type) {
-    case zfp_type_float:
-      bits = std::max(bits, 1 + 8u);
-      break;
-    case zfp_type_double:
-      bits = std::max(bits, 1 + 11u);
-      break;
-    default:
-      break;
-  }
- 
-  // 3d currently expects word aligned rates.
-  // so we are forcing this
-  if (dims == 3) 
-  {
-    /* for write random access, round up to next multiple of stream word size */
-    bits += (uint) wsize - 1;
-    bits &= ~(wsize - 1);
-  }
-
-  zfp->minbits = bits;
-  zfp->maxbits = bits;
-  zfp->maxprec = ZFP_MAX_PREC;
-  zfp->minexp = ZFP_MIN_EXP;
-  return (double)bits / n;
-} 
 
 static zfp_stream*
 zfp_stream_open(Word* stream)
@@ -147,6 +147,7 @@ zfp_stream_open(Word* stream)
   }
   return zfp;
 }
+
 
 static uint
 zfp_field_dimensionality(const zfp_field* field)

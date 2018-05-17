@@ -1,12 +1,16 @@
 #include <assert.h>
 #include "cuZFP.h"
-#include "encode.cuh"
+
 #include "encode1.cuh"
 #include "encode2.cuh"
+#include "encode3.cuh"
+
 #include "ErrorCheck.h"
-#include "decode.cuh"
+
 #include "decode1.cuh"
 #include "decode2.cuh"
+#include "decode3.cuh"
+
 #include <constant_setup.cuh>
 #include <thrust/device_vector.h>
 #include <iostream>

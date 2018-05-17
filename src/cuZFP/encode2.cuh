@@ -4,7 +4,6 @@
 //#include <helper_math.h>
 #include "shared.h"
 #include "ull128.h"
-#include "BitStream.cuh"
 #include "WriteBitter.cuh"
 #include "shared.h"
 #include "ErrorCheck.h"
@@ -552,7 +551,7 @@ size_t encode2(int2 dims,
 {
   thrust::device_vector<Word > d_stream = stream;
   thrust::device_vector<Scalar> d_data = stream;
-  size_t stream_bytes = encode<Scalar>(dims, d_data, d_stream, maxbits);
+  size_t stream_bytes = encode2<Scalar>(dims, d_data, d_stream, maxbits);
   stream = d_stream;
   return stream_bytes;
 }

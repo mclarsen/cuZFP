@@ -6,15 +6,13 @@
 
 set(cuZFP_sources
     encode.cu
-    aligned_writer.cuh
-    cuZFP.cu #main entry point
-    decode.cuh
+    cuZFP.cu         # main entry point
     decode1.cuh
     decode2.cuh
-    encode.cuh
+    decode3.cuh
     encode1.cuh
     encode2.cuh
-    BitStream.cuh
+    encode3.cuh
     type_info.cuh
     WriteBitter.cuh
     ErrorCheck.cu)

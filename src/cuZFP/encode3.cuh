@@ -1,10 +1,7 @@
-#ifndef CUZFP_ENCODE_CUH
-#define CUZFP_ENCODE_CUH
+#ifndef CUZFP_ENCODE3_CUH
+#define CUZFP_ENCODE3_CUH
 
-//#include <helper_math.h>
-#include "shared.h"
 #include "ull128.h"
-#include "BitStream.cuh"
 #include "WriteBitter.cuh"
 #include "shared.h"
 #include <thrust/functional.h>

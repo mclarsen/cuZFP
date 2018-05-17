@@ -1,9 +1,8 @@
 #ifndef CUZFP_ENCODE1_CUH
 #define CUZFP_ENCODE1_CUH
-//#include <helper_math.h>
+
 #include "shared.h"
 #include "ull128.h"
-#include "BitStream.cuh"
 #include "WriteBitter.cuh"
 #include "shared.h"
 #include <thrust/functional.h>
@@ -172,7 +171,6 @@ encode1(Scalar *sh_data,
   typedef unsigned short PlaneType;
   // number of bits in the incoming type
   const uint vals_per_block = 4;
-  const uint vals_per_cuda_block = CUDA_BLK_SIZE_1D;
   //shared mem that depends on scalar size
 	__shared__ Scalar *sh_reduce;
 	__shared__ Int *sh_q;
@@ -525,7 +523,7 @@ size_t encode1(int dim,
 {
   thrust::device_vector<Word > d_stream = stream;
   thrust::device_vector<Scalar> d_data = stream;
-  size_t stream_bytes = encode<Scalar>(dim, d_data, d_stream, maxbits);
+  size_t stream_bytes = encode1<Scalar>(dim, d_data, d_stream, maxbits);
   stream = d_stream;
   return stream_bytes;
 }

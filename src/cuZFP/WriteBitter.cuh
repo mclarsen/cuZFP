@@ -1,6 +1,7 @@
 #ifndef WRITEBITTER_H
 #define WRITEBITTER_H
 #include "ull128.h"
+#include "shared.h"
 
 unsigned long long
 __device__ __host__

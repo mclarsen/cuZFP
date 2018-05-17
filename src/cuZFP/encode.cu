@@ -1,6 +1,6 @@
-#include "encode.cuh"
 #include "encode1.cuh"
 #include "encode2.cuh"
+#include "encode3.cuh"
 #include "cuZFP.h"
 
 #include <vector>
