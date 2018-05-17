@@ -239,13 +239,6 @@ encode2(Scalar *sh_data,
   // get negabinary representation
   // fwd_order in cpu code
 	sh_p[tid] = int2uint(sh_q[c_perm_2[local_pos] + block_start]);
-  //if(tid > 47 && tid < 64)
-  //{
-  //  printf("tid %d uint %d old %d thread val %f\n", tid, sh_p[tid], sh_q[tid], thread_val);  
-  //  printf("tid %d perm %d offset %d index %d\n", tid, c_perm_2[local_pos], block_start, c_perm_2[local_pos] + block_start);
-  //}
-  //if(tid > 95) printf("tid %d uint %d\n", tid, (tid /16)*16);
-  //else printf("tid %d\n", tid);
   // for 32 bit values, each warp will compress
   // 2 2D blocks (no need for synchs). for 64 bit values, 
   // two warps will compress 4 blocks (synchs needed).
@@ -255,13 +248,11 @@ encode2(Scalar *sh_data,
   const int block_stride = intprec == 32 ? 4 : 2; // works for both 1d and 2d
   int current_block = tid / intprec;
   const int bit_index = tid % intprec;
-  //if(tid == 0) printf("encode \n");
   __syncthreads();
   /**********************Begin encode block *************************/
   for(uint block = 0; block < work_size; ++block)
   {
     const int block_start = current_block * vals_per_block;
-    //if(bit_index == 0) printf("tid %d current blk %d\n", tid, current_block);
     PlaneType y = 0;
     const PlaneType mask = 1;
 	  /* extract bit plane k to x[k] */
@@ -355,7 +346,6 @@ encode2(Scalar *sh_data,
 
 
     const int sh_mem_index = intprec - 1 - bit_index + (tid / intprec) * intprec; 
-    //printf("tid %d sh mem index %d\n", (int)tid, (int)sh_mem_index);
     sh_encoded_bit_planes[sh_mem_index] = out.bits;
     sh_sbits[sh_mem_index] = out.current_bits; // number of bits for bitplane
 

@@ -256,7 +256,6 @@ encode1(Scalar *sh_data,
   for(uint block = 0; block < work_size; ++block)
   {
 
-    //if(current_block != 0) return;
     const int block_start = current_block * vals_per_block;
     PlaneType y = 0;
     const PlaneType mask = 1;
@@ -359,30 +358,18 @@ encode1(Scalar *sh_data,
     //sh_m[tid] = 0;
 	  __syncthreads();
 
-    //if(current_block == 21 && bit_index == 0)
-    //{
-    //  for(int i = intprec -1; i >=0; --i)
-    //  {
-    //    printf("bit plane %d : ", i);
-    //    print_bits(s_test[tid +i]);
-    //  }
-    //}
     if (bit_index == 0)
     {
       uint tot_sbits = s_emax_bits[current_block];// sbits[0];
       uint rem_sbits = maxbits - s_emax_bits[current_block];// sbits[0];
-      //printf("Block %d rem bits %d\n", current_block, rem_sbits);
       BlockWriter<4> writer(blocks, maxbits, blk_idx + current_block, num_blocks);
       for (int i = 0; i < intprec && tot_sbits < maxbits; i++)
       {
         uint n_bits = min(rem_sbits, sh_sbits[tid+i]); 
-        //printf("encoded bit plane %d : ", intprec -1 - i);
-        //print_bits(sh_encoded_bit_planes[tid+i]);
         writer.write_bits(sh_encoded_bit_planes[tid + i], n_bits, tot_sbits);
         tot_sbits += n_bits;
         rem_sbits -= n_bits;
       }
-      //print_bits(blocks[0]);
     } // end serial write
     current_block += block_stride;
 

@@ -242,10 +242,6 @@ encode (Scalar *sh_data,
 	__syncthreads();
 	sh_p[tid] = u;
 	__syncthreads();
-  //if(tid == 0)
-  //{
-  //  for(int i=0; i < 64; ++i) printf("id %d uint %d\n", i, sh_p[i]);
-  //}
   /**********************Begin encode block *************************/
 	/* extract bit plane k to x[k] */
 	long long unsigned y = 0;
@@ -261,19 +257,9 @@ encode (Scalar *sh_data,
   }
   
 	long long unsigned x = y;
-  //for(int i = 0; i < intprec; ++i)
-  //{
-  //  __syncthreads();
-  //  if(tid == i)
-  //  {
-  //    printf("tid %d plane %llu \n",i,x);
-  //    print_bits(x);
-  //  }
-  //}
-  //
   // From this point on for 32 bit types,
   // only tids < 32 have valid data
-  //
+  
   
 	__syncthreads();
 	sh_m[tid] = 0;   
@@ -322,14 +308,7 @@ encode (Scalar *sh_data,
 
 	bits = (128 - bits);
 	sh_n[tid] = min(sh_m[tid], bits);
-  //for(int i = 0; i < intprec; ++i)
-  //{
-  //  __syncthreads();
-  //  if(tid == i)
-  //  {
-  //    printf("tid %d sh_m %d bits %d sh_n %d\n", tid, (int) sh_m[i], (int) bits, (int)sh_n[i]);
-  //  }
-  //}
+
 	/* step 2: encode first n bits of bit plane */
 	y = write_bitters(bitter, make_bitter(y, 0), sh_m[tid], sbit);
 	n = sh_n[tid];
@@ -352,6 +331,9 @@ encode (Scalar *sh_data,
 
   // Bitter is a ulonglong2. It is just a way to have a single type
   // that contains 128bits
+  // the max size of a single encoded bit plane is 127 bits in the degenerate case.
+  // This is where every group test fails.
+
   // write out x writes to the first 64 bits and write out y writes to the second
 
 	if (tid == 0)

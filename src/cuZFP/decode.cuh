@@ -173,7 +173,6 @@ Scalar  decode(const Word *blocks,
 	}
   else return 0;
 
-  //printf(" tid after %d result %d\n", tid,  result);
   ///return result;
 }
 

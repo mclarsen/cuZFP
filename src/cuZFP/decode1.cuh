@@ -63,66 +63,30 @@ cudaDecode1(Word *blocks,
     #pragma unroll 4
     for(int i = 0; i < 4; ++i)
     {
-      //if(block_idx == DBLOCK)
-      //{
-      //  printf("index %d nb %d\n", i, data[i]);
-      //}
-      // cperm
 		  iblock[i] = uint2int(data[i]);
-
     }
 
     inv_lift<Int,1>(iblock);
 
-    //for(int i = 0; i < 4; ++i)
-    //{
-    //  if(block_idx == DBLOCK)
-    //  {
-    //    printf("index %d int %d\n", i, iblock[i]);
-    //  }
-
-    //}
-
 		Scalar inv_w = dequantize<Int, Scalar>(1, emax);
     
-    //if(threadIdx.x == 0) printf("inv %d \n", inv_w);
-
     #pragma unroll 4
     for(int i = 0; i < 4; ++i)
     {
 		  result[i] = inv_w * (Scalar)iblock[i];
     }
      
-    //if(block_idx == 0)
-    //{
-    //  for(int i = 0; i < 4; ++i)
-    //  {
-    //    printf("data at %d = %f\n", i,  result[i]);
-    //  }
-    //}
-
   }
 
   // TODO dim could end in the middle of this block
-  //printf("thread  = %d \n", block_idx);
   if(block_idx < total_blocks)
   {
-    //if(threadIdx.x == 0) printf("inv %d \n", block_idx);
 
     const int offset = block_idx * 4;
     out[offset + 0] = result[0];
     out[offset + 1] = result[1];
     out[offset + 2] = result[2];
     out[offset + 3] = result[3];
-    //if(threadIdx.x==0) printf("out data %d\n", out[offset+0]);
-    //for(int i = 0; i < 4; ++i)
-    //{
-    //  if(block_idx == DBLOCK)
-    //  {
-    //    printf("index %d result %d\n", i, result[i]);
-    //  }
-
-    //}
   }
   // write out data
 }

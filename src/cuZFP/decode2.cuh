@@ -30,13 +30,10 @@ cudaDecode2(Word *blocks,
 
   const int total_blocks = (zfp_pad.x * zfp_pad.y) / 16; 
   
-  //if(block_idx != 0) return;
   if(block_idx >= total_blocks) 
   {
-    //printf("Block %d of %d bailing\n", block_idx, total_blocks);
     return;
   }
-  //if(block_idx == 229) printf("Block index %d\n", block_idx);
 
   BlockReader<Size> reader(blocks, maxbits, block_idx, total_blocks);
  
@@ -75,11 +72,6 @@ cudaDecode2(Word *blocks,
     #pragma unroll Size
     for(int i = 0; i < Size; ++i)
     {
-      //if(block_idx ==229)
-      //{
-      //  printf("decomp uint %d\n", data[i]);
-      //}
-      // cperm
 		  iblock[c_perm_2[i]] = uint2int(data[i]);
     }
     
@@ -93,36 +85,16 @@ cudaDecode2(Word *blocks,
       inv_lift<Int,1>(iblock + 4 * y);
     }
 
-    //if(block_idx == 229)
-    //{
-    //  for(int i = 0; i < 16; ++i)
-    //  {
-    //    printf("nb data at %d = %d\n", i,  iblock[i]);
-    //  }
-    //}
-
 		Scalar inv_w = dequantize<Int, Scalar>(1, emax);
     
-    //if(threadIdx.x == 0) printf("inv %d \n", inv_w);
-
     #pragma unroll Size
     for(int i = 0; i < Size; ++i)
     {
 		  result[i] = inv_w * (Scalar)iblock[i];
-      //if(block_idx == 229) printf(" %f\n", result[i]);
     }
      
-    //if(block_idx == 1)
-    //{
-    //  for(int i = 0; i < 16; ++i)
-    //  {
-    //    printf("data at %d = %f\n", i,  result[i]);
-    //  }
-    //}
-
   }
   // TODO dim could end in the middle of this block
-  //printf("thread  = %d \n", block_idx);
   // block logical coords
   int xdim = zfp_pad.x / 4;
   int px = block_idx % xdim;
@@ -131,8 +103,6 @@ cudaDecode2(Word *blocks,
   px *= 4;
   py *= 4;
   int i = 0; 
-  //if(px >= dims.x || py >= dims.y)  printf("block %d lower left (%d, %d)\n", block_idx, px, py);
-  //printf("block %d lower left (%d, %d) dims (%d, %d)\n", block_idx, px, py, dims.x, dims.y);
   for(int y = 0; y < 4; ++y)
   {
     const int offset = (y + py) * dims.x;
@@ -140,9 +110,8 @@ cudaDecode2(Word *blocks,
     for(int x = 0; x < 4; ++x)
     {
       //TODO: check to see if we are outside dims
-      if(x + px >= dims.x) break;;
+      if(x + px >= dims.x) break;
       out[offset + x + px] = result[i]; 
-      //printf("writing block %d, value %f, at pos (%d, %d)\n", block_idx, result[i], x+px,y+py);
       i++;
     }
   }
