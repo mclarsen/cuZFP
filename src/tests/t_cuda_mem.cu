@@ -44,7 +44,6 @@ TEST(t_mem_detection, t_device_mem_check)
   Word * d_stream;
   cudaMalloc(&d_stream, buffsize);
 
-  unsigned char* buffer = new unsigned char[buffsize];
   zfp.stream = d_stream;
 
   compress(&zfp, field);
@@ -70,8 +69,9 @@ TEST(t_mem_detection, t_device_mem_check)
 
   zfp_field_free(out_field);
   zfp_field_free(field);
-  delete[] buffer;
+  cudaFree(d_stream);
 }
+
 
 TEST(t_mem_detection, t_host_mem_check)
 {
