@@ -14,7 +14,16 @@ set(TESTS
           t_sanity_check_1
           )
 
+        set(CUDA_TESTS 
+          t_cuda_mem
+          )
+
 foreach(TEST ${TESTS})
   message(STATUS "Adding unit test: ${TEST}")
   add_cpp_test(TEST ${TEST} DEPENDS_ON cuZFP)
+endforeach()
+
+foreach(TEST ${CUDA_TESTS})
+  message(STATUS "Adding cuda unit test: ${TEST}")
+  add_cuda_test(TEST ${TEST} DEPENDS_ON cuZFP)
 endforeach()

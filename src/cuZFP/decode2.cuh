@@ -118,13 +118,12 @@ cudaDecode2(Word *blocks,
 }
 
 template<class Scalar>
-void decode2(int2 dims, 
-             thrust::device_vector<Word> &stream,
-             Scalar *d_data,
-             uint maxbits)
+void decode2launch(int2 dims, 
+                   Word *stream,
+                   Scalar *d_data,
+                   uint maxbits)
 {
   const int cuda_block_size = 128;
-  std::cout<<"boomm\n";
   dim3 block_size, grid_size;
   int2 zfp_pad(dims); 
   // ensure that we have block sizes
@@ -145,15 +144,11 @@ void decode2(int2 dims,
   {
     block_pad = cuda_block_size - zfp_blocks % cuda_block_size; 
   }
-  std::cout<<"launch dims "<<zfp_pad.x<<", "<<zfp_pad.y<<"\n";
-  std::cout<<"pad size "<<block_pad<<"\n";
+
   grid_size = dim3(block_pad +  zfp_blocks , 1, 1);
 
   grid_size.x /= block_size.x; 
 
-  std::cout<<"Decode2 dims \n";
-  std::cout<<"grid "<<grid_size.x<<" "<<grid_size.y<<" "<<grid_size.z<<"\n";
-  std::cout<<"block "<<block_size.x<<" "<<block_size.y<<" "<<block_size.z<<"\n";
   // setup some timing code
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
@@ -162,7 +157,7 @@ void decode2(int2 dims,
   cudaEventRecord(start);
 
   cudaDecode2<Scalar, 16> << < grid_size, block_size >> >
-    (raw_pointer_cast(stream.data()),
+    (stream,
 		 d_data,
      dims,
      maxbits);
@@ -183,11 +178,11 @@ void decode2(int2 dims,
 
 template<class Scalar>
 void decode2(int2 dims, 
-             thrust::device_vector<Word > &block,
-             thrust::device_vector<Scalar> &d_data,
+             Word *stream,
+             Scalar *d_data,
              uint maxbits)
 {
-	decode2<Scalar>(dims, block, thrust::raw_pointer_cast(d_data.data()), maxbits);
+	decode2launch<Scalar>(dims, stream, d_data, maxbits);
 }
 
 } // namespace cuZFP

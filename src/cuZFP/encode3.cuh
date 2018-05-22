@@ -410,9 +410,8 @@ cudaEncode(const uint  bits_per_block,
 
 }
 
-size_t allocate_device_mem3d(const int3 encoded_dims, 
-                             const int bits_per_block, 
-                             thrust::device_vector<Word> &stream)
+size_t calc_device_mem3d(const int3 encoded_dims, 
+                         const int bits_per_block)
 {
   const size_t vals_per_block = 64;
   const size_t size = encoded_dims.x * encoded_dims.y * encoded_dims.z; 
@@ -420,7 +419,6 @@ size_t allocate_device_mem3d(const int3 encoded_dims,
   const size_t bits_per_word = sizeof(Word) * 8;
   const size_t total_bits = bits_per_block * total_blocks;
   const size_t alloc_size = total_bits / bits_per_word;
-  stream.resize(alloc_size);
   return alloc_size * sizeof(Word);
 }
 
@@ -428,10 +426,10 @@ size_t allocate_device_mem3d(const int3 encoded_dims,
 // Launch the encode kernel
 //
 template<class Scalar>
-size_t encode(int3 dims, 
-              const Scalar *d_data,
-              thrust::device_vector<Word> &stream,
-              const int bits_per_block)
+size_t encode3launch(int3 dims, 
+                     const Scalar *d_data,
+                     Word *stream,
+                     const int bits_per_block)
 {
   dim3 block_size, grid_size;
   block_size = dim3(4, 4, 4);
@@ -462,7 +460,9 @@ size_t encode(int3 dims,
     encoded_dims.z = grid_size.z * 4;
   }
 
-  size_t stream_bytes = allocate_device_mem3d(encoded_dims, bits_per_block, stream);
+  size_t stream_bytes = calc_device_mem3d(encoded_dims, bits_per_block);
+  //ensure we start with 0s
+  cudaMemset(stream, 0, stream_bytes);
 
   std::size_t shared_mem_size = sizeof(Scalar) * 64 +  sizeof(Bitter) * 64 + sizeof(unsigned char) * 64
                                 + sizeof(unsigned int) * 128 + 2 * sizeof(int);
@@ -477,7 +477,7 @@ size_t encode(int3 dims,
 	cudaEncode<Scalar> << <grid_size, block_size, shared_mem_size>> >
     (bits_per_block,
      d_data,
-     thrust::raw_pointer_cast(stream.data()),
+     stream,
      dims);
 
   cudaEventRecord(stop);
@@ -500,40 +500,11 @@ size_t encode(int3 dims,
 //
 template<class Scalar>
 size_t encode(int3 dims, 
-              thrust::device_vector<Scalar> &d_data,
-              thrust::device_vector<Word > &stream,
+              Scalar *d_data,
+              Word *stream,
               const int bits_per_block)
 {
-  return encode<Scalar>(dims, thrust::raw_pointer_cast(d_data.data()), stream, bits_per_block);
-}
-
-//
-// Encode a host vector and output a encoded device vector
-//
-template<class Scalar>
-size_t encode(int3 dims,
-              const thrust::host_vector<Scalar> &h_data,
-              thrust::device_vector<Word> &stream,
-              const int bits_per_block)
-{
-  thrust::device_vector<Scalar> d_data = h_data;
-  return encode<Scalar>(dims, d_data, stream, bits_per_block);
-}
-
-//
-//  Encode a host vector and output and encoded host vector
-//
-template<class Scalar>
-size_t encode(int3 dims,
-              const thrust::host_vector<Scalar> &h_data,
-              thrust::host_vector<Word> &stream,
-              const int bits_per_block)
-{
-  thrust::device_vector<Word > d_stream = stream;
-  size_t stream_bytes = 0;
-  stream_bytes = encode<Scalar>(dims, h_data, d_stream, bits_per_block);
-  stream = d_stream;
-  return stream_bytes;
+  return encode3launch<Scalar>(dims, d_data, stream, bits_per_block);
 }
 
 }

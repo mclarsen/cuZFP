@@ -436,9 +436,8 @@ cudaEncode2(const uint  maxbits,
 
 }
 
-size_t allocate_device_mem2d(const int2 dims, 
-                             const int maxbits, 
-                             thrust::device_vector<Word> &stream)
+size_t calc_device_mem2d(const int2 dims, 
+                             const int maxbits)
 {
   
   const size_t vals_per_block = 16;
@@ -449,10 +448,6 @@ size_t allocate_device_mem2d(const int2 dims,
   const size_t total_bits = bits_per_block * total_blocks;
   size_t alloc_size = total_bits / bits_per_word;
   if(total_bits % bits_per_word != 0) alloc_size++;
-  stream.resize(alloc_size);
-  // ensure we have zeros
-  std::cout<<"Alloc size "<<alloc_size<<"\n";
-  cudaMemset(thrust::raw_pointer_cast(stream.data()), 0, sizeof(Word) * alloc_size);
   return alloc_size * sizeof(Word);
 }
 
@@ -462,10 +457,9 @@ size_t allocate_device_mem2d(const int2 dims,
 template<class Scalar>
 size_t encode2launch(int2 dims, 
                      const Scalar *d_data,
-                     thrust::device_vector<Word> &stream,
+                     Word *stream,
                      const int maxbits)
 {
-  std::cout<<"boomm\n";
   dim3 block_size, grid_size;
 
   int2 zfp_pad(dims); 
@@ -485,32 +479,29 @@ size_t encode2launch(int2 dims,
   {
     block_pad = CUDA_BLK_SIZE_2D - zfp_pad.x * zfp_pad.y % CUDA_BLK_SIZE_2D; 
   }
-  std::cout<<"launch dims "<<zfp_pad.x<<", "<<zfp_pad.y<<"\n";
-  std::cout<<"pad size "<<block_pad<<"\n";
+
   grid_size = dim3(block_pad +  zfp_pad.x * zfp_pad.y , 1, 1);
 
   grid_size.x /= block_size.x; 
 
-  size_t stream_bytes = allocate_device_mem2d(dims, maxbits, stream);
+  size_t stream_bytes = calc_device_mem2d(dims, maxbits);
+  // ensure we have zeros
+  cudaMemset(stream, 0, stream_bytes);
 
   std::size_t dyn_shared = (ZFP_BLK_PER_BLK_2D * maxbits) / (sizeof(Word) * 8);
 
-  std::cout<<"Dynamic shared mem size "<<dyn_shared<<"\n";
 	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 
-  std::cout<<"event\n";
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
 
-  std::cout<<"grid "<<grid_size.x<<" "<<grid_size.y<<" "<<grid_size.z<<"\n";
-  std::cout<<"block "<<block_size.x<<" "<<block_size.y<<" "<<block_size.z<<"\n";
   cudaEventRecord(start);
 
 	cudaEncode2<Scalar> << <grid_size, block_size, dyn_shared * sizeof(Word)>> >
     (maxbits,
      d_data,
-     thrust::raw_pointer_cast(stream.data()),
+     stream,
      dims,
      zfp_pad);
   cudaDeviceSynchronize();
@@ -530,30 +521,13 @@ size_t encode2launch(int2 dims,
   return stream_bytes;
 }
 
-//
-// Encode a host vector and output a encoded device vector
-//
 template<class Scalar>
 size_t encode2(int2 dims,
-               thrust::device_vector<Scalar> &d_data,
-               thrust::device_vector<Word> &stream,
+               Scalar *d_data,
+               Word *stream,
                const int maxbits)
 {
-  std::cout<<"inside encode\n";
-  return encode2launch<Scalar>(dims, thrust::raw_pointer_cast(d_data.data()), stream, maxbits);
-}
-
-template<class Scalar>
-size_t encode2(int2 dims,
-               thrust::host_vector<Scalar> &h_data,
-               thrust::host_vector<Word> &stream,
-               const int maxbits)
-{
-  thrust::device_vector<Word > d_stream = stream;
-  thrust::device_vector<Scalar> d_data = stream;
-  size_t stream_bytes = encode2<Scalar>(dims, d_data, d_stream, maxbits);
-  stream = d_stream;
-  return stream_bytes;
+  return encode2launch<Scalar>(dims, d_data, stream, maxbits);
 }
 
 }

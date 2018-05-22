@@ -215,10 +215,10 @@ cudaDecode(Word *blocks,
   
 }
 template<class Scalar>
-void decode(int3 dims, 
-            thrust::device_vector<Word> &stream,
-            Scalar *d_data,
-            uint maxbits)
+void decode3launch(int3 dims, 
+                  Word *stream,
+                  Scalar *d_data,
+                  uint maxbits)
 {
 
   dim3 block_size = dim3(4, 4, 4);
@@ -244,7 +244,7 @@ void decode(int3 dims,
   cudaEventRecord(start);
 
   cudaDecode<Scalar> << < grid_size, block_size, some_magic_number >> >
-    (raw_pointer_cast(stream.data()),
+    (stream,
 		 d_data,
      dims,
      maxbits);
@@ -264,12 +264,12 @@ void decode(int3 dims,
 }
 
 template<class Scalar>
-void decode (int3 dims, 
-             thrust::device_vector<Word > &block,
-             thrust::device_vector<Scalar> &d_data,
+void decode3(int3 dims, 
+             Word  *stream,
+             Scalar *d_data,
              uint maxbits)
 {
-	decode<Scalar>(dims, block, thrust::raw_pointer_cast(d_data.data()), maxbits);
+	decode3launch<Scalar>(dims, stream, d_data, maxbits);
 }
 
 } // namespace cuZFP

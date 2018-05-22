@@ -12,6 +12,7 @@
 #include "decode3.cuh"
 
 #include <constant_setup.cuh>
+#include <pointers.cuh>
 #include <thrust/device_vector.h>
 #include <iostream>
 #include <type_info.cuh>
@@ -19,8 +20,11 @@
 namespace cuZFP {
 namespace internal {
 
+//
+// encode expects device pointers
+//
 template<typename T>
-size_t encode(int dims[3], int bits_per_block, T *in_data, Word *stream)
+size_t encode(int dims[3], int bits_per_block, T *d_data, Word *d_stream)
 {
 
   int d = 0;
@@ -33,11 +37,6 @@ size_t encode(int dims[3], int bits_per_block, T *in_data, Word *stream)
       len *= dims[i];
     }
   }
-  
-
-  // allocate in encode
-  thrust::device_vector<Word> d_encoded;
-  thrust::device_vector<T> d_in_data(in_data, in_data + len); 
 
   ErrorCheck errors;
   size_t stream_size = 0;
@@ -45,33 +44,27 @@ size_t encode(int dims[3], int bits_per_block, T *in_data, Word *stream)
   {
     int dim = dims[0];
     ConstantSetup::setup_1d();
-    stream_size = cuZFP::encode1<T>(dim, d_in_data, d_encoded, bits_per_block); 
+    stream_size = cuZFP::encode1<T>(dim, d_data, d_stream, bits_per_block); 
   }
   else if(d == 2)
   {
     int2 ndims = make_int2(dims[0], dims[1]);
     ConstantSetup::setup_2d();
-    stream_size = cuZFP::encode2<T>(ndims, d_in_data, d_encoded, bits_per_block); 
+    stream_size = cuZFP::encode2<T>(ndims, d_data, d_stream, bits_per_block); 
   }
   else if(d == 3)
   {
     int3 ndims = make_int3(dims[0], dims[1], dims[2]);
     ConstantSetup::setup_3d();
-    stream_size = cuZFP::encode<T>(ndims, d_in_data, d_encoded, bits_per_block); 
+    stream_size = cuZFP::encode<T>(ndims, d_data, d_stream, bits_per_block); 
   }
+
   errors.chk("Encode");
-
-  Word * d_ptr = thrust::raw_pointer_cast(d_encoded.data());
-
-  size_t stream_bytes = d_encoded.size() * sizeof(Word);
-  // copy the decoded data back to the host
-  cudaMemcpy(stream, d_ptr, stream_bytes, cudaMemcpyDeviceToHost);
-  std::cout<<"Stream size "<<stream_size<<"\n";
   return stream_size; 
 }
 
 template<typename T>
-void decode(int ndims[3], int bits_per_block, Word *stream, size_t stream_bytes, T *&out)
+void decode(int ndims[3], int bits_per_block, Word *stream, T *out)
 {
 
   int d = 0;
@@ -85,51 +78,98 @@ void decode(int ndims[3], int bits_per_block, Word *stream, size_t stream_bytes,
     }
   }
 
-  //allocate space
-  //out = new T[out_size];
-  thrust::device_vector<T> d_out_data(out_size); 
-
-  size_t stream_len = stream_bytes / sizeof(Word); 
-  thrust::device_vector<Word> d_encoded(stream, stream + stream_len);
-
   if(d == 3)
   {
-    int3 dims = make_int3(ndims[0],
-                          ndims[1],
-                          ndims[2]);
-
+    int3 dims = make_int3(ndims[0], ndims[1], ndims[2]);
     ConstantSetup::setup_3d();
-
-    cuZFP::decode<T>(dims, d_encoded, d_out_data, bits_per_block); 
-
+    cuZFP::decode3<T>(dims, stream, out, bits_per_block); 
   }
   else if(d == 1)
   {
-
     int dim = ndims[0];
-
     ConstantSetup::setup_1d();
-
-    cuZFP::decode1<T>(dim, d_encoded, d_out_data, bits_per_block); 
+    cuZFP::decode1<T>(dim, stream, out, bits_per_block); 
 
   }
   else if(d == 2)
   {
-
     int2 dims;
     dims.x = ndims[0];
     dims.y = ndims[1];
-
     ConstantSetup::setup_2d();
-
-    cuZFP::decode2<T>(dims, d_encoded, d_out_data, bits_per_block); 
+    cuZFP::decode2<T>(dims, stream, out, bits_per_block); 
 
   }
-  else std::cout<<" d ==  "<<d<<" not implemented\n";
+  else std::cerr<<" d ==  "<<d<<" not implemented\n";
   
-  thrust::copy(d_out_data.begin(), 
-               d_out_data.end(),
-               out);
+}
+
+Word *setup_device_stream(zfp_stream *stream, zfp_field *field)
+{
+  bool stream_device = is_gpu_ptr(stream->stream);
+
+  if(stream_device)
+  {
+    return stream->stream;
+  }
+
+  Word *d_stream = NULL;
+  // TODO: we we have a real stream we can just ask it how big it is
+  size_t max_size = zfp_stream_maximum_size(stream, field);
+
+  cudaMalloc(&d_stream, max_size);
+  cudaMemcpy(d_stream, stream->stream, max_size, cudaMemcpyHostToDevice);
+  return d_stream;
+}
+
+void *setup_device_field(zfp_field *field)
+{
+  bool field_device = is_gpu_ptr(field->data);
+
+  if(field_device)
+  {
+    return field->data;
+  }
+  
+  int dims[3];
+  dims[0] = field->nx;
+  dims[1] = field->ny;
+  dims[2] = field->nz;
+
+  size_t type_size = zfp_type_size(field->type);
+
+  size_t field_size = 1;
+  for(int i = 0; i < 3; ++i)
+  {
+    if(dims[i] != 0)
+    {
+      field_size *= dims[i];
+    }
+  }
+
+  void *d_data = NULL;
+
+  size_t field_bytes = type_size * field_size;
+  cudaMalloc(&d_data, field_bytes);
+  cudaMemcpy(d_data, field->data, field_bytes, cudaMemcpyHostToDevice);
+
+  return d_data;
+}
+
+void cleanup_device_ptr(void *orig_ptr, void *d_ptr, size_t bytes)
+{
+  bool device = is_gpu_ptr(orig_ptr);
+  if(device)
+  {
+    return;
+  }
+  // from whence it came
+  if(bytes > 0)
+  {
+    std::cout<<"copy "<<bytes<<"\n";
+    cudaMemcpy(orig_ptr, d_ptr, bytes, cudaMemcpyDeviceToHost);
+  }
+  cudaFree(d_ptr);
 }
 
 } // namespace internal
@@ -142,26 +182,33 @@ compress(zfp_stream *stream, zfp_field *field)
   dims[1] = field->ny;
   dims[2] = field->nz;
   size_t stream_bytes = 0;
+  
+  void *d_data = internal::setup_device_field(field);
+  Word *d_stream = internal::setup_device_stream(stream, field);
+
   if(field->type == zfp_type_float)
   {
-    float* data = (float*) field->data;
-    stream_bytes = internal::encode<float>(dims, (int)stream->maxbits, data, stream->stream);
+    float* data = (float*) d_data;
+    stream_bytes = internal::encode<float>(dims, (int)stream->maxbits, data, d_stream);
   }
   else if(field->type == zfp_type_double)
   {
-    double* data = (double*) field->data;
-    stream_bytes = internal::encode<double>(dims, (int)stream->maxbits, data, stream->stream);
+    double* data = (double*) d_data;
+    stream_bytes = internal::encode<double>(dims, (int)stream->maxbits, data, d_stream);
   }
   else if(field->type == zfp_type_int32)
   {
-    int * data = (int*) field->data;
-    stream_bytes = internal::encode<int>(dims, (int)stream->maxbits, data, stream->stream);
+    int * data = (int*) d_data;
+    stream_bytes = internal::encode<int>(dims, (int)stream->maxbits, data, d_stream);
   }
   else if(field->type == zfp_type_int64)
   {
-    long long int * data = (long long int*) field->data;
-    stream_bytes = internal::encode<long long int>(dims, (int)stream->maxbits, data, stream->stream);
+    long long int * data = (long long int*) d_data;
+    stream_bytes = internal::encode<long long int>(dims, (int)stream->maxbits, data, d_stream);
   }
+
+  internal::cleanup_device_ptr(stream->stream, d_stream,stream_bytes);
+  internal::cleanup_device_ptr(field->data, d_data, 0);
   return stream_bytes;
 }
   
@@ -172,39 +219,56 @@ decompress(zfp_stream *stream, zfp_field *field)
   dims[0] = field->nx;
   dims[1] = field->ny;
   dims[2] = field->nz;
+    
 
-  //TODO this will be changed
-  
-  size_t bytes = zfp_stream_maximum_size(stream, field);
+  void *d_data = internal::setup_device_field(field);
+  Word *d_stream = internal::setup_device_stream(stream, field);
 
   if(field->type == zfp_type_float)
   {
-    float *data = (float*) field->data;
-    internal::decode(dims, (int)stream->maxbits, stream->stream, bytes, data);
-    field->data = (void*) data;
+    float *data = (float*) d_data;
+    internal::decode(dims, (int)stream->maxbits, d_stream, data);
+    d_data = (void*) data;
   }
   else if(field->type == zfp_type_double)
   {
-    double *data = (double*) field->data;
-    internal::decode(dims, (int)stream->maxbits, stream->stream, bytes, data);
-    field->data = (void*) data;
+    double *data = (double*) d_data;
+    internal::decode(dims, (int)stream->maxbits, stream->stream, data);
+    d_data = (void*) data;
   }
   else if(field->type == zfp_type_int32)
   {
     int *data = (int*) field->data;
-    internal::decode(dims, (int)stream->maxbits, stream->stream, bytes, data);
-    field->data = (void*) data;
+    internal::decode(dims, (int)stream->maxbits, stream->stream, data);
+    d_data = (void*) data;
   }
   else if(field->type == zfp_type_int64)
   {
     long long int *data = (long long int*) field->data;
-    internal::decode(dims, (int)stream->maxbits, stream->stream, bytes, data);
-    field->data = (void*) data;
+    internal::decode(dims, (int)stream->maxbits, stream->stream, data);
+    d_data = (void*) data;
   }
   else
   {
     std::cerr<<"Cannot decompress: type unknown\n";
   }
+
+   
+  size_t type_size = zfp_type_size(field->type);
+
+  size_t field_size = 1;
+  for(int i = 0; i < 3; ++i)
+  {
+    if(dims[i] != 0)
+    {
+      field_size *= dims[i];
+    }
+  }
+  
+  size_t bytes = type_size * field_size;
+  internal::cleanup_device_ptr(stream->stream, d_stream,0);
+  internal::cleanup_device_ptr(field->data, d_data, bytes);
+  
 }
 
 } // namespace cuZFP
