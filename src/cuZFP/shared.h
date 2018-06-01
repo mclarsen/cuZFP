@@ -21,6 +21,30 @@ __constant__ unsigned char c_perm[64];
 
 namespace cuZFP
 {
+
+template<typename Scalar>
+inline __device__
+void pad_block(Scalar *p, uint n, uint s)
+{
+  switch (n) 
+  {
+    case 0:
+      p[0 * s] = 0;
+      /* FALLTHROUGH */
+    case 1:
+      p[1 * s] = p[0 * s];
+      /* FALLTHROUGH */
+    case 2:
+      p[2 * s] = p[1 * s];
+      /* FALLTHROUGH */
+    case 3:
+      p[3 * s] = p[0 * s];
+      /* FALLTHROUGH */
+    default:
+      break;
+  }
+}
+
 // maximum number of bit planes to encode
 __device__ __host__
 static int

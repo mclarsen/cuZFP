@@ -116,7 +116,6 @@ Word *setup_device_stream(zfp_stream *stream, zfp_field *field)
   Word *d_stream = NULL;
   // TODO: we we have a real stream we can just ask it how big it is
   size_t max_size = zfp_stream_maximum_size(stream, field);
-
   cudaMalloc(&d_stream, max_size);
   cudaMemcpy(d_stream, stream->stream, max_size, cudaMemcpyHostToDevice);
   return d_stream;
@@ -152,7 +151,6 @@ void *setup_device_field(zfp_field *field)
   size_t field_bytes = type_size * field_size;
   cudaMalloc(&d_data, field_bytes);
   cudaMemcpy(d_data, field->data, field_bytes, cudaMemcpyHostToDevice);
-
   return d_data;
 }
 
@@ -166,7 +164,6 @@ void cleanup_device_ptr(void *orig_ptr, void *d_ptr, size_t bytes)
   // from whence it came
   if(bytes > 0)
   {
-    std::cout<<"copy "<<bytes<<"\n";
     cudaMemcpy(orig_ptr, d_ptr, bytes, cudaMemcpyDeviceToHost);
   }
   cudaFree(d_ptr);
@@ -207,7 +204,7 @@ compress(zfp_stream *stream, zfp_field *field)
     stream_bytes = internal::encode<long long int>(dims, (int)stream->maxbits, data, d_stream);
   }
 
-  internal::cleanup_device_ptr(stream->stream, d_stream,stream_bytes);
+  internal::cleanup_device_ptr(stream->stream, d_stream, stream_bytes);
   internal::cleanup_device_ptr(field->data, d_data, 0);
   return stream_bytes;
 }
@@ -233,19 +230,19 @@ decompress(zfp_stream *stream, zfp_field *field)
   else if(field->type == zfp_type_double)
   {
     double *data = (double*) d_data;
-    internal::decode(dims, (int)stream->maxbits, stream->stream, data);
+    internal::decode(dims, (int)stream->maxbits, d_stream, data);
     d_data = (void*) data;
   }
   else if(field->type == zfp_type_int32)
   {
-    int *data = (int*) field->data;
-    internal::decode(dims, (int)stream->maxbits, stream->stream, data);
+    int *data = (int*) d_data;
+    internal::decode(dims, (int)stream->maxbits, d_stream, data);
     d_data = (void*) data;
   }
   else if(field->type == zfp_type_int64)
   {
-    long long int *data = (long long int*) field->data;
-    internal::decode(dims, (int)stream->maxbits, stream->stream, data);
+    long long int *data = (long long int*) d_data;
+    internal::decode(dims, (int)stream->maxbits, d_stream, data);
     d_data = (void*) data;
   }
   else

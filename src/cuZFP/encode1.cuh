@@ -403,6 +403,18 @@ cudaEncode1(const uint  maxbits,
 	sh_data[tid] = data[id];
 	__syncthreads();
 
+  // pad the block accorging to zfp pad scheme
+  bool needs_padding = dim - idx < 4; 
+
+  const int local_pos = tid % 4;
+
+  // padding is dependent so just do it with a 
+  // single thread
+  if(needs_padding && local_pos == 0)
+  {
+    pad_block(sh_data + tid, dim - idx, 1); 
+  }
+
   const uint zfp_block_start = blockIdx.x * ZFP_BLK_PER_BLK_1D;; 
   int total_blocks = dim / 4; 
   if(dim % 4 != 0) total_blocks++;
