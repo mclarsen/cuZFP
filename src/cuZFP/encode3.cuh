@@ -369,7 +369,7 @@ void __launch_bounds__(64,5)
 cudaEncode(const uint  bits_per_block,
            const Scalar* data,
            Word *blocks,
-           const int3 dims)
+           const uint3 dims)
 {
   extern __shared__ unsigned char smem[];
 	__shared__ Scalar *sh_data;
@@ -410,7 +410,7 @@ cudaEncode(const uint  bits_per_block,
 
 }
 
-size_t calc_device_mem3d(const int3 encoded_dims, 
+size_t calc_device_mem3d(const uint3 encoded_dims, 
                          const int bits_per_block)
 {
   const size_t vals_per_block = 64;
@@ -426,7 +426,7 @@ size_t calc_device_mem3d(const int3 encoded_dims,
 // Launch the encode kernel
 //
 template<class Scalar>
-size_t encode3launch(int3 dims, 
+size_t encode3launch(uint3 dims, 
                      const Scalar *d_data,
                      Word *stream,
                      const int bits_per_block)
@@ -442,7 +442,7 @@ size_t encode3launch(int3 dims,
   // Check to see if we need to increase the block sizes
   // in the case where dim[x] is not a multiple of 4
 
-  int3 encoded_dims = dims;
+  uint3 encoded_dims = dims;
 
   if(dims.x % 4 != 0) 
   {
@@ -499,7 +499,7 @@ size_t encode3launch(int3 dims,
 // Just pass the raw pointer to the "real" encode
 //
 template<class Scalar>
-size_t encode(int3 dims, 
+size_t encode(uint3 dims, 
               Scalar *d_data,
               Word *stream,
               const int bits_per_block)

@@ -22,6 +22,79 @@ __constant__ unsigned char c_perm[64];
 namespace cuZFP
 {
 
+dim3 get_max_grid_dims()
+{
+  cudaDeviceProp prop; 
+  int device = 0;
+  cudaGetDeviceProperties(&prop, device);
+  dim3 grid_dims;
+  grid_dims.x = prop.maxGridSize[0];
+  grid_dims.y = prop.maxGridSize[1];
+  grid_dims.z = prop.maxGridSize[2];
+  return grid_dims;
+}
+
+// size is assumed to have a pad to the nearest cuda block size
+dim3 calculate_grid_size(size_t size, size_t cuda_block_size)
+{
+  size_t grids = size / cuda_block_size; // because of pad this will be exact
+  dim3 max_grid_dims = get_max_grid_dims();
+  int dims  = 1;
+  // check to see if we need to add more grids
+  if( grids > max_grid_dims.x)
+  {
+    dims = 2; 
+  }
+  if(grids > max_grid_dims.x * max_grid_dims.y)
+  {
+    dims = 3;
+  }
+
+  dim3 grid_size;
+  grid_size.x = 1;
+  grid_size.y = 1;
+  grid_size.z = 1;
+
+  if(dims == 1)
+  {
+    grid_size.x = grids; 
+  }
+
+  if(dims == 2)
+  {
+    float sq_r = sqrt((float)grids);
+    float intpart = 0.;
+    modf(sq_r,&intpart); 
+    uint base = intpart;
+    grid_size.x = base; 
+    grid_size.y = base; 
+    // figure out how many y to add
+    uint rem = (size - base * base);
+    uint y_rows = rem / base;
+    if(rem % base != 0) y_rows ++;
+    grid_size.y += y_rows; 
+  }
+
+  if(dims == 3)
+  {
+    float cub_r = pow((float)grids, 1.f/3.f);;
+    float intpart = 0.;
+    modf(cub_r,&intpart); 
+    int base = intpart;
+    grid_size.x = base; 
+    grid_size.y = base; 
+    grid_size.z = base; 
+    // figure out how many z to add
+    uint rem = (size - base * base * base);
+    uint z_rows = rem / (base * base);
+    if(rem % (base * base) != 0) z_rows ++;
+    grid_size.z += z_rows; 
+  }
+
+  
+  return grid_size;
+}
+
 template<typename Scalar>
 inline __device__
 void pad_block(Scalar *p, uint n, uint s)
@@ -374,8 +447,16 @@ struct BlockReader
     m_words = b + word_index;
     m_buffer = *m_words;
     m_current_bit = (block_idx * maxbits) % (sizeof(Word) * 8); 
+
     m_buffer >>= m_current_bit;
     m_block_idx = block_idx;
+    if(m_block_idx == 1)
+    {
+      printf("current bit %d\n", m_current_bit);
+      printf("starting word index %d\n", word_index);
+      if(!m_valid_block) printf("invalid block\n");
+      print_bits(m_buffer);
+    }
   }
 
   inline __device__ 
@@ -416,6 +497,13 @@ struct BlockReader
       m_buffer = *m_words;
       m_current_bit = 0;
       next_read = n_bits - first_read; 
+      if(m_block_idx == 1)
+      {
+
+        printf("ADVANCING: \n");
+        print_bits(m_buffer);
+
+      }
     }
    
     // this is basically a no-op when first read constained 
@@ -425,6 +513,14 @@ struct BlockReader
     bits += (m_buffer & mask) << first_read;
     m_buffer >>= next_read;
     m_current_bit += next_read; 
+    if(m_block_idx == 1)
+    {
+
+      printf("reading %d bits : \n", n_bits);
+      print_bits(m_buffer);
+      printf("current bit %d\n", m_current_bit);
+
+    }
     return bits;
   }
 

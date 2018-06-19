@@ -180,7 +180,7 @@ void
 __launch_bounds__(64,5)
 cudaDecode(Word *blocks,
            Scalar *out,
-           const int3 dims,
+           const uint3 dims,
            uint maxbits)
 {
   uint idx = (blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x);
@@ -215,7 +215,7 @@ cudaDecode(Word *blocks,
   
 }
 template<class Scalar>
-void decode3launch(int3 dims, 
+void decode3launch(uint3 dims, 
                   Word *stream,
                   Scalar *d_data,
                   uint maxbits)
@@ -264,7 +264,7 @@ void decode3launch(int3 dims,
 }
 
 template<class Scalar>
-void decode3(int3 dims, 
+void decode3(uint3 dims, 
              Word  *stream,
              Scalar *d_data,
              uint maxbits)

@@ -379,8 +379,8 @@ void __launch_bounds__(128,5)
 cudaEncode2(const uint  maxbits,
             const Scalar* data,
             Word *blocks,
-            const int2 dims,
-            const int2 launch_dims)
+            const uint2 dims,
+            const uint2 launch_dims)
 {
 	__shared__ Scalar sh_data[CUDA_BLK_SIZE_2D];
 
@@ -436,8 +436,8 @@ cudaEncode2(const uint  maxbits,
 
 }
 
-size_t calc_device_mem2d(const int2 dims, 
-                             const int maxbits)
+size_t calc_device_mem2d(const uint2 dims, 
+                         const int maxbits)
 {
   
   const size_t vals_per_block = 16;
@@ -455,14 +455,14 @@ size_t calc_device_mem2d(const int2 dims,
 // Launch the encode kernel
 //
 template<class Scalar>
-size_t encode2launch(int2 dims, 
+size_t encode2launch(uint2 dims, 
                      const Scalar *d_data,
                      Word *stream,
                      const int maxbits)
 {
   dim3 block_size, grid_size;
 
-  int2 zfp_pad(dims); 
+  uint2 zfp_pad(dims); 
   // ensure that we have block sizes
   // that are a multiple of 4
   if(zfp_pad.x % 4 != 0) zfp_pad.x += 4 - dims.x % 4;
@@ -522,7 +522,7 @@ size_t encode2launch(int2 dims,
 }
 
 template<class Scalar>
-size_t encode2(int2 dims,
+size_t encode2(uint2 dims,
                Scalar *d_data,
                Word *stream,
                const int maxbits)

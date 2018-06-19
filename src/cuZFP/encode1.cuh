@@ -383,13 +383,17 @@ void __launch_bounds__(128,5)
 cudaEncode1(const uint  maxbits,
             const Scalar* data,
             Word *blocks,
-            const int dim)
+            const uint dim)
 {
 	__shared__ Scalar sh_data[CUDA_BLK_SIZE_1D];
 
-  //share data over 32 blocks( 4 vals * 32 blocks= 128) 
+  typedef unsigned long long int ull;
+  const ull blockId = blockIdx.x +
+                      blockIdx.y * gridDim.x +
+                      gridDim.x * gridDim.y * blockIdx.z;
 
-  const uint idx = blockIdx.x * blockDim.x + threadIdx.x;
+  //share data over 32 blocks( 4 vals * 32 blocks= 128) 
+  const ull idx = blockId * blockDim.x + threadIdx.x;
   //
   //  The number of threads launched can be larger than total size of
   //  the array in cases where it cannot be devided into perfect block
@@ -397,7 +401,7 @@ cudaEncode1(const uint  maxbits,
   //  to the bounds of the data set. 
   //
 
-  const uint id = min(idx, dim - 1);
+  const ull id = min(idx, ull(dim - 1));
       
   const uint tid = threadIdx.x;
 	sh_data[tid] = data[id];
@@ -415,7 +419,7 @@ cudaEncode1(const uint  maxbits,
     pad_block(sh_data + tid, dim - idx, 1); 
   }
 
-  const uint zfp_block_start = blockIdx.x * ZFP_BLK_PER_BLK_1D;; 
+  const uint zfp_block_start = blockId * ZFP_BLK_PER_BLK_1D;; 
   int total_blocks = dim / 4; 
   if(dim % 4 != 0) total_blocks++;
 
@@ -452,31 +456,36 @@ size_t calc_device_mem1d(const int dim,
 // Launch the encode kernel
 //
 template<class Scalar>
-size_t encode1launch(int dim, 
+size_t encode1launch(uint dim, 
                      const Scalar *d_data,
                      Word *stream,
                      const int maxbits)
 {
-  dim3 block_size, grid_size;
+  dim3 block_size;
   block_size = dim3(CUDA_BLK_SIZE_1D, 1, 1);
   // Check to see if we need to increase the block sizes
   // in the case where dim[x] is not a multiple of 4
 
-  int zfp_pad = dim;
+  // total number of elements padded to the next 
+  // multiple of zfp block size
+  uint zfp_pad = dim;
 
   if(dim % 4 != 0)
   {
     zfp_pad += 4 - dim % 4;
   }
 
-  int block_pad = 0; 
+  // pad the number of elements to also
+  // be a multiple of the cuda block size
+  uint block_pad = 0; 
   if(zfp_pad % CUDA_BLK_SIZE_1D != 0) 
   {
     block_pad = CUDA_BLK_SIZE_1D - zfp_pad % CUDA_BLK_SIZE_1D; 
   }
-  
-  grid_size = dim3(block_pad + zfp_pad, 1, 1);
-  grid_size.x /= block_size.x; 
+ 
+
+  size_t total_blocks = block_pad + zfp_pad;
+  dim3 grid = calculate_grid_size(total_blocks, CUDA_BLK_SIZE_1D);
   
   size_t stream_bytes = calc_device_mem1d(zfp_pad, maxbits);
   //Ensure we have an 0 stream
@@ -491,11 +500,11 @@ size_t encode1launch(int dim,
   cudaEventCreate(&stop);
 
   std::cout<<"Running kernel 1d\n";
-  std::cout<<"grid "<<grid_size.x<<" "<<grid_size.y<<" "<<grid_size.z<<"\n";
+  std::cout<<"grid "<<grid.x<<" "<<grid.y<<" "<<grid.z<<"\n";
   std::cout<<"block "<<block_size.x<<" "<<block_size.y<<" "<<block_size.z<<"\n";
   cudaEventRecord(start);
 
-	cudaEncode1<Scalar> << <grid_size, block_size, dyn_shared * sizeof(Word)>> >
+	cudaEncode1<Scalar> << <grid, block_size, dyn_shared * sizeof(Word)>> >
     (maxbits,
      d_data,
      stream,

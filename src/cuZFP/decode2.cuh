@@ -15,7 +15,7 @@ __global__
 void
 cudaDecode2(Word *blocks,
             Scalar *out,
-            const int2 dims,
+            const uint2 dims,
             uint maxbits)
 {
   typedef typename zfp_traits<Scalar>::UInt UInt;
@@ -24,7 +24,7 @@ cudaDecode2(Word *blocks,
 
   const int block_idx = blockIdx.x * blockDim.x + threadIdx.x;
   
-  int2 zfp_pad(dims);
+  uint2 zfp_pad(dims);
   if(zfp_pad.x % 4 != 0) zfp_pad.x += 4 - dims.x % 4;
   if(zfp_pad.y % 4 != 0) zfp_pad.y += 4 - dims.y % 4;
 
@@ -118,14 +118,14 @@ cudaDecode2(Word *blocks,
 }
 
 template<class Scalar>
-void decode2launch(int2 dims, 
+void decode2launch(uint2 dims, 
                    Word *stream,
                    Scalar *d_data,
                    uint maxbits)
 {
   const int cuda_block_size = 128;
   dim3 block_size, grid_size;
-  int2 zfp_pad(dims); 
+  uint2 zfp_pad(dims); 
   // ensure that we have block sizes
   // that are a multiple of 4
   if(zfp_pad.x % 4 != 0) zfp_pad.x += 4 - dims.x % 4;
@@ -177,7 +177,7 @@ void decode2launch(int2 dims,
 }
 
 template<class Scalar>
-void decode2(int2 dims, 
+void decode2(uint2 dims, 
              Word *stream,
              Scalar *d_data,
              uint maxbits)

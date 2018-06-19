@@ -13,19 +13,23 @@ __global__
 void
 cudaDecode1(Word *blocks,
             Scalar *out,
-            const int dim,
+            const uint dim,
             uint maxbits)
 {
+  typedef unsigned long long int ull;
   typedef typename zfp_traits<Scalar>::UInt UInt;
   typedef typename zfp_traits<Scalar>::Int Int;
+
   const int intprec = get_precision<Scalar>();
 
-  const int block_idx = blockIdx.x * blockDim.x + threadIdx.x;
-  int total_blocks = (dim + (4 - dim % 4)) / 4;
+  const ull block_idx = blockIdx.x +
+                        blockIdx.y * gridDim.x +
+                        gridDim.x * gridDim.y * blockIdx.z;
+
+  uint total_blocks = (dim + (4 - dim % 4)) / 4;
   if(dim % 4 != 0) total_blocks = (dim + (4 - dim % 4)) / 4;
   if(block_idx >= total_blocks) return;
   BlockReader<4> reader(blocks, maxbits, block_idx, total_blocks);
- 
   Scalar result[4] = {0,0,0,0};
 
   uint s_cont = 1;
@@ -74,6 +78,10 @@ cudaDecode1(Word *blocks,
     for(int i = 0; i < 4; ++i)
     {
 		  result[i] = inv_w * (Scalar)iblock[i];
+      if(block_idx ==1)
+      {
+        printf("res %d = %f\n", result[i]);
+      }
     }
      
   }
@@ -91,7 +99,7 @@ cudaDecode1(Word *blocks,
   // write out data
 }
 template<class Scalar>
-void decode1launch(int dim, 
+void decode1launch(uint dim, 
                    Word *stream,
                    Scalar *d_data,
                    uint maxbits)
@@ -104,9 +112,10 @@ void decode1launch(int dim,
   if(zfp_blocks % block_size_dim != 0) block_pad = block_size_dim - zfp_blocks % block_size_dim; 
 
   dim3 block_size = dim3(block_size_dim, 1, 1);
-  dim3 grid_size = dim3(block_pad + zfp_blocks, 1, 1);
 
-  grid_size.x /= block_size.x; 
+  size_t total_blocks = block_pad + zfp_blocks;
+
+  dim3 grid_size = calculate_grid_size(total_blocks, CUDA_BLK_SIZE_1D);
 
   // setup some timing code
   cudaEvent_t start, stop;
@@ -141,6 +150,7 @@ void decode1(int dim,
              Scalar *d_data,
              uint maxbits)
 {
+  std::cout<<"ddd stream "<<stream<<"\n";
 	decode1launch<Scalar>(dim, stream, d_data, maxbits);
 }
 

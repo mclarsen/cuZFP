@@ -24,7 +24,7 @@ namespace internal {
 // encode expects device pointers
 //
 template<typename T>
-size_t encode(int dims[3], int bits_per_block, T *d_data, Word *d_stream)
+size_t encode(uint dims[3], int bits_per_block, T *d_data, Word *d_stream)
 {
 
   int d = 0;
@@ -48,13 +48,13 @@ size_t encode(int dims[3], int bits_per_block, T *d_data, Word *d_stream)
   }
   else if(d == 2)
   {
-    int2 ndims = make_int2(dims[0], dims[1]);
+    uint2 ndims = make_uint2(dims[0], dims[1]);
     ConstantSetup::setup_2d();
     stream_size = cuZFP::encode2<T>(ndims, d_data, d_stream, bits_per_block); 
   }
   else if(d == 3)
   {
-    int3 ndims = make_int3(dims[0], dims[1], dims[2]);
+    uint3 ndims = make_uint3(dims[0], dims[1], dims[2]);
     ConstantSetup::setup_3d();
     stream_size = cuZFP::encode<T>(ndims, d_data, d_stream, bits_per_block); 
   }
@@ -64,7 +64,7 @@ size_t encode(int dims[3], int bits_per_block, T *d_data, Word *d_stream)
 }
 
 template<typename T>
-void decode(int ndims[3], int bits_per_block, Word *stream, T *out)
+void decode(uint ndims[3], int bits_per_block, Word *stream, T *out)
 {
 
   int d = 0;
@@ -80,20 +80,20 @@ void decode(int ndims[3], int bits_per_block, Word *stream, T *out)
 
   if(d == 3)
   {
-    int3 dims = make_int3(ndims[0], ndims[1], ndims[2]);
+    uint3 dims = make_uint3(ndims[0], ndims[1], ndims[2]);
     ConstantSetup::setup_3d();
     cuZFP::decode3<T>(dims, stream, out, bits_per_block); 
   }
   else if(d == 1)
   {
-    int dim = ndims[0];
+    uint dim = ndims[0];
     ConstantSetup::setup_1d();
     cuZFP::decode1<T>(dim, stream, out, bits_per_block); 
 
   }
   else if(d == 2)
   {
-    int2 dims;
+    uint2 dims;
     dims.x = ndims[0];
     dims.y = ndims[1];
     ConstantSetup::setup_2d();
@@ -130,7 +130,7 @@ void *setup_device_field(zfp_field *field)
     return field->data;
   }
   
-  int dims[3];
+  uint dims[3];
   dims[0] = field->nx;
   dims[1] = field->ny;
   dims[2] = field->nz;
@@ -174,7 +174,7 @@ void cleanup_device_ptr(void *orig_ptr, void *d_ptr, size_t bytes)
 size_t
 compress(zfp_stream *stream, zfp_field *field)
 {
-  int dims[3];
+  uint dims[3];
   dims[0] = field->nx;
   dims[1] = field->ny;
   dims[2] = field->nz;
@@ -212,7 +212,7 @@ compress(zfp_stream *stream, zfp_field *field)
 void 
 decompress(zfp_stream *stream, zfp_field *field)
 {
-  int dims[3];
+  uint dims[3];
   dims[0] = field->nx;
   dims[1] = field->ny;
   dims[2] = field->nz;
