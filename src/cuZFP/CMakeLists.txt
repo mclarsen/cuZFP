@@ -5,7 +5,6 @@
 ###############################################################################
 
 set(cuZFP_sources
-    encode.cu
     cuZFP.cu         # main entry point
     decode1.cuh
     decode2.cuh
