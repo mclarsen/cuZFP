@@ -22,13 +22,18 @@ cudaDecode1(Word *blocks,
 
   const int intprec = get_precision<Scalar>();
 
-  const ull block_idx = blockIdx.x +
-                        blockIdx.y * gridDim.x +
-                        gridDim.x * gridDim.y * blockIdx.z;
+  const ull blockId = blockIdx.x +
+                      blockIdx.y * gridDim.x +
+                      gridDim.x * gridDim.y * blockIdx.z;
+
+  // each thread gets a block so the block index is 
+  // the global thread index
+  const ull block_idx = blockId * blockDim.x + threadIdx.x;
 
   uint total_blocks = (dim + (4 - dim % 4)) / 4;
   if(dim % 4 != 0) total_blocks = (dim + (4 - dim % 4)) / 4;
   if(block_idx >= total_blocks) return;
+
   BlockReader<4> reader(blocks, maxbits, block_idx, total_blocks);
   Scalar result[4] = {0,0,0,0};
 
@@ -78,10 +83,6 @@ cudaDecode1(Word *blocks,
     for(int i = 0; i < 4; ++i)
     {
 		  result[i] = inv_w * (Scalar)iblock[i];
-      if(block_idx ==1)
-      {
-        printf("res %d = %f\n", result[i]);
-      }
     }
      
   }
@@ -150,7 +151,6 @@ void decode1(int dim,
              Scalar *d_data,
              uint maxbits)
 {
-  std::cout<<"ddd stream "<<stream<<"\n";
 	decode1launch<Scalar>(dim, stream, d_data, maxbits);
 }
 

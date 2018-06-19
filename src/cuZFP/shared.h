@@ -450,13 +450,6 @@ struct BlockReader
 
     m_buffer >>= m_current_bit;
     m_block_idx = block_idx;
-    if(m_block_idx == 1)
-    {
-      printf("current bit %d\n", m_current_bit);
-      printf("starting word index %d\n", word_index);
-      if(!m_valid_block) printf("invalid block\n");
-      print_bits(m_buffer);
-    }
   }
 
   inline __device__ 
@@ -497,13 +490,6 @@ struct BlockReader
       m_buffer = *m_words;
       m_current_bit = 0;
       next_read = n_bits - first_read; 
-      if(m_block_idx == 1)
-      {
-
-        printf("ADVANCING: \n");
-        print_bits(m_buffer);
-
-      }
     }
    
     // this is basically a no-op when first read constained 
@@ -513,14 +499,6 @@ struct BlockReader
     bits += (m_buffer & mask) << first_read;
     m_buffer >>= next_read;
     m_current_bit += next_read; 
-    if(m_block_idx == 1)
-    {
-
-      printf("reading %d bits : \n", n_bits);
-      print_bits(m_buffer);
-      printf("current bit %d\n", m_current_bit);
-
-    }
     return bits;
   }
 

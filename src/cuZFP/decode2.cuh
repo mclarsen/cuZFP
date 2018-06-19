@@ -18,11 +18,18 @@ cudaDecode2(Word *blocks,
             const uint2 dims,
             uint maxbits)
 {
+  typedef unsigned long long int ull;
   typedef typename zfp_traits<Scalar>::UInt UInt;
   typedef typename zfp_traits<Scalar>::Int Int;
   const int intprec = get_precision<Scalar>();
 
-  const int block_idx = blockIdx.x * blockDim.x + threadIdx.x;
+  const ull blockId = blockIdx.x +
+                      blockIdx.y * gridDim.x +
+                      gridDim.x * gridDim.y * blockIdx.z;
+
+  // each thread gets a block so the block index is 
+  // the global thread index
+  const ull block_idx = blockId * blockDim.x + threadIdx.x;
   
   uint2 zfp_pad(dims);
   if(zfp_pad.x % 4 != 0) zfp_pad.x += 4 - dims.x % 4;
@@ -124,7 +131,7 @@ void decode2launch(uint2 dims,
                    uint maxbits)
 {
   const int cuda_block_size = 128;
-  dim3 block_size, grid_size;
+  dim3 block_size;
   uint2 zfp_pad(dims); 
   // ensure that we have block sizes
   // that are a multiple of 4
@@ -145,9 +152,8 @@ void decode2launch(uint2 dims,
     block_pad = cuda_block_size - zfp_blocks % cuda_block_size; 
   }
 
-  grid_size = dim3(block_pad +  zfp_blocks , 1, 1);
-
-  grid_size.x /= block_size.x; 
+  size_t total_blocks = block_pad + zfp_blocks;
+  dim3 grid_size = calculate_grid_size(total_blocks, CUDA_BLK_SIZE_2D);
 
   // setup some timing code
   cudaEvent_t start, stop;

@@ -384,9 +384,14 @@ cudaEncode2(const uint  maxbits,
 {
 	__shared__ Scalar sh_data[CUDA_BLK_SIZE_2D];
 
-  //share data over 8 blocks( 16 vals * 8 blocks= 128) 
+  typedef unsigned long long int ull;
+  const ull blockId = blockIdx.x +
+                      blockIdx.y * gridDim.x +
+                      gridDim.x * gridDim.y * blockIdx.z;
 
-  const uint idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+  const ull idx = blockId * blockDim.x + threadIdx.x;
+
   //
   //  The number of threads launched can be larger than total size of
   //  the array in cases where it cannot be devided into perfect block
@@ -460,7 +465,7 @@ size_t encode2launch(uint2 dims,
                      Word *stream,
                      const int maxbits)
 {
-  dim3 block_size, grid_size;
+  dim3 block_size;
 
   uint2 zfp_pad(dims); 
   // ensure that we have block sizes
@@ -480,7 +485,8 @@ size_t encode2launch(uint2 dims,
     block_pad = CUDA_BLK_SIZE_2D - zfp_pad.x * zfp_pad.y % CUDA_BLK_SIZE_2D; 
   }
 
-  grid_size = dim3(block_pad +  zfp_pad.x * zfp_pad.y , 1, 1);
+  size_t total_blocks = block_pad + zfp_pad.x * zfp_pad.y;
+  dim3 grid_size = calculate_grid_size(total_blocks, CUDA_BLK_SIZE_2D);
 
   grid_size.x /= block_size.x; 
 
