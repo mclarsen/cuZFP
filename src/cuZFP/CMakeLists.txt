@@ -29,5 +29,5 @@ cuda_add_library(cuZFP
                  ${cuZFP_sources}
                  ${cuZFP_headers})
 
-
-      
+install(TARGETS cuZFP DESTINATION lib64)
+install(FILES cuZFP.h zfp_structs.h DESTINATION include)
